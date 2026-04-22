@@ -164,7 +164,7 @@ def datos():
     carga   = fecha_col(cargar("_VISTA_CARGA"),    "FECHA")
     semanal = fecha_col(cargar("_VISTA_SEMANAL"),  "FECHA_LUNES")
     peso    = fecha_col(cargar("_VISTA_PESO"),      "FECHA")
-    well    = fecha_col(cargar("_VISTA_WELLNESS"),  "FECHA")
+    df_well = fecha_col(cargar("_VISTA_WELLNESS"),  "FECHA")
     sem     = cargar("_VISTA_SEMAFORO")
     rec     = cargar("_VISTA_RECUENTO")
     les     = fecha_col(fecha_col(cargar("LESIONES"), "FECHA LESIÓN"), "FECHA ALTA")
@@ -173,12 +173,12 @@ def datos():
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
                       "CARGA_CRONICA", "MONOTONIA", "FATIGA", "CARGA_SEMANAL", "SESIONES"])
     num_cols(peso,    ["PESO_PRE", "PESO_POST", "DIFERENCIA", "PCT_PERDIDA"])
-    num_cols(well,    ["SUENO", "FATIGA", "MOLESTIAS", "ANIMO", "TOTAL",
+    num_cols(df_well, ["SUENO", "FATIGA", "MOLESTIAS", "ANIMO", "TOTAL",
                        "WELLNESS_7D", "DESVIACION_BASELINE"])
-    num_cols(sem,     ["ACWR", "MONOTONIA", "WELLNESS_MEDIO", "PCT_PERDIDA_PESO",
-                       "ALERTAS_ACTIVAS"])
+    num_cols(sem,     ["ACWR", "MONOTONIA", "WELLNESS_MEDIO", "PESO_PRE_DESV_KG",
+                       "WELLNESS_BELOW15", "ALERTAS_ACTIVAS"])
 
-    return carga, semanal, peso, well, sem, rec, les
+    return carga, semanal, peso, df_well, sem, rec, les
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -193,7 +193,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, well, sem, rec, les = datos()
+        carga, semanal, peso, df_well, sem, rec, les = datos()
         data_ok = True
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
@@ -333,14 +333,17 @@ with tab_sem:
             bg, _, txt  = CARD_COLORS.get(estado, CARD_COLORS["GRIS"])
             emoji, _    = MAP_SEMAFORO.get(estado, ("⚫", GRIS))
 
-            acwr     = row.get("ACWR")
-            well     = row.get("WELLNESS_MEDIO")
-            peso_pct = row.get("PCT_PERDIDA_PESO")
-            alertas  = int(row.get("ALERTAS_ACTIVAS", 0))
+            acwr        = row.get("ACWR")
+            well_med    = row.get("WELLNESS_MEDIO")
+            peso_desv   = row.get("PESO_PRE_DESV_KG")
+            well_below  = row.get("WELLNESS_BELOW15")
+            alertas     = int(row.get("ALERTAS_ACTIVAS", 0))
 
-            acwr_txt = f"{acwr:.2f}" if pd.notna(acwr) else "—"
-            well_txt = f"{well:.1f}/20" if pd.notna(well) else "—"
-            peso_txt = f"{peso_pct:+.1f} kg" if pd.notna(peso_pct) else "—"
+            acwr_txt  = f"{acwr:.2f}" if pd.notna(acwr) else "—"
+            well_txt  = (f"{well_med:.1f}/20" if pd.notna(well_med) else "—")
+            below_txt = (f" ({int(well_below)}/7 bajo 15)" if pd.notna(well_below) and int(well_below) > 0 else "")
+            well_full = well_txt + below_txt
+            peso_txt  = f"{peso_desv:+.1f} kg" if pd.notna(peso_desv) else "—"
             alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
 
             # Barra de ACWR (0 a 2, zona ok 0.8-1.3 marcada)
@@ -352,18 +355,18 @@ with tab_sem:
             s_acwr = ("🔴" if pd.notna(acwr) and float(acwr) > 1.5 else
                       "🟠" if pd.notna(acwr) and float(acwr) > 1.3 else
                       "🔵" if pd.notna(acwr) and float(acwr) < 0.8 else "🟢")
-            s_well = ("🔴" if pd.notna(well) and float(well) < 10 else
-                      "🟠" if pd.notna(well) and float(well) < 13 else "🟢")
-            s_peso = ("🔴" if pd.notna(peso_pct) and float(peso_pct) < -3.0 else
-                      "🟠" if pd.notna(peso_pct) and float(peso_pct) < -1.5 else "🟢")
+            s_well = ("🔴" if pd.notna(well_med) and float(well_med) < 10 else
+                      "🟠" if pd.notna(well_med) and float(well_med) < 13 else "🟢")
+            s_peso = ("🔴" if pd.notna(peso_desv) and float(peso_desv) < -3.0 else
+                      "🟠" if pd.notna(peso_desv) and float(peso_desv) < -1.5 else "🟢")
 
             cols_sem[i].markdown(f"""
             <div class="player-card" style="background:{bg}; color:white;">
                 <div class="player-name">{emoji} {row['JUGADOR']}</div>
                 <div class="player-stats">
                     {s_acwr} ACWR: <b>{acwr_txt}</b><br>
-                    {s_well} Wellness: <b>{well_txt}</b><br>
-                    {s_peso} Δ Peso: <b>{peso_txt}</b>
+                    {s_well} Wellness: <b>{well_full}</b><br>
+                    {s_peso} Δ Peso PRE: <b>{peso_txt}</b>
                 </div>
                 <div class="acwr-bar-bg">
                     <div class="acwr-bar-fill" style="width:{acwr_pct:.0f}%; background:{bar_color};"></div>
@@ -621,7 +624,7 @@ with tab_peso:
 with tab_well:
     st.markdown("### Wellness diario — Heatmap")
 
-    well_f  = ff(fj(well))
+    well_f  = ff(fj(df_well))
 
     if well_f.empty:
         st.info("Sin datos de wellness en el rango seleccionado.")
@@ -657,7 +660,7 @@ with tab_well:
     sw_ini = pd.Timestamp(semana_w)
     sw_fin = sw_ini + pd.Timedelta(days=6)
 
-    well_sem = well[(well["FECHA"] >= sw_ini) & (well["FECHA"] <= sw_fin)]
+    well_sem = df_well[(df_well["FECHA"] >= sw_ini) & (df_well["FECHA"] <= sw_fin)]
     well_sem = well_sem[well_sem["JUGADOR"].isin(sel_jugadores)]
 
     if not well_sem.empty:
