@@ -268,31 +268,29 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
         monotonia  = float(jcarga["MONOTONIA"].iloc[0])  if len(jcarga) else np.nan
         sem_acwr   = jcarga["SEMAFORO"].iloc[0]          if len(jcarga) else "GRIS"
 
-        # Wellness últimos 7 días
-        fecha_hoy = wellness_df["FECHA"].max()
-        jwell = wellness_df[
-            (wellness_df["JUGADOR"] == jugador) &
-            (wellness_df["FECHA"] >= fecha_hoy - pd.Timedelta(days=7))
-        ]
-        well_medio = float(jwell["TOTAL"].mean()) if len(jwell) else np.nan
-        sem_well   = ("ROJO" if well_medio <= 10 else
-                      "NARANJA" if well_medio <= 13 else
-                      "VERDE") if not np.isnan(well_medio) else "GRIS"
+        # Wellness — últimas 7 SESIONES (no días)
+        jwell_all = wellness_df[wellness_df["JUGADOR"] == jugador].sort_values("FECHA")
+        jwell7    = jwell_all.tail(7)
+        well_medio   = float(jwell7["TOTAL"].mean())           if len(jwell7) else np.nan
+        below_15     = int((jwell7["TOTAL"] < 15).sum())       if len(jwell7) else 0
+        sem_well     = ("ROJO"    if well_medio <= 10 else
+                        "NARANJA" if well_medio <= 13 else
+                        "VERDE")  if not np.isnan(well_medio)  else "GRIS"
 
-        # Peso PRE — desviación vs baseline personal (últimas 2 semanas)
-        jpeso = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
-        fecha_hoy2 = peso_df["FECHA"].max()
-        jpeso_rec = jpeso[jpeso["FECHA"] >= fecha_hoy2 - pd.Timedelta(days=14)]
-        if len(jpeso_rec) and "DESVIACION_BASELINE" in jpeso_rec.columns:
-            desv = float(jpeso_rec["DESVIACION_BASELINE"].mean())
-            # Alerta si el peso PRE baja más de 1.5 kg del baseline
-            sem_peso = ("ROJO"    if desv < -3.0 else
-                        "NARANJA" if desv < -1.5 else
+        # Peso PRE — media últimas 7 sesiones vs baseline personal
+        jpeso  = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
+        jpeso7 = jpeso.tail(7)
+        if len(jpeso7):
+            peso_pre_med = float(jpeso7["PESO_PRE"].mean())
+            baseline_pre = float(jpeso7["BASELINE_PRE"].iloc[0]) if "BASELINE_PRE" in jpeso7.columns else np.nan
+            desv = round(peso_pre_med - baseline_pre, 2) if not np.isnan(baseline_pre) else np.nan
+            sem_peso = ("ROJO"    if not np.isnan(desv) and desv < -3.0 else
+                        "NARANJA" if not np.isnan(desv) and desv < -1.5 else
                         "VERDE")
         else:
             desv     = np.nan
             sem_peso = "GRIS"
-        pct_ultimo = desv  # reutilizamos la variable para el campo de salida
+        pct_ultimo = desv
 
         # Semáforo global
         alertas = sum([
@@ -310,8 +308,9 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
             "MONOTONIA":        round(monotonia, 2)  if not np.isnan(monotonia)  else None,
             "SEMAFORO_CARGA":   sem_acwr,
             "WELLNESS_MEDIO":   round(well_medio, 1) if not np.isnan(well_medio) else None,
+            "WELLNESS_BELOW15": below_15,
             "SEMAFORO_WELLNESS": sem_well,
-            "PCT_PERDIDA_PESO": round(pct_ultimo, 2) if not np.isnan(pct_ultimo) else None,
+            "PESO_PRE_DESV_KG": round(pct_ultimo, 2) if not np.isnan(pct_ultimo) else None,
             "SEMAFORO_PESO":    sem_peso,
             "ALERTAS_ACTIVAS":  alertas,
             "SEMAFORO_GLOBAL":  global_sem,
