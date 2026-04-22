@@ -172,11 +172,14 @@ def datos():
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
                       "CARGA_CRONICA", "MONOTONIA", "FATIGA", "CARGA_SEMANAL", "SESIONES"])
-    num_cols(peso,    ["PESO_PRE", "PESO_POST", "DIFERENCIA", "PCT_PERDIDA"])
+    num_cols(peso,    ["PESO_PRE", "PESO_POST", "DIFERENCIA", "PCT_PERDIDA",
+                       "BASELINE_PRE", "DESVIACION_BASELINE"])
     num_cols(df_well, ["SUENO", "FATIGA", "MOLESTIAS", "ANIMO", "TOTAL",
-                       "WELLNESS_7D", "DESVIACION_BASELINE"])
+                       "WELLNESS_7D", "BASELINE_WELLNESS", "DESVIACION_BASELINE"])
     num_cols(sem,     ["ACWR", "MONOTONIA", "WELLNESS_MEDIO", "PESO_PRE_DESV_KG",
                        "WELLNESS_BELOW15", "ALERTAS_ACTIVAS"])
+    num_cols(rec,     ["TOTAL_SESIONES_EQUIPO", "SESIONES_CON_DATOS", "PCT_PARTICIPACION",
+                       "EST_S", "EST_A", "EST_L", "EST_N", "EST_D", "EST_NC"])
 
     return carga, semanal, peso, df_well, sem, rec, les
 
@@ -229,6 +232,19 @@ with st.sidebar:
 
 # ── Filtros helpers ───────────────────────────────────────────────────────────
 _jugs = list(sel_jugadores)  # convertir a lista pura para evitar problemas de tipo
+
+# Wellness del período seleccionado (para semáforo dinámico)
+_well_periodo = df_well[
+    df_well["JUGADOR"].isin(_jugs) &
+    (df_well["FECHA"] >= f_desde) &
+    (df_well["FECHA"] <= f_hasta)
+]
+_well_stats = (
+    _well_periodo.groupby("JUGADOR")["TOTAL"]
+    .agg(well_mean="mean", well_below=lambda x: int((x < 15).sum()))
+    .reset_index()
+) if not _well_periodo.empty else pd.DataFrame(columns=["JUGADOR", "well_mean", "well_below"])
+
 
 def fj(df, col="JUGADOR"):
     try:
@@ -283,7 +299,7 @@ tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec = st.tabs([
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_sem:
     st.markdown("### Estado actual del equipo")
-    st.caption("Semáforo calculado con ACWR, Wellness y Pérdida de peso de los últimos 7 días.")
+    st.caption("ACWR = última semana (EWMA). Wellness y Peso = media del período seleccionado en el panel lateral.")
 
     sem_f = sem[sem["JUGADOR"].isin(sel_jugadores)].copy()
 
@@ -292,7 +308,8 @@ with tab_sem:
     n_naranja = (sem_f["SEMAFORO_GLOBAL"] == "NARANJA").sum()
     n_verde   = (sem_f["SEMAFORO_GLOBAL"] == "VERDE").sum()
     acwr_med  = sem_f["ACWR"].mean()
-    well_med  = sem_f["WELLNESS_MEDIO"].mean()
+    # Wellness medio del período seleccionado (no de la vista pre-calculada)
+    well_med_kpi = float(_well_periodo["TOTAL"].mean()) if not _well_periodo.empty else float("nan")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     for col, val, lbl, color in [
@@ -300,7 +317,7 @@ with tab_sem:
         (c2, n_naranja, "🟠 Precaución",     NARANJA),
         (c3, n_verde,   "🟢 OK",             VERDE),
         (c4, f"{acwr_med:.2f}" if not np.isnan(acwr_med) else "—", "ACWR medio", AZUL),
-        (c5, f"{well_med:.1f}" if not np.isnan(well_med) else "—", "Wellness medio", GRIS),
+        (c5, f"{well_med_kpi:.1f}/20" if not np.isnan(well_med_kpi) else "—", "Wellness medio", GRIS),
     ]:
         col.markdown(
             f'<div class="metric-card">'
@@ -333,11 +350,14 @@ with tab_sem:
             bg, _, txt  = CARD_COLORS.get(estado, CARD_COLORS["GRIS"])
             emoji, _    = MAP_SEMAFORO.get(estado, ("⚫", GRIS))
 
+            jugador_nom = row["JUGADOR"]
             acwr        = row.get("ACWR")
-            well_med    = row.get("WELLNESS_MEDIO")
             peso_desv   = row.get("PESO_PRE_DESV_KG")
-            well_below  = row.get("WELLNESS_BELOW15")
             alertas     = int(row.get("ALERTAS_ACTIVAS", 0))
+            # Wellness dinámico del período seleccionado
+            _ws = _well_stats[_well_stats["JUGADOR"] == jugador_nom]
+            well_med   = float(_ws["well_mean"].iloc[0]) if not _ws.empty else float("nan")
+            well_below = int(_ws["well_below"].iloc[0])  if not _ws.empty else 0
 
             acwr_txt  = f"{acwr:.2f}" if pd.notna(acwr) else "—"
             well_txt  = (f"{well_med:.1f}/20" if pd.notna(well_med) else "—")
@@ -438,7 +458,7 @@ with tab_carga:
         ).round(1))
 
         # Calcular carga y media
-        pivot_rpe["CARGA SEMANA"] = sem_df.groupby("JUGADOR")["CARGA"].sum().reindex(pivot_rpe.index)
+        pivot_rpe["CARGA SEMANA"] = sem_df.groupby("JUGADOR")["CARGA"].sum().round(0).reindex(pivot_rpe.index)
         pivot_rpe["MEDIA BORG"]   = sem_df.groupby("JUGADOR")["BORG"].mean().round(2).reindex(pivot_rpe.index)
 
         def color_borg(val):
@@ -449,7 +469,15 @@ with tab_carga:
             if val >= 4:    return "background-color: #FFF9C4"
             return "background-color: #E8F5E9"
 
-        styled = pivot_rpe.style.map(color_borg)
+        # color_borg solo sobre columnas de Borg (no sobre CARGA SEMANA ni MEDIA BORG)
+        borg_cols_pivot = [c for c in pivot_rpe.columns if c not in ["CARGA SEMANA", "MEDIA BORG"]]
+        styled = (
+            pivot_rpe.style
+            .map(color_borg, subset=borg_cols_pivot)
+            .format("{:.1f}", subset=borg_cols_pivot, na_rep="—")
+            .format("{:.0f}", subset=["CARGA SEMANA"], na_rep="—")
+            .format("{:.2f}", subset=["MEDIA BORG"],   na_rep="—")
+        )
         st.dataframe(styled, use_container_width=True)
 
     st.markdown("---")
@@ -534,18 +562,18 @@ with tab_carga:
 with tab_peso:
     st.markdown("### Vista semanal de peso")
 
-    # Selector de semana (como Excel PESO SEMANA)
-    semanas_peso = sorted(peso["FECHA"].dropna().dt.to_period("W").unique())
-    semana_peso_str = st.select_slider(
+    # Selector de semana — usando fecha del lunes de cada semana (evita Period deprecado)
+    _peso_lunes = (peso["FECHA"].dropna()
+                   - pd.to_timedelta(peso["FECHA"].dropna().dt.dayofweek, unit="D"))
+    semanas_peso = sorted(_peso_lunes.unique())
+    sp_ini = pd.Timestamp(st.select_slider(
         "📅 Semana",
-        options=[str(s) for s in semanas_peso],
-        value=str(semanas_peso[-1]) if len(semanas_peso) else None,
+        options=semanas_peso,
+        value=semanas_peso[-1] if len(semanas_peso) else None,
+        format_func=lambda d: pd.Timestamp(d).strftime("%d/%m/%Y"),
         key="sl_peso",
-    )
-    # Convertir a fechas
-    sp = pd.Period(semana_peso_str, freq="W")
-    sp_ini = pd.Timestamp(sp.start_time.date())
-    sp_fin = pd.Timestamp(sp.end_time.date())
+    ))
+    sp_fin = sp_ini + pd.Timedelta(days=6)
 
     peso_sem = peso[(peso["FECHA"] >= sp_ini) & (peso["FECHA"] <= sp_fin)]
     peso_sem = peso_sem[peso_sem["JUGADOR"].isin(sel_jugadores)]
@@ -562,7 +590,7 @@ with tab_peso:
         pivot_dif  = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="DIFERENCIA",aggfunc="first").round(2)
         pivot_pct  = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="PCT_PERDIDA",aggfunc="first").round(1)
 
-        subtabs = st.tabs(["PRE", "POST", "DIFERENCIA (kg)", "% Pérdida"])
+        subtabs = st.tabs(["PRE", "POST", "DIFERENCIA (kg)", "% Pérdida", "Δ vs Baseline"])
         with subtabs[0]: st.dataframe(pivot_pre,  use_container_width=True)
         with subtabs[1]: st.dataframe(pivot_post, use_container_width=True)
         with subtabs[2]:
@@ -579,6 +607,21 @@ with tab_peso:
                 if v > 2:   return "background-color:#FFE0B2"
                 return "background-color:#E8F5E9"
             st.dataframe(pivot_pct.style.map(color_pct), use_container_width=True)
+        with subtabs[4]:
+            if "DESVIACION_BASELINE" in peso_sem.columns:
+                pivot_dev = peso_sem.pivot_table(
+                    index="JUGADOR", columns="DIA", values="DESVIACION_BASELINE", aggfunc="first"
+                ).round(2)
+                def color_dev(v):
+                    if pd.isna(v): return ""
+                    if v < -3:  return "background-color:#FFCDD2;font-weight:bold"
+                    if v < -1.5: return "background-color:#FFE0B2"
+                    if v > 1.5:  return "background-color:#E3F2FD"
+                    return "background-color:#E8F5E9"
+                st.caption("Desviación respecto al baseline personal (últimos 2 meses). Negativo = por debajo del peso habitual.")
+                st.dataframe(pivot_dev.style.map(color_dev), use_container_width=True)
+            else:
+                st.info("Sin datos de baseline disponibles.")
 
     st.markdown("---")
     st.markdown("### Evolución de peso — temporada completa")
@@ -721,6 +764,48 @@ with tab_well:
             )
             st.plotly_chart(fig_comp, use_container_width=True)
 
+    st.markdown("---")
+    st.markdown("### Media del equipo — Evolución temporal")
+
+    if not well_f.empty:
+        eq_well = (
+            well_f.groupby("FECHA")
+            .agg(
+                Sueño    =("SUENO",     "mean"),
+                Fatiga   =("FATIGA",    "mean"),
+                Molestias=("MOLESTIAS", "mean"),
+                Ánimo    =("ANIMO",     "mean"),
+                Total    =("TOTAL",     "mean"),
+            )
+            .reset_index()
+            .round(2)
+        )
+
+        fig_eq = go.Figure()
+        for comp, color_c in [("Sueño", "#7986CB"), ("Fatiga", "#EF9A9A"),
+                               ("Molestias", "#FFCC80"), ("Ánimo", "#A5D6A7")]:
+            fig_eq.add_trace(go.Scatter(
+                x=eq_well["FECHA"], y=eq_well[comp],
+                name=comp, line=dict(color=color_c, width=2),
+                mode="lines+markers", marker=dict(size=3),
+            ))
+        # Total en eje derecho (escala 4-20)
+        fig_eq.add_trace(go.Scatter(
+            x=eq_well["FECHA"], y=eq_well["Total"],
+            name="Total (4-20)", yaxis="y2",
+            line=dict(color="#1B3A6B", width=2.5, dash="dot"),
+            mode="lines",
+        ))
+        fig_eq.update_layout(
+            **LAYOUT, height=400,
+            title="Media del equipo — Componentes Wellness (período seleccionado)",
+            yaxis =dict(title="Componentes (1-5)", range=[0.5, 5.5]),
+            yaxis2=dict(title="Total (4-20)", range=[2, 22],
+                        overlaying="y", side="right", showgrid=False),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_eq, use_container_width=True)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — LESIONES
@@ -729,12 +814,25 @@ with tab_les:
     st.markdown("### Registro de lesiones")
 
     les_f = les.copy()
-    # Filtrar columnas vacías
-    les_f = les_f[[c for c in les_f.columns if les_f[c].replace("", pd.NA).notna().any()]]
+    # Filtrar columnas vacías de forma segura (evita TypeError con datetime64 en pandas 2.x)
+    def _col_tiene_datos(s):
+        try:
+            return s.astype(str).str.strip().ne("").any()
+        except Exception:
+            return True
+    les_f = les_f[[c for c in les_f.columns
+                   if not c.startswith("_VACÍO") and _col_tiene_datos(les_f[c])]]
 
     # Lesiones activas (sin fecha de alta)
-    les_activas = les_f[les_f["FECHA ALTA"].isna() & les_f["FECHA LESIÓN"].notna()]
-    les_activas = les_activas[les_activas["JUGADOR"].isin(sel_jugadores)] if "JUGADOR" in les_activas.columns else les_activas
+    try:
+        if "FECHA ALTA" in les_f.columns and "FECHA LESIÓN" in les_f.columns:
+            les_activas = les_f[les_f["FECHA ALTA"].isna() & les_f["FECHA LESIÓN"].notna()]
+            if "JUGADOR" in les_activas.columns:
+                les_activas = les_activas[les_activas["JUGADOR"].isin(sel_jugadores)]
+        else:
+            les_activas = pd.DataFrame()
+    except Exception:
+        les_activas = pd.DataFrame()
 
     if not les_activas.empty:
         st.error(f"🔴 {len(les_activas)} lesión/es activa/s ahora mismo")
@@ -745,7 +843,11 @@ with tab_les:
     st.markdown("---")
     st.markdown("### Historial completo")
 
-    les_hist = les_f[les_f["JUGADOR"].isin(sel_jugadores)] if "JUGADOR" in les_f.columns else les_f
+    try:
+        les_hist = les_f[les_f["JUGADOR"].isin(sel_jugadores)] if "JUGADOR" in les_f.columns else les_f
+    except Exception:
+        les_hist = les_f
+
     if les_hist.empty:
         st.info("Aún no hay lesiones registradas.")
     else:

@@ -28,16 +28,28 @@ def connect():
     creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
     return gspread.authorize(creds)
 
+
+def to_num(x):
+    """Convierte a float tolerando coma decimal española (71,5 → 71.5)."""
+    if x is None or x == "":
+        return np.nan
+    if isinstance(x, (int, float)):
+        return float(x)
+    return pd.to_numeric(str(x).strip().replace(",", "."), errors="coerce")
+
+
 # ── Lectura de datos crudos ───────────────────────────────────────────────────
 
 def leer_hoja(ss, nombre, parse_dates=None):
     ws = ss.worksheet(nombre)
-    data = ws.get_all_records()
+    # numericise_data=False → devuelve strings tal cual; to_num() los parsea
+    # correctamente aunque usen coma como separador decimal.
+    data = ws.get_all_records(numericise_data=False)
     df = pd.DataFrame(data)
     if parse_dates:
         for col in parse_dates:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+                df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
     return df
 
 # ── Escritura de vista en Google Sheets ──────────────────────────────────────
@@ -277,16 +289,22 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
                         "NARANJA" if well_medio <= 13 else
                         "VERDE")  if not np.isnan(well_medio)  else "GRIS"
 
-        # Peso PRE — media últimas 7 sesiones vs baseline personal
-        jpeso  = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
-        jpeso7 = jpeso.tail(7)
-        if len(jpeso7):
-            peso_pre_med = float(jpeso7["PESO_PRE"].mean())
-            baseline_pre = float(jpeso7["BASELINE_PRE"].iloc[0]) if "BASELINE_PRE" in jpeso7.columns else np.nan
-            desv = round(peso_pre_med - baseline_pre, 2) if not np.isnan(baseline_pre) else np.nan
-            sem_peso = ("ROJO"    if not np.isnan(desv) and desv < -3.0 else
-                        "NARANJA" if not np.isnan(desv) and desv < -1.5 else
-                        "VERDE")
+        # Peso PRE — última sesión vs baseline (media últimos 2 meses)
+        jpeso = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
+        if len(jpeso):
+            fecha_ult  = jpeso["FECHA"].max()
+            fecha_2m   = fecha_ult - pd.Timedelta(days=60)
+            jpeso_base = jpeso[jpeso["FECHA"] >= fecha_2m]["PESO_PRE"].dropna()
+            baseline_2m = float(jpeso_base.mean()) if len(jpeso_base) >= 3 else float(jpeso["PESO_PRE"].dropna().mean())
+            peso_ultimo = float(jpeso["PESO_PRE"].dropna().iloc[-1]) if jpeso["PESO_PRE"].dropna().size else np.nan
+            if np.isnan(baseline_2m) or np.isnan(peso_ultimo):
+                desv     = np.nan
+                sem_peso = "GRIS"
+            else:
+                desv = round(peso_ultimo - baseline_2m, 2)
+                sem_peso = ("ROJO"    if desv < -3.0 else
+                            "NARANJA" if desv < -1.5 else
+                            "VERDE")
         else:
             desv     = np.nan
             sem_peso = "GRIS"
@@ -354,9 +372,15 @@ def main():
     peso = leer_hoja(ss, "PESO",      parse_dates=["FECHA"])
     well = leer_hoja(ss, "WELLNESS",  parse_dates=["FECHA"])
 
-    # Limpiar tipos
-    borg["BORG"]   = pd.to_numeric(borg["BORG"],   errors="coerce")
-    ses["MINUTOS"] = pd.to_numeric(ses["MINUTOS"], errors="coerce")
+    # Parseo numérico robusto (tolera coma decimal y strings)
+    borg["BORG"]    = borg["BORG"].apply(to_num)
+    ses["MINUTOS"]  = ses["MINUTOS"].apply(to_num)
+    for col in ["PESO_PRE", "PESO_POST", "H2O_L"]:
+        if col in peso.columns:
+            peso[col] = peso[col].apply(to_num)
+    for col in ["SUENO", "FATIGA", "MOLESTIAS", "ANIMO", "TOTAL"]:
+        if col in well.columns:
+            well[col] = well[col].apply(to_num)
 
     print(f"  Sesiones: {len(ses)} · Borg: {len(borg)} · Peso: {len(peso)} · Wellness: {len(well)}")
 
