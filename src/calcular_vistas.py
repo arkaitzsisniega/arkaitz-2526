@@ -42,14 +42,22 @@ def to_num(x):
 
 def leer_hoja(ss, nombre, parse_dates=None):
     ws = ss.worksheet(nombre)
-    # numericise_data=False → devuelve strings tal cual; to_num() los parsea
-    # correctamente aunque usen coma como separador decimal.
-    data = ws.get_all_records(numericise_data=False)
+    # value_render_option unformatted → números como float puro, sin formato de locale
+    # (evita que Google Sheets en locale español devuelva "71,5" en vez de 71.5)
+    data = ws.get_all_records(
+        value_render_option=gspread.utils.ValueRenderOption.unformatted
+    )
     df = pd.DataFrame(data)
     if parse_dates:
         for col in parse_dates:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
+                # Con UNFORMATTED, las fechas llegan como serial de Google Sheets (días desde 1899-12-30)
+                # pd.to_datetime tolera tanto serial numérico como string "YYYY-MM-DD"
+                df[col] = df[col].apply(
+                    lambda x: pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(x))
+                    if isinstance(x, (int, float)) and not pd.isna(x)
+                    else pd.to_datetime(x, dayfirst=True, errors="coerce")
+                )
     return df
 
 # ── Escritura de vista en Google Sheets ──────────────────────────────────────
