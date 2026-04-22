@@ -228,13 +228,23 @@ with st.sidebar:
 
 
 # ── Filtros helpers ───────────────────────────────────────────────────────────
+_jugs = list(sel_jugadores)  # convertir a lista pura para evitar problemas de tipo
+
 def fj(df, col="JUGADOR"):
-    return df[df[col].isin(sel_jugadores)] if col in df.columns else df
+    try:
+        if not isinstance(df, pd.DataFrame) or col not in df.columns:
+            return df
+        return df[df[col].isin(_jugs)]
+    except Exception:
+        return df
 
 def ff(df, col="FECHA"):
-    if col not in df.columns:
+    try:
+        if not isinstance(df, pd.DataFrame) or col not in df.columns:
+            return df
+        return df[(df[col] >= f_desde) & (df[col] <= f_hasta)]
+    except Exception:
         return df
-    return df[(df[col] >= f_desde) & (df[col] <= f_hasta)]
 
 def fjs(df, col="FECHA_LUNES"):
     return ff(fj(df), col)
@@ -330,7 +340,7 @@ with tab_sem:
 
             acwr_txt = f"{acwr:.2f}" if pd.notna(acwr) else "—"
             well_txt = f"{well:.1f}/20" if pd.notna(well) else "—"
-            peso_txt = f"{peso_pct:.1f}%" if pd.notna(peso_pct) else "—"
+            peso_txt = f"{peso_pct:+.1f} kg" if pd.notna(peso_pct) else "—"
             alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
 
             # Barra de ACWR (0 a 2, zona ok 0.8-1.3 marcada)
@@ -344,8 +354,8 @@ with tab_sem:
                       "🔵" if pd.notna(acwr) and float(acwr) < 0.8 else "🟢")
             s_well = ("🔴" if pd.notna(well) and float(well) < 10 else
                       "🟠" if pd.notna(well) and float(well) < 13 else "🟢")
-            s_peso = ("🔴" if pd.notna(peso_pct) and float(peso_pct) > 3 else
-                      "🟠" if pd.notna(peso_pct) and float(peso_pct) > 2 else "🟢")
+            s_peso = ("🔴" if pd.notna(peso_pct) and float(peso_pct) < -3.0 else
+                      "🟠" if pd.notna(peso_pct) and float(peso_pct) < -1.5 else "🟢")
 
             cols_sem[i].markdown(f"""
             <div class="player-card" style="background:{bg}; color:white;">

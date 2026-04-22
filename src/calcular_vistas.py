@@ -279,10 +279,20 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
                       "NARANJA" if well_medio <= 13 else
                       "VERDE") if not np.isnan(well_medio) else "GRIS"
 
-        # Peso (última sesión)
+        # Peso PRE — desviación vs baseline personal (últimas 2 semanas)
         jpeso = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
-        pct_ultimo = float(jpeso["PCT_PERDIDA"].iloc[-1]) if len(jpeso) else np.nan
-        sem_peso   = jpeso["ALERTA_PESO"].iloc[-1] if len(jpeso) else "GRIS"
+        fecha_hoy2 = peso_df["FECHA"].max()
+        jpeso_rec = jpeso[jpeso["FECHA"] >= fecha_hoy2 - pd.Timedelta(days=14)]
+        if len(jpeso_rec) and "DESVIACION_BASELINE" in jpeso_rec.columns:
+            desv = float(jpeso_rec["DESVIACION_BASELINE"].mean())
+            # Alerta si el peso PRE baja más de 1.5 kg del baseline
+            sem_peso = ("ROJO"    if desv < -3.0 else
+                        "NARANJA" if desv < -1.5 else
+                        "VERDE")
+        else:
+            desv     = np.nan
+            sem_peso = "GRIS"
+        pct_ultimo = desv  # reutilizamos la variable para el campo de salida
 
         # Semáforo global
         alertas = sum([
