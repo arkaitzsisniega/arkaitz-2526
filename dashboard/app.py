@@ -45,10 +45,26 @@ MAP_SEMAFORO = {
 
 CSS = """
 <style>
-[data-testid="stAppViewContainer"] { background: #F8F9FA; }
-[data-testid="stSidebar"]          { background: #1B3A6B; }
-[data-testid="stSidebar"] * { color: white !important; }
-[data-testid="stSidebar"] .stMultiSelect > div { background: #243F72; }
+[data-testid="stAppViewContainer"] { background: #F0F2F6; }
+[data-testid="stSidebar"]          { background: #1B3A6B !important; }
+[data-testid="stSidebar"] label    { color: #BBCDE8 !important; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; }
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] span { color: white !important; }
+[data-testid="stSidebar"] .stMultiSelect [data-baseweb="select"] > div,
+[data-testid="stSidebar"] .stDateInput input,
+[data-testid="stSidebar"] [data-testid="stDateInput"] > div > div {
+    background: #243F72 !important;
+    border: 1px solid #3A5A9B !important;
+    color: white !important;
+}
+[data-testid="stSidebar"] [data-baseweb="tag"] { background: #3A5A9B !important; }
+[data-testid="stSidebar"] svg { fill: #BBCDE8 !important; }
+[data-testid="stSidebar"] button {
+    background: #2E5AA0 !important;
+    border: 1px solid #4A7AC0 !important;
+    color: white !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSidebar"] button:hover { background: #3A6AB0 !important; }
 h1 { color: #1B3A6B; font-weight: 800; }
 h2, h3 { color: #1B3A6B; }
 .metric-card {
@@ -58,9 +74,19 @@ h2, h3 { color: #1B3A6B; }
 }
 .metric-card .val { font-size: 2rem; font-weight: 700; color: #1B3A6B; }
 .metric-card .lbl { font-size: 0.85rem; color: #888; margin-top: 4px; }
-.semaforo-card {
-    background: white; border-radius: 10px; padding: 12px 16px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.07); margin-bottom: 8px;
+.player-card {
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+}
+.player-name { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+.player-stats { font-size: 0.82rem; opacity: 0.92; line-height: 1.8; }
+.acwr-bar-bg {
+    background: rgba(255,255,255,0.25); border-radius: 4px;
+    height: 6px; margin-top: 8px; position: relative;
+}
+.acwr-bar-fill {
+    height: 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.85);
 }
 div[data-testid="stTab"] button { font-weight: 600; }
 </style>
@@ -157,8 +183,13 @@ def datos():
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Futsal_pictogram.svg/120px-Futsal_pictogram.svg.png", width=60)
-    st.markdown("## ⚽ Arkaitz 25/26")
+    st.markdown("""
+    <div style="text-align:center; padding: 18px 0 10px 0;">
+        <div style="font-size:2.2rem; font-weight:900; color:#4CAF50; letter-spacing:2px;">INTER</div>
+        <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:-4px;">FUTSAL SALA</div>
+        <div style="width:60px; height:3px; background:#4CAF50; margin:8px auto 0 auto; border-radius:2px;"></div>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
 
     try:
@@ -272,27 +303,64 @@ with tab_sem:
 
     # ── Tarjetas por jugador ──
     sem_ordenado = sem_f.sort_values("ALERTAS_ACTIVAS", ascending=False)
-    cols_sem = st.columns(min(4, len(sem_ordenado)))
 
-    for i, (_, row) in enumerate(sem_ordenado.iterrows()):
-        col = cols_sem[i % len(cols_sem)]
-        emoji, color = MAP_SEMAFORO.get(row.get("SEMAFORO_GLOBAL", "GRIS"), ("⚫", GRIS))
+    CARD_COLORS = {
+        "ROJO":    ("rgba(183,28,28,0.92)",  "#FFCDD2", "#B71C1C"),
+        "NARANJA": ("rgba(230,81,0,0.90)",   "#FFE0B2", "#E65100"),
+        "AMARILLO":("rgba(245,127,23,0.88)", "#FFF9C4", "#F57F17"),
+        "VERDE":   ("rgba(27,94,32,0.88)",   "#C8E6C9", "#1B5E20"),
+        "AZUL":    ("rgba(21,101,192,0.88)", "#BBDEFB", "#1565C0"),
+        "GRIS":    ("rgba(97,97,97,0.80)",   "#F5F5F5", "#424242"),
+    }
 
-        acwr_txt    = f"{row['ACWR']:.2f}"    if pd.notna(row.get("ACWR"))          else "—"
-        well_txt    = f"{row['WELLNESS_MEDIO']:.1f}" if pd.notna(row.get("WELLNESS_MEDIO")) else "—"
-        peso_txt    = f"{row['PCT_PERDIDA_PESO']:.1f}%" if pd.notna(row.get("PCT_PERDIDA_PESO")) else "—"
-        alertas     = int(row.get("ALERTAS_ACTIVAS", 0))
+    n_cols = 4
+    rows_cards = [sem_ordenado.iloc[i:i+n_cols] for i in range(0, len(sem_ordenado), n_cols)]
 
-        col.markdown(
-            f'<div class="semaforo-card" style="border-left: 5px solid {color};">'
-            f'<b style="font-size:1.1rem">{emoji} {row["JUGADOR"]}</b><br>'
-            f'<small>ACWR: <b>{acwr_txt}</b> &nbsp;|&nbsp; '
-            f'Wellness: <b>{well_txt}</b> &nbsp;|&nbsp; '
-            f'Δ Peso: <b>{peso_txt}</b></small><br>'
-            f'<small style="color:{color}"><b>{"⚠ " * alertas if alertas else "✓ Sin alertas"}</b></small>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    for row_group in rows_cards:
+        cols_sem = st.columns(n_cols)
+        for i, (_, row) in enumerate(row_group.iterrows()):
+            estado      = row.get("SEMAFORO_GLOBAL", "GRIS")
+            bg, _, txt  = CARD_COLORS.get(estado, CARD_COLORS["GRIS"])
+            emoji, _    = MAP_SEMAFORO.get(estado, ("⚫", GRIS))
+
+            acwr     = row.get("ACWR")
+            well     = row.get("WELLNESS_MEDIO")
+            peso_pct = row.get("PCT_PERDIDA_PESO")
+            alertas  = int(row.get("ALERTAS_ACTIVAS", 0))
+
+            acwr_txt = f"{acwr:.2f}" if pd.notna(acwr) else "—"
+            well_txt = f"{well:.1f}/20" if pd.notna(well) else "—"
+            peso_txt = f"{peso_pct:.1f}%" if pd.notna(peso_pct) else "—"
+            alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
+
+            # Barra de ACWR (0 a 2, zona ok 0.8-1.3 marcada)
+            acwr_pct = min(max(float(acwr) / 2.0, 0), 1) * 100 if pd.notna(acwr) else 0
+            bar_color = ("#EF9A9A" if (pd.notna(acwr) and float(acwr) > 1.3)
+                         else "#A5D6A7")
+
+            # Semáforos individuales de cada métrica
+            s_acwr = ("🔴" if pd.notna(acwr) and float(acwr) > 1.5 else
+                      "🟠" if pd.notna(acwr) and float(acwr) > 1.3 else
+                      "🔵" if pd.notna(acwr) and float(acwr) < 0.8 else "🟢")
+            s_well = ("🔴" if pd.notna(well) and float(well) < 10 else
+                      "🟠" if pd.notna(well) and float(well) < 13 else "🟢")
+            s_peso = ("🔴" if pd.notna(peso_pct) and float(peso_pct) > 3 else
+                      "🟠" if pd.notna(peso_pct) and float(peso_pct) > 2 else "🟢")
+
+            cols_sem[i].markdown(f"""
+            <div class="player-card" style="background:{bg}; color:white;">
+                <div class="player-name">{emoji} {row['JUGADOR']}</div>
+                <div class="player-stats">
+                    {s_acwr} ACWR: <b>{acwr_txt}</b><br>
+                    {s_well} Wellness: <b>{well_txt}</b><br>
+                    {s_peso} Δ Peso: <b>{peso_txt}</b>
+                </div>
+                <div class="acwr-bar-bg">
+                    <div class="acwr-bar-fill" style="width:{acwr_pct:.0f}%; background:{bar_color};"></div>
+                </div>
+                <div style="font-size:0.75rem; margin-top:6px; opacity:0.9;">{alert_txt}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -368,7 +436,7 @@ with tab_carga:
             if val >= 4:    return "background-color: #FFF9C4"
             return "background-color: #E8F5E9"
 
-        styled = pivot_rpe.style.applymap(color_borg)
+        styled = pivot_rpe.style.map(color_borg)
         st.dataframe(styled, use_container_width=True)
 
     st.markdown("---")
@@ -490,14 +558,14 @@ with tab_peso:
                 if v > 2:   return "background-color:#FFCDD2;font-weight:bold"
                 if v > 1:   return "background-color:#FFE0B2"
                 return "background-color:#E8F5E9"
-            st.dataframe(pivot_dif.style.applymap(color_dif), use_container_width=True)
+            st.dataframe(pivot_dif.style.map(color_dif), use_container_width=True)
         with subtabs[3]:
             def color_pct(v):
                 if pd.isna(v): return ""
                 if v > 3:   return "background-color:#FFCDD2;font-weight:bold"
                 if v > 2:   return "background-color:#FFE0B2"
                 return "background-color:#E8F5E9"
-            st.dataframe(pivot_pct.style.applymap(color_pct), use_container_width=True)
+            st.dataframe(pivot_pct.style.map(color_pct), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Evolución de peso — temporada completa")
@@ -598,7 +666,7 @@ with tab_well:
             if v <= 10: return "background-color:#FFCDD2;font-weight:bold"
             if v <= 13: return "background-color:#FFE0B2"
             return "background-color:#E8F5E9"
-        st.dataframe(pivot_well_dia.style.applymap(color_well), use_container_width=True)
+        st.dataframe(pivot_well_dia.style.map(color_well), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Evolución de los componentes del wellness")
