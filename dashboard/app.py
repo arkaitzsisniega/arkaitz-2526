@@ -92,8 +92,31 @@ def cargar(hoja: str) -> pd.DataFrame:
     client = get_client()
     ss     = client.open(SHEET_NAME)
     ws     = ss.worksheet(hoja)
-    data   = ws.get_all_records()
-    return pd.DataFrame(data)
+    try:
+        data = ws.get_all_records()
+        return pd.DataFrame(data)
+    except Exception:
+        # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES)
+        rows = ws.get_all_values()
+        if not rows:
+            return pd.DataFrame()
+        # Usar la segunda fila como cabecera real (la primera son grupos de color)
+        headers = rows[1] if len(rows) > 1 else rows[0]
+        # Desduplicar cabeceras vacías
+        seen = {}
+        clean = []
+        for h in headers:
+            h = h.strip()
+            if h == "":
+                h = "_VACÍO"
+            if h in seen:
+                seen[h] += 1
+                h = f"{h}_{seen[h]}"
+            else:
+                seen[h] = 0
+            clean.append(h)
+        data_rows = rows[2:] if len(rows) > 2 else []
+        return pd.DataFrame(data_rows, columns=clean)
 
 
 def fecha_col(df: pd.DataFrame, col: str) -> pd.DataFrame:
