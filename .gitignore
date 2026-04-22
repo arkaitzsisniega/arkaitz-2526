@@ -1,0 +1,25 @@
+
+# Credenciales — NUNCA subir esto
+google_credentials.json
+*.json
+.streamlit/secrets_PLANTILLA.toml
+.streamlit/secrets.toml
+
+# Base de datos local
+data/temporada_2526.duckdb
+data/raw/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# Mac
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/
