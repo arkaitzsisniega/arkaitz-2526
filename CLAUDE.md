@@ -43,15 +43,33 @@
 
 ## Hilos abiertos / cosas a recordar
 
-Cuando el usuario retome el proyecto, repasar si están pendientes:
+### ✅ Cerrados (abril 2026)
+- Dashboard completo funcionando en Streamlit Cloud.
+- Fix de coma decimal española (lectura con UNFORMATTED_VALUE).
+- Fix de fechas ISO mal parseadas (dayfirst=True corrompía YYYY-MM-DD).
+- Filtro fisiológico 40-200 kg en `vista_peso`.
+- Semanas fantasma eliminadas en `vista_semanal` (skip carga=0).
+- Recuento con estados S/A/L/N reales y PCT_PARTICIPACION capado.
+- Bot Telegram @InterFS_bot (dev, uso personal) + bot @InterFS_datos_bot
+  (consultas de datos, multi-usuario con lista chat_id en .env).
+- Ambos bots con memoria conversacional (`claude -c`) y soporte de voz
+  (Whisper local, modelo "base", español).
+- Script `arrancar_bots.sh` en la raíz para lanzar ambos con un comando.
 
-- [ ] Verificar que los pesos de 3 cifras desaparecieron de la pestaña Peso (tras filtro fisiológico en `vista_peso`).
-- [ ] Verificar que Carlos ya no da +34 en el semáforo.
-- [ ] Confirmar que el nuevo gráfico "Media del equipo" del tab Wellness carga sin error.
-- [ ] Confirmar que las pestañas Lesiones y Recuento ya no dan error al fondo.
-- [ ] Integración de datos de **Oliver Sports** (acelerometría) — pendiente de credenciales.
-- [ ] Dashboard de estadísticas de partido desde `Estadisticas_pruebas_CLAUDE.xlsx`.
-- [ ] Google Forms para que los jugadores envíen Borg + peso pre/post + wellness vía enlace de WhatsApp.
+### 🕐 Pospuesto (por decisión del usuario)
+- Mejorar pestaña Lesiones (el usuario dijo "es mejorable, pero más adelante").
+  Temas candidatos: gráfico de días baja por zona, tiempos medios de retorno,
+  lesiones activas con countdown, etc.
+
+### 🔜 Pendientes (próximos, por orden sugerido)
+- [ ] **Integración Oliver Sports** (acelerometría en entrenamientos).
+      Pendiente: que el usuario cuente cómo accede hoy (API, export CSV, app web…)
+      para decidir cómo tirarle las métricas al dashboard.
+- [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
+      wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
+      tiempo diario a Arkaitz.
+- [ ] **Dashboard de estadísticas de partido** desde `Estadisticas_pruebas_CLAUDE.xlsx`
+      (minutos jugados, goles, asistencias, etc. por jugador).
 
 ## Convenciones
 
