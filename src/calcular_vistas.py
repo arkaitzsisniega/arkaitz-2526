@@ -247,8 +247,21 @@ def vista_peso(peso, ses):
     df["DIA_SEMANA"] = df["FECHA"].dt.day_name()
 
     # Baseline personal (media primeras 4 semanas disponibles)
-    baseline = (df.groupby("JUGADOR")["PESO_PRE"]
-                  .apply(lambda s: s.iloc[:max(1, len(s)//5)].mean())
+    # Baseline personal = media de PESO_PRE en los últimos 60 días desde la última
+    # sesión registrada del jugador (ventana móvil, no pretemporada fija).
+    # Fallback: si hay <3 sesiones en la ventana, usar toda la temporada.
+    def _baseline_ultimos_2m(jug_df):
+        valido = jug_df[jug_df["PESO_PRE"].notna()]
+        if valido.empty:
+            return np.nan
+        fecha_ult = valido["FECHA"].max()
+        ventana = valido[valido["FECHA"] >= fecha_ult - pd.Timedelta(days=60)]["PESO_PRE"]
+        if len(ventana) >= 3:
+            return round(float(ventana.mean()), 2)
+        return round(float(valido["PESO_PRE"].mean()), 2)
+
+    baseline = (df.groupby("JUGADOR", group_keys=False)
+                  .apply(_baseline_ultimos_2m)
                   .rename("BASELINE_PRE"))
     df = df.merge(baseline.reset_index(), on="JUGADOR", how="left")
     df["DESVIACION_BASELINE"] = (df["PESO_PRE"] - df["BASELINE_PRE"]).round(2)
