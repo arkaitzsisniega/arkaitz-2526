@@ -13,6 +13,7 @@ import re
 import asyncio
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -21,6 +22,13 @@ from telegram import Update, constants
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
 )
+
+# Whisper es opcional: si no está instalado, el bot sigue funcionando solo con texto.
+try:
+    from faster_whisper import WhisperModel
+    _WHISPER_OK = True
+except Exception:
+    _WHISPER_OK = False
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 HERE = Path(__file__).parent.resolve()
@@ -153,6 +161,39 @@ async def _keep_typing(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, stop: async
 # (vacío = continuar sesión previa con -c)
 _fresh_chats: set = set()
 
+# Modelo Whisper (lazy load; primera vez descarga ~150MB, luego cacheado)
+_whisper_model = None
+_whisper_lock = asyncio.Lock()
+WHISPER_SIZE = os.getenv("WHISPER_MODEL", "base")
+
+
+async def get_whisper():
+    global _whisper_model
+    if not _WHISPER_OK:
+        return None
+    if _whisper_model is not None:
+        return _whisper_model
+    async with _whisper_lock:
+        if _whisper_model is None:
+            log.info("Cargando modelo Whisper (%s)…", WHISPER_SIZE)
+            def _load():
+                return WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8")
+            _whisper_model = await asyncio.get_event_loop().run_in_executor(None, _load)
+            log.info("Whisper listo.")
+    return _whisper_model
+
+
+async def _transcribir(audio_path: str) -> str:
+    model = await get_whisper()
+    if model is None:
+        raise RuntimeError("Whisper no disponible.")
+    def _run():
+        segments, info = model.transcribe(
+            audio_path, language="es", beam_size=5, vad_filter=True,
+        )
+        return " ".join(s.text for s in segments).strip()
+    return await asyncio.get_event_loop().run_in_executor(None, _run)
+
 
 async def _run_claude(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
     """Ejecuta `claude -p <prompt>` en PROJECT_DIR.
@@ -224,20 +265,9 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not _authorized(update):
-        log.warning("Acceso denegado desde chat_id=%s (@%s)",
-                    update.effective_chat.id,
-                    update.effective_user.username if update.effective_user else "?")
-        await update.message.reply_text("🚫 Acceso denegado.")
-        return
-
-    prompt = (update.message.text or "").strip()
-    if not prompt:
-        return
-
+async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Lógica común para texto y voz transcrita."""
     chat_id = update.effective_chat.id
-    # Si el usuario pidió /nuevo, esta llamada empieza sesión nueva
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
     log.info("→ prompt (%s): %s",
@@ -272,6 +302,73 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(chunk, disable_web_page_preview=True)
 
 
+async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _authorized(update):
+        log.warning("Acceso denegado desde chat_id=%s (@%s)",
+                    update.effective_chat.id,
+                    update.effective_user.username if update.effective_user else "?")
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+
+    prompt = (update.message.text or "").strip()
+    if not prompt:
+        return
+    await _process_prompt(prompt, update, ctx)
+
+
+async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Audio/voz → Whisper → trata el texto como un prompt normal."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+
+    if not _WHISPER_OK:
+        await update.message.reply_text(
+            "🎤 Audio no soportado (faster-whisper no instalado).\n"
+            "Manda el mensaje escrito, o instala con: "
+            "`cd telegram_bot && ./venv/bin/pip install faster-whisper`"
+        )
+        return
+
+    voice = update.message.voice or update.message.audio or update.message.video_note
+    if voice is None:
+        return
+
+    chat_id = update.effective_chat.id
+    await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+
+    tmp = tempfile.NamedTemporaryFile(prefix="tg_voice_", suffix=".ogg", delete=False)
+    tmp.close()
+    audio_path = tmp.name
+
+    try:
+        tg_file = await voice.get_file()
+        await tg_file.download_to_drive(audio_path)
+        log.info("🎤 audio %.1fs → transcribiendo",
+                 getattr(voice, "duration", 0) or 0)
+        text = await _transcribir(audio_path)
+    except Exception as e:
+        log.exception("Error transcribiendo: %s", e)
+        await update.message.reply_text(
+            f"⚠️ No he podido transcribir el audio: {type(e).__name__}"
+        )
+        return
+    finally:
+        try:
+            os.unlink(audio_path)
+        except Exception:
+            pass
+
+    if not text:
+        await update.message.reply_text(
+            "🤷 No he entendido el audio. ¿Puedes repetirlo o escribirlo?"
+        )
+        return
+
+    await update.message.reply_text(f"🎤 Entendido: «{text}»")
+    await _process_prompt(text, update, ctx)
+
+
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
     log.exception("Error no controlado: %s", ctx.error)
     if isinstance(update, Update) and update.effective_chat:
@@ -291,8 +388,10 @@ def main():
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)
-    log.info("Bot arrancado. Escuchando mensajes… (Ctrl+C para parar)")
+    log.info("Bot arrancado (voz: %s). Escuchando mensajes… (Ctrl+C para parar)",
+             "ON" if _WHISPER_OK else "OFF")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

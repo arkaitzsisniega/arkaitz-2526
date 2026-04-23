@@ -107,6 +107,10 @@ Escribe al bot desde Telegram como si me hablaras a mí. Ejemplos reales:
 
 El bot puede tardar de **10 segundos a varios minutos** según la petición. Verás "escribiendo…" mientras trabaja.
 
+### 🎤 Mensajes de voz
+
+Puedes mandar audios en vez de texto. El bot los transcribe localmente con Whisper (la voz no sale de tu Mac), te muestra qué entendió y procesa la petición. La primera vez descarga un modelo de ~150 MB (una sola vez).
+
 ### 🧠 Memoria de conversación
 
 El bot **mantiene el hilo** entre mensajes: si pregunta algo y le respondes "sí", "hazlo", "dame más detalle"… se acuerda de qué hablabais. Es como una conversación normal.

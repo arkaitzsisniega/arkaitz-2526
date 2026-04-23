@@ -141,6 +141,19 @@ El bot entiende el contexto: si preguntas por Carlos y luego dices «¿y Pirata?
 
 ---
 
+## 🎤 Mensajes de voz
+
+**Sí, puedes mandarle audios.** Pulsa el micrófono en Telegram, habla normal, suelta. El bot:
+
+1. Descarga el audio.
+2. Lo transcribe con Whisper (local, en tu Mac — la voz no sale de aquí).
+3. Te muestra lo que entendió ("🎤 Entendido: «...»").
+4. Procesa esa frase como si la hubieras escrito.
+
+La primera vez que lo uses, se descarga un modelo de ~150 MB. Se hace **una sola vez** y se queda en tu Mac.
+
+Funciona en español. Si habla alguien con mucho acento o mucho ruido de fondo, puede equivocarse — si pasa, te fijas en lo que dice "Entendido: ..." y si está mal lo repites o lo escribes.
+
 ## 🎛 Comandos útiles
 
 | Comando | Qué hace |
