@@ -293,6 +293,134 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _run_oliver_sync(deep: bool = False) -> Tuple[int, str, str]:
+    """Ejecuta el script de sincronización de Oliver en el proyecto."""
+    py = "/usr/bin/python3"
+    args = [py, str(PROJECT_DIR / "src" / "oliver_sync.py")]
+    if deep:
+        args.append("--deep")
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        cwd=str(PROJECT_DIR),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=1200)
+    except asyncio.TimeoutError:
+        proc.kill(); await proc.wait()
+        return -1, "", "Timeout: oliver_sync tardó más de 20 minutos."
+    return proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+
+
+async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Sincroniza Oliver Sports (métricas MVP, rápido)."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🏃 Sincronizando Oliver Sports (MVP)…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        rc, out, err = await _run_oliver_sync(deep=False)
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    # Después, relanza calcular_vistas.py para que el cruce Oliver+Borg se actualice
+    if rc == 0:
+        await update.message.reply_text("✓ Oliver sincronizado. Recalculando cruces…")
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/python3", str(PROJECT_DIR / "src" / "calcular_vistas.py"),
+            cwd=str(PROJECT_DIR),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out2, err2 = await asyncio.wait_for(proc.communicate(), timeout=600)
+        except asyncio.TimeoutError:
+            proc.kill(); await proc.wait()
+            await update.message.reply_text("⚠️ calcular_vistas tardó demasiado.")
+            return
+        if proc.returncode == 0:
+            await update.message.reply_text(
+                "✅ Todo al día. Abre el dashboard y mira la pestaña **🏃 Oliver**."
+            )
+        else:
+            tail = (err2 or out2 or b"").decode("utf-8", "replace")[-1500:]
+            await update.message.reply_text(f"⚠️ Oliver OK pero calcular_vistas falló:\n{tail}")
+    else:
+        detalle = (err or out or "(sin detalles)").strip()
+        for chunk in _chunks(f"❌ Error en oliver_sync:\n{detalle}"):
+            await update.message.reply_text(chunk)
+
+
+async def cmd_oliver_deep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Sincronización profunda quincenal (las 68 métricas)."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    await update.message.reply_text("🔬 Sincronización profunda de Oliver (68 métricas)…")
+    chat_id = update.effective_chat.id
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        rc, out, err = await _run_oliver_sync(deep=True)
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if rc == 0:
+        # Marcar recordatorio como hecho hoy
+        try:
+            (LOGS_DIR.parent / ".oliver_deep_ultimo").write_text(_dt.date.today().isoformat())
+        except Exception: pass
+        await update.message.reply_text(
+            "✅ Análisis profundo al día. Reviso las 68 métricas en hoja `_OLIVER_DEEP`. "
+            "Si quieres que te resalte cosas raras, dime '*repásame el último deep*'."
+        )
+    else:
+        detalle = (err or out or "(sin detalles)").strip()
+        for chunk in _chunks(f"❌ Error:\n{detalle}"):
+            await update.message.reply_text(chunk)
+
+
+# ─── Recordatorio quincenal Oliver deep ──────────────────────────────────────
+RECORDATORIO_PATH = None  # se define tras LOGS_DIR
+RECORDATORIO_DIAS = 14
+
+
+async def _check_recordatorio_deep(ctx: ContextTypes.DEFAULT_TYPE):
+    """Se ejecuta cada 24h. Si llevan >14 días sin deep, avisa al usuario."""
+    try:
+        path = PROJECT_DIR / ".oliver_deep_ultimo"
+        ultima_str = path.read_text().strip() if path.exists() else None
+        hoy = _dt.date.today()
+        if ultima_str:
+            try:
+                ultima = _dt.date.fromisoformat(ultima_str)
+            except ValueError:
+                ultima = hoy - _dt.timedelta(days=RECORDATORIO_DIAS + 1)
+        else:
+            # Primera vez: no recordar hasta pasados 14 días desde ahora
+            path.write_text((hoy - _dt.timedelta(days=0)).isoformat())
+            return
+        dias = (hoy - ultima).days
+        if dias >= RECORDATORIO_DIAS:
+            await ctx.bot.send_message(
+                ALLOWED_CHAT_ID,
+                f"📊 *Recordatorio quincenal — Oliver deep*\n\n"
+                f"Han pasado {dias} días desde tu último análisis profundo "
+                f"de las 68 métricas de Oliver.\n\n"
+                f"Cuando puedas, lanza `/oliver_deep` y yo actualizo la hoja "
+                f"`_OLIVER_DEEP` con el detalle completo para que revises "
+                f"si se nos escapa algo.",
+                parse_mode="Markdown",
+            )
+    except Exception as e:
+        log.warning("Error en check de recordatorio: %s", e)
+
+
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
                           kind: str = "texto"):
     """Lógica común para texto y voz transcrita."""
@@ -420,9 +548,25 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))
+    app.add_handler(CommandHandler("oliver_sync", cmd_oliver_sync))
+    app.add_handler(CommandHandler("oliver_deep", cmd_oliver_deep))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)
+
+    # Recordatorio quincenal: chequea cada 24h si toca
+    if app.job_queue is not None:
+        app.job_queue.run_repeating(
+            _check_recordatorio_deep,
+            interval=24 * 3600,  # cada 24 horas
+            first=30,            # primer check a los 30 segundos de arrancar
+            name="oliver_deep_reminder",
+        )
+        log.info("Recordatorio quincenal Oliver deep: activo")
+    else:
+        log.warning("job_queue no disponible (instala python-telegram-bot[job-queue]); "
+                    "sin recordatorios automáticos")
+
     log.info("Bot arrancado (voz: %s). Escuchando mensajes… (Ctrl+C para parar)",
              "ON" if _WHISPER_OK else "OFF")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

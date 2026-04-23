@@ -358,6 +358,50 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Permite al cuerpo técnico disparar la sincronización de Oliver."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🏃 Sincronizando Oliver Sports (MVP)…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/python3", str(PROJECT_DIR / "src" / "oliver_sync.py"),
+            cwd=str(PROJECT_DIR),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=1200)
+        except asyncio.TimeoutError:
+            proc.kill(); await proc.wait()
+            await update.message.reply_text("⚠️ Timeout (>20 min).")
+            return
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+
+    if proc.returncode == 0:
+        # Recalcular cruces
+        proc2 = await asyncio.create_subprocess_exec(
+            "/usr/bin/python3", str(PROJECT_DIR / "src" / "calcular_vistas.py"),
+            cwd=str(PROJECT_DIR),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            await asyncio.wait_for(proc2.communicate(), timeout=600)
+        except asyncio.TimeoutError:
+            proc2.kill(); await proc2.wait()
+        await update.message.reply_text("✅ Sincronizado. Ya están los datos actualizados.")
+    else:
+        detalle = (err or out or b"").decode("utf-8", "replace").strip()
+        for chunk in _chunks(f"❌ Error:\n{detalle[-1500:]}"):
+            await update.message.reply_text(chunk)
+
+
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
                           kind: str = "texto"):
     """Pasa el prompt a Claude y devuelve la respuesta al chat.
@@ -493,6 +537,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("yo", cmd_yo))
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))
+    app.add_handler(CommandHandler("oliver_sync", cmd_oliver_sync))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)

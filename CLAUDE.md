@@ -62,14 +62,30 @@
   lesiones activas con countdown, etc.
 
 ### 🔜 Pendientes (próximos, por orden sugerido)
-- [ ] **Integración Oliver Sports** (acelerometría en entrenamientos).
-      Pendiente: que el usuario cuente cómo accede hoy (API, export CSV, app web…)
-      para decidir cómo tirarle las métricas al dashboard.
+- [x] **Integración Oliver Sports**: API + script + pestaña + recordatorio quincenal
+      (abril 2026). Ver `docs/oliver_investigacion.md` y `src/oliver_sync.py`.
+      Token JWT caduca cada ~24h; el usuario regenera con snippet en consola.
 - [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
       wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
       tiempo diario a Arkaitz.
 - [ ] **Dashboard de estadísticas de partido** desde `Estadisticas_pruebas_CLAUDE.xlsx`
       (minutos jugados, goles, asistencias, etc. por jugador).
+
+## Oliver Sports — funcionamiento
+- `src/oliver_sync.py` — sync incremental (modo MVP) o `--deep` (68 métricas).
+  Lee token de `.env` raíz (OLIVER_TOKEN, OLIVER_USER_ID, OLIVER_TEAM_ID).
+- Hojas generadas: `OLIVER` (MVP 15 cols), `_OLIVER_DEEP` (68 métricas),
+  `_OLIVER_SESIONES` (índice de ids ya sincronizados).
+- `calcular_vistas.py` → crea `_VISTA_OLIVER` cruzando con Borg/CARGA:
+  ratio_borg_oliver, eficiencia_sprint, asimetria_acc, densidad_metabolica,
+  pct_hsr, acwr_mecanico.
+- Dashboard pestaña **🏃 Oliver** lee de `_VISTA_OLIVER`.
+- Bots: `/oliver_sync` (ambos) y `/oliver_deep` (solo bot dev).
+- Recordatorio quincenal: JobQueue del bot dev chequea cada 24h si pasaron
+  >14 días desde el último `/oliver_deep` y te avisa por Telegram.
+  Marca de última ejecución: `.oliver_deep_ultimo` (no en git).
+- Si el token caduca, el script muestra el snippet exacto que el usuario
+  debe pegar en la consola del navegador de Oliver para regenerarlo.
 
 ## Convenciones
 

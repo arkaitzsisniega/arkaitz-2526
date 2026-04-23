@@ -396,6 +396,106 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
     return df
 
 
+# ── VISTA 7: OLIVER CRUZADO (requiere hoja OLIVER poblada por oliver_sync.py) ─
+
+def _leer_hoja_opt(ss, nombre: str) -> pd.DataFrame:
+    """Devuelve DataFrame vacío si la hoja no existe."""
+    try:
+        existentes = {ws.title for ws in ss.worksheets()}
+        if nombre not in existentes:
+            return pd.DataFrame()
+        return leer_hoja(ss, nombre)
+    except Exception:
+        return pd.DataFrame()
+
+
+def vista_oliver_cruzado(ss, carga_df: pd.DataFrame, well_df: pd.DataFrame) -> pd.DataFrame:
+    """Une la hoja OLIVER (data sensores) con _VISTA_CARGA (sRPE subjetivo)
+    y calcula métricas cruzadas.
+
+    Columnas de salida:
+      - fecha, jugador, session_id, tipo
+      - Métricas Oliver crudas (las importantes)
+      - ratio_borg_oliver     = sRPE (Borg×min) / Oliver Load
+      - eficiencia_sprint     = sprints_count / played_time
+      - asimetria_acc         = |acc_max - dec_max| / (acc_max + dec_max)
+      - densidad_metabolica   = kcal / played_time
+      - pct_hsr               = distancia_hsr / distancia_total
+      - oliver_load_ewma_ag   = aguda EWMA por jugador
+      - oliver_load_ewma_cr   = crónica EWMA por jugador
+      - acwr_mecanico         = aguda / crónica (versión objetiva del ACWR)
+    """
+    oliver = _leer_hoja_opt(ss, "OLIVER")
+    if oliver.empty:
+        return pd.DataFrame()
+
+    # Tipar columnas numéricas
+    num_cols = ["played_time", "total_time", "distancia_total_m", "distancia_hsr_m",
+                "velocidad_max_kmh", "acc_alta_count", "dec_alta_count",
+                "acc_max_count", "dec_max_count", "oliver_load", "kcal",
+                "cambios_direccion", "saltos", "sprints_count"]
+    for c in num_cols:
+        if c in oliver.columns:
+            oliver[c] = oliver[c].apply(to_num)
+    if "fecha" in oliver.columns:
+        oliver["fecha"] = oliver["fecha"].apply(_to_date)
+    oliver = oliver.rename(columns={"fecha": "FECHA", "jugador": "JUGADOR"})
+
+    # Unir con _VISTA_CARGA (sRPE por jugador/sesión)
+    carga_sub = carga_df[["FECHA", "JUGADOR", "BORG", "MINUTOS", "CARGA"]].copy() if not carga_df.empty else pd.DataFrame()
+    if not carga_sub.empty:
+        carga_sub = carga_sub.groupby(["FECHA", "JUGADOR"], as_index=False).agg({
+            "BORG": "mean", "MINUTOS": "sum", "CARGA": "sum",
+        })
+    merged = oliver.merge(carga_sub, on=["FECHA", "JUGADOR"], how="left")
+
+    # Métricas cruzadas
+    ol = merged["oliver_load"].replace(0, np.nan)
+    pt = merged["played_time"].replace(0, np.nan)
+    merged["ratio_borg_oliver"]   = (merged["CARGA"] / ol).round(3)
+    merged["eficiencia_sprint"]   = (merged["sprints_count"] / pt).round(3)
+    denom_acc = (merged["acc_max_count"] + merged["dec_max_count"]).replace(0, np.nan)
+    merged["asimetria_acc"]       = ((merged["acc_max_count"] - merged["dec_max_count"]).abs() / denom_acc).round(3)
+    merged["densidad_metabolica"] = (merged["kcal"] / pt).round(2)
+    denom_dist = merged["distancia_total_m"].replace(0, np.nan)
+    merged["pct_hsr"]             = (merged["distancia_hsr_m"] / denom_dist * 100).round(1)
+
+    # ACWR mecánico por jugador (EWMA sobre oliver_load diario)
+    merged = merged.sort_values(["JUGADOR", "FECHA"])
+    filas_acwr = []
+    for jugador, sub in merged.groupby("JUGADOR"):
+        if sub.empty:
+            continue
+        fecha_min, fecha_max = sub["FECHA"].min(), sub["FECHA"].max()
+        if pd.isna(fecha_min) or pd.isna(fecha_max):
+            filas_acwr.append(sub.assign(oliver_load_ewma_ag=np.nan,
+                                         oliver_load_ewma_cr=np.nan,
+                                         acwr_mecanico=np.nan))
+            continue
+        daily = (sub.groupby("FECHA")["oliver_load"].sum()
+                    .reindex(pd.date_range(fecha_min, fecha_max), fill_value=0))
+        aguda   = daily.ewm(alpha=0.1316, adjust=False).mean()
+        cronica = daily.ewm(alpha=0.0339, adjust=False).mean()
+        ratio   = aguda / cronica.replace(0, np.nan)
+        sub = sub.copy()
+        sub["oliver_load_ewma_ag"] = sub["FECHA"].map(lambda d: round(float(aguda.get(d, np.nan)), 1) if pd.notna(d) else np.nan)
+        sub["oliver_load_ewma_cr"] = sub["FECHA"].map(lambda d: round(float(cronica.get(d, np.nan)), 1) if pd.notna(d) else np.nan)
+        sub["acwr_mecanico"]       = sub["FECHA"].map(lambda d: round(float(ratio.get(d, np.nan)), 3) if pd.notna(d) else np.nan)
+        filas_acwr.append(sub)
+
+    out = pd.concat(filas_acwr, ignore_index=True) if filas_acwr else merged
+    cols_final = ["FECHA", "JUGADOR", "session_id", "session_name", "tipo",
+                  "played_time", "distancia_total_m", "distancia_hsr_m", "velocidad_max_kmh",
+                  "acc_alta_count", "dec_alta_count", "acc_max_count", "dec_max_count",
+                  "oliver_load", "kcal", "cambios_direccion", "saltos", "sprints_count",
+                  "BORG", "MINUTOS", "CARGA",
+                  "ratio_borg_oliver", "eficiencia_sprint", "asimetria_acc",
+                  "densidad_metabolica", "pct_hsr",
+                  "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico"]
+    cols_final = [c for c in cols_final if c in out.columns]
+    return out[cols_final].sort_values(["FECHA", "JUGADOR"])
+
+
 # ── VISTA 6: RECUENTO DE ASISTENCIA ──────────────────────────────────────────
 
 def vista_recuento(borg, ses):
@@ -460,6 +560,14 @@ def main():
     semaforo_df = vista_semaforo(semanal_df, well_df, peso_df)
     recuento_df = vista_recuento(borg, ses)
 
+    # Oliver cruzado (solo si existe la hoja OLIVER del sync)
+    print("\nBuscando datos de Oliver para cruzar…")
+    oliver_cruz_df = vista_oliver_cruzado(ss, carga_df, well_df)
+    if oliver_cruz_df.empty:
+        print("  (hoja OLIVER no existe o está vacía; salta este paso)")
+    else:
+        print(f"  {len(oliver_cruz_df)} filas cruzadas Oliver+Borg")
+
     print("\nEscribiendo vistas en Google Sheets...")
     escribir_vista(ss, "_VISTA_CARGA",     carga_df)
     escribir_vista(ss, "_VISTA_SEMANAL",   semanal_df)
@@ -467,6 +575,8 @@ def main():
     escribir_vista(ss, "_VISTA_WELLNESS",  well_df)
     escribir_vista(ss, "_VISTA_SEMAFORO",  semaforo_df)
     escribir_vista(ss, "_VISTA_RECUENTO",  recuento_df)
+    if not oliver_cruz_df.empty:
+        escribir_vista(ss, "_VISTA_OLIVER", oliver_cruz_df)
 
     print("\n" + "=" * 60)
     print("✓ Todas las vistas calculadas y actualizadas")

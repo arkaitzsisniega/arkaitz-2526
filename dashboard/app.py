@@ -192,6 +192,11 @@ def datos():
     sem     = cargar("_VISTA_SEMAFORO")
     rec     = cargar("_VISTA_RECUENTO")
     les     = fecha_col(fecha_col(cargar("LESIONES"), "FECHA LESIÓN"), "FECHA ALTA")
+    # _VISTA_OLIVER es opcional (solo existe si se ha corrido oliver_sync)
+    try:
+        oliver = fecha_col(cargar("_VISTA_OLIVER"), "FECHA")
+    except Exception:
+        oliver = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -204,8 +209,18 @@ def datos():
                        "WELLNESS_BELOW15", "ALERTAS_ACTIVAS"])
     num_cols(rec,     ["TOTAL_SESIONES_EQUIPO", "SESIONES_CON_DATOS", "PCT_PARTICIPACION",
                        "EST_S", "EST_A", "EST_L", "EST_N", "EST_D", "EST_NC"])
+    if not oliver.empty:
+        num_cols(oliver, [
+            "played_time", "distancia_total_m", "distancia_hsr_m", "velocidad_max_kmh",
+            "acc_alta_count", "dec_alta_count", "acc_max_count", "dec_max_count",
+            "oliver_load", "kcal", "cambios_direccion", "saltos", "sprints_count",
+            "BORG", "MINUTOS", "CARGA",
+            "ratio_borg_oliver", "eficiencia_sprint", "asimetria_acc",
+            "densidad_metabolica", "pct_hsr",
+            "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
+        ])
 
-    return carga, semanal, peso, df_well, sem, rec, les
+    return carga, semanal, peso, df_well, sem, rec, les, oliver
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -220,7 +235,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver = datos()
         data_ok = True
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
@@ -315,13 +330,14 @@ def color_jug(jugadores):
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
-tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec = st.tabs([
+tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
     "💤 Wellness",
     "🏥 Lesiones",
     "📋 Recuento",
+    "🏃 Oliver",
 ])
 
 
@@ -1009,3 +1025,127 @@ with tab_rec:
             fig_rec.add_vline(x=80, line_dash="dash", line_color=NARANJA)
             fig_rec.update_layout(**LAYOUT, height=500, coloraxis_showscale=False, showlegend=False)
             st.plotly_chart(fig_rec, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — OLIVER SPORTS (acelerometría sensores)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_oliver:
+    st.markdown("### 🏃 Oliver Sports — Datos de sensores")
+
+    if oliver.empty:
+        st.info(
+            "No hay datos de Oliver todavía.\n\n"
+            "Para sincronizar: abre el bot de Telegram y escribe `/oliver_sync`, "
+            "o desde terminal ejecuta `/usr/bin/python3 src/oliver_sync.py`."
+        )
+    else:
+        # Filtrar por jugadores + rango de fechas del sidebar
+        oliver_f = oliver[
+            oliver["JUGADOR"].isin(sel_jugadores) &
+            (oliver["FECHA"] >= f_desde) &
+            (oliver["FECHA"] <= f_hasta)
+        ].copy()
+
+        if oliver_f.empty:
+            st.warning("No hay datos de Oliver en el período / jugadores seleccionados.")
+        else:
+            # ── KPIs del equipo en el período ──
+            c1, c2, c3, c4, c5 = st.columns(5)
+            kpis = [
+                (c1, "Oliver Load medio", f"{oliver_f['oliver_load'].mean():.0f}", AZUL),
+                (c2, "Distancia media (m)", f"{oliver_f['distancia_total_m'].mean():.0f}", GRIS),
+                (c3, "Sprints/sesión", f"{oliver_f['sprints_count'].mean():.1f}", NARANJA),
+                (c4, "Acc. máx/sesión", f"{oliver_f['acc_max_count'].mean():.1f}", ROJO),
+                (c5, "Sesiones", f"{oliver_f['session_id'].nunique()}", VERDE),
+            ]
+            for col, lbl, val, color in kpis:
+                col.markdown(
+                    f'<div class="metric-card">'
+                    f'<div class="val" style="color:{color}">{val}</div>'
+                    f'<div class="lbl">{lbl}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("---")
+
+            # ── Tabla por jugador (agregado del período) ──
+            st.markdown("#### Resumen por jugador (período seleccionado)")
+            agg = oliver_f.groupby("JUGADOR", as_index=False).agg(
+                sesiones=("session_id", "nunique"),
+                oliver_load_total=("oliver_load", "sum"),
+                oliver_load_medio=("oliver_load", "mean"),
+                dist_total_m=("distancia_total_m", "sum"),
+                dist_hsr_m=("distancia_hsr_m", "sum"),
+                sprints=("sprints_count", "sum"),
+                acc_alta=("acc_alta_count", "sum"),
+                dec_alta=("dec_alta_count", "sum"),
+                acc_max=("acc_max_count", "sum"),
+                dec_max=("dec_max_count", "sum"),
+                kcal=("kcal", "sum"),
+                velocidad_max=("velocidad_max_kmh", "max"),
+            ).round(1)
+            agg = agg.sort_values("oliver_load_total", ascending=False)
+            st.dataframe(agg, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            # ── Evolución Oliver Load ──
+            st.markdown("#### Evolución de Oliver Load (carga mecánica)")
+            fig_load = px.line(
+                oliver_f.sort_values("FECHA"),
+                x="FECHA", y="oliver_load", color="JUGADOR",
+                color_discrete_map=color_jug(oliver_f["JUGADOR"].unique()),
+                title="Oliver Load por sesión",
+            )
+            fig_load.update_layout(**LAYOUT, height=380)
+            st.plotly_chart(fig_load, use_container_width=True)
+
+            # ── ACWR mecánico ──
+            if "acwr_mecanico" in oliver_f.columns and oliver_f["acwr_mecanico"].notna().any():
+                st.markdown("#### ACWR mecánico (objetivo, desde Oliver Load)")
+                fig_acwr = px.line(
+                    oliver_f.sort_values("FECHA"),
+                    x="FECHA", y="acwr_mecanico", color="JUGADOR",
+                    color_discrete_map=color_jug(oliver_f["JUGADOR"].unique()),
+                    title="ACWR calculado con carga mecánica real (no sRPE subjetivo)",
+                )
+                fig_acwr.add_hrect(y0=0.8, y1=1.3, fillcolor="green",  opacity=0.08, line_width=0)
+                fig_acwr.add_hrect(y0=1.3, y1=1.5, fillcolor="orange", opacity=0.10, line_width=0)
+                fig_acwr.add_hrect(y0=1.5, y1=3.0, fillcolor="red",    opacity=0.08, line_width=0)
+                fig_acwr.update_layout(**LAYOUT, height=360)
+                st.plotly_chart(fig_acwr, use_container_width=True)
+
+            st.markdown("---")
+
+            # ── Ratio Borg/Oliver: coherencia subjetivo vs objetivo ──
+            if "ratio_borg_oliver" in oliver_f.columns and oliver_f["ratio_borg_oliver"].notna().any():
+                st.markdown("#### Coherencia Borg (subjetivo) vs Oliver Load (objetivo)")
+                st.caption(
+                    "Ratio = sRPE (Borg × min) / Oliver Load.  "
+                    "Muy bajo → el jugador ha hecho mucho mecánicamente pero lo percibe poco.  "
+                    "Muy alto → ha sufrido sin gran correlato mecánico (día mentalmente duro)."
+                )
+                fig_ratio = px.box(
+                    oliver_f, x="JUGADOR", y="ratio_borg_oliver",
+                    color="JUGADOR",
+                    color_discrete_map=color_jug(oliver_f["JUGADOR"].unique()),
+                    title="Distribución del ratio Borg/Oliver por jugador",
+                )
+                fig_ratio.update_layout(**LAYOUT, height=360, showlegend=False)
+                st.plotly_chart(fig_ratio, use_container_width=True)
+
+            # ── Detalle expandible ──
+            with st.expander("📋 Detalle sesión por sesión (tabla completa)"):
+                cols_detalle = [c for c in [
+                    "FECHA", "JUGADOR", "session_name", "tipo",
+                    "played_time", "distancia_total_m", "distancia_hsr_m",
+                    "velocidad_max_kmh", "oliver_load",
+                    "acc_alta_count", "dec_alta_count", "acc_max_count", "dec_max_count",
+                    "sprints_count", "cambios_direccion", "saltos", "kcal",
+                    "BORG", "CARGA", "ratio_borg_oliver", "acwr_mecanico",
+                ] if c in oliver_f.columns]
+                st.dataframe(
+                    oliver_f.sort_values(["FECHA", "JUGADOR"])[cols_detalle],
+                    use_container_width=True, hide_index=True,
+                )
