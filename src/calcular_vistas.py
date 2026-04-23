@@ -206,6 +206,12 @@ def vista_peso(peso, ses):
     df["PESO_PRE"]  = pd.to_numeric(df["PESO_PRE"],  errors="coerce")
     df["PESO_POST"] = pd.to_numeric(df["PESO_POST"], errors="coerce")
     df["H2O_L"]     = pd.to_numeric(df["H2O_L"],     errors="coerce")
+
+    # Sanidad: pesos fuera del rango fisiológico (40-200 kg) → NaN
+    # Esto captura errores tipo "71,5" mal almacenado como 715 en Google Sheets.
+    for c in ("PESO_PRE", "PESO_POST"):
+        df[c] = df[c].where(df[c].between(40, 200), np.nan)
+
     df["DIFERENCIA"]   = df["PESO_PRE"] - df["PESO_POST"]
     df["PCT_PERDIDA"]  = (df["DIFERENCIA"] / df["PESO_PRE"] * 100).round(2)
     df["ALERTA_PESO"]  = df["PCT_PERDIDA"].apply(

@@ -746,15 +746,18 @@ with tab_well:
             for col, (nombre, color) in componentes.items():
                 if col in jug_well_df.columns:
                     fig_comp.add_trace(go.Scatter(
-                        x=jug_well_df["FECHA"], y=jug_well_df[col],
+                        x=jug_well_df["FECHA"],
+                        y=pd.to_numeric(jug_well_df[col], errors="coerce").round(2),
                         name=nombre, line=dict(color=color, width=2),
                         mode="lines+markers", marker=dict(size=4),
+                        hovertemplate="%{y:.1f}<extra></extra>",
                     ))
             # Media 7 días
             if "WELLNESS_7D" in jug_well_df.columns:
                 # Normalizar a escala /4 para comparar con componentes (1-5)
                 fig_comp.add_trace(go.Scatter(
-                    x=jug_well_df["FECHA"], y=jug_well_df["WELLNESS_7D"] / 4,
+                    x=jug_well_df["FECHA"],
+                    y=(jug_well_df["WELLNESS_7D"] / 4).round(2),
                     name="Wellness medio 7d (÷4)", line=dict(color="black", width=2, dash="dot"),
                 ))
             fig_comp.update_layout(
@@ -788,6 +791,7 @@ with tab_well:
                 x=eq_well["FECHA"], y=eq_well[comp],
                 name=comp, line=dict(color=color_c, width=2),
                 mode="lines+markers", marker=dict(size=3),
+                hovertemplate=comp + ": %{y:.2f}<extra></extra>",
             ))
         # Total en eje derecho (escala 4-20)
         fig_eq.add_trace(go.Scatter(
@@ -795,9 +799,12 @@ with tab_well:
             name="Total (4-20)", yaxis="y2",
             line=dict(color="#1B3A6B", width=2.5, dash="dot"),
             mode="lines",
+            hovertemplate="Total: %{y:.1f}<extra></extra>",
         ))
+        # LAYOUT ya incluye `legend`; evitar pasarlo dos veces
+        _layout_no_leg = {k: v for k, v in LAYOUT.items() if k != "legend"}
         fig_eq.update_layout(
-            **LAYOUT, height=400,
+            **_layout_no_leg, height=400,
             title="Media del equipo — Componentes Wellness (período seleccionado)",
             yaxis =dict(title="Componentes (1-5)", range=[0.5, 5.5]),
             yaxis2=dict(title="Total (4-20)", range=[2, 22],
