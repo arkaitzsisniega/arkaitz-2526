@@ -190,33 +190,28 @@ class OliverAPI:
             time.sleep(0.3)
         return out
 
-    def list_players(self, team_id: str) -> list[dict]:
-        """Players del equipo (incluyen user_id)."""
-        r = self._get("/players/", params={"team_id": team_id})
+    def list_players(self, team_id: str, include_user: bool = False) -> list[dict]:
+        """Players del equipo. Con include_user=True, cada player trae el
+        objeto `user` embebido (f_name, l_name)."""
+        params = {"team_id": team_id}
+        if include_user:
+            params["include"] = "user"
+        r = self._get("/players/", params=params)
         return r.get("players") or []
-
-    def list_users(self, team_id: str) -> list[dict]:
-        """Users del equipo (tienen f_name y l_name)."""
-        r = self._get("/users/", params={"team_id": team_id})
-        return r.get("users") or []
 
     def build_player_name_map(self, team_id: str) -> dict:
         """Devuelve dict player_id → 'Nombre Apellido'."""
         try:
-            players = self.list_players(team_id)
-            users   = self.list_users(team_id)
+            players = self.list_players(team_id, include_user=True)
         except Exception as e:
             _warn(f"No pude construir mapa de nombres: {e}")
             return {}
-        user_by_id = {u["id"]: u for u in users}
         mapa = {}
         for p in players:
-            uid = p.get("user_id")
-            u = user_by_id.get(uid)
-            if u:
-                nom = f"{u.get('f_name','').strip()} {u.get('l_name','').strip()}".strip()
-                if nom:
-                    mapa[p["id"]] = nom
+            u = p.get("user") or {}
+            nom = f"{(u.get('f_name') or '').strip()} {(u.get('l_name') or '').strip()}".strip()
+            if nom:
+                mapa[p["id"]] = nom
         return mapa
 
     def session_average(self, session_id: int) -> dict:
