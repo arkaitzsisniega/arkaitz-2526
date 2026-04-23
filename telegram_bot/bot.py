@@ -149,11 +149,22 @@ async def _keep_typing(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, stop: async
         pass
 
 
-async def _run_claude(prompt: str) -> Tuple[int, str, str]:
+# Memoria conversacional: conjunto de chats que deben empezar sesión nueva
+# (vacío = continuar sesión previa con -c)
+_fresh_chats: set = set()
+
+
+async def _run_claude(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
     """Ejecuta `claude -p <prompt>` en PROJECT_DIR.
-    Devuelve (exit_code, stdout, stderr)."""
+    Si continue_session=True, añade `-c` para mantener contexto de la
+    conversación previa. En la primera llamada, `-c` crea una nueva sesión
+    sin romper nada."""
+    args = [CLAUDE_BIN, "-p"]
+    if continue_session:
+        args.append("-c")
+    args.append(prompt)
     proc = await asyncio.create_subprocess_exec(
-        CLAUDE_BIN, "-p", prompt,
+        *args,
         cwd=str(PROJECT_DIR),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -183,6 +194,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• «¿cómo va la carga de Carlos esta semana?»\n"
         "• «revisa los últimos commits»\n"
         "• «arregla el warning que sale en dashboard/app.py»\n\n"
+        "Mantengo el hilo de la conversación: puedes decir «sí», «hazlo», "
+        "«detállalo más» y sé de qué hablamos.\n\n"
+        "Comandos:\n"
+        "• /nuevo → empezar conversación nueva (olvida el contexto anterior)\n"
+        "• /id → ver tu chat_id\n\n"
         "Sé claro y específico; Claude tiene acceso total al proyecto."
     )
 
@@ -193,6 +209,18 @@ async def cmd_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Tu chat_id es: `{update.effective_chat.id}`\n"
         "Copia ese número en el campo ALLOWED_CHAT_ID del archivo .env.",
         parse_mode="Markdown",
+    )
+
+
+async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Empieza una conversación nueva con Claude (descarta contexto previo)."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    _fresh_chats.add(update.effective_chat.id)
+    await update.message.reply_text(
+        "🆕 Vale, el próximo mensaje empezará una conversación nueva "
+        "(sin contexto de lo anterior)."
     )
 
 
@@ -209,13 +237,18 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
-    log.info("→ prompt: %s", prompt[:120].replace("\n", " "))
+    # Si el usuario pidió /nuevo, esta llamada empieza sesión nueva
+    continuar = chat_id not in _fresh_chats
+    _fresh_chats.discard(chat_id)
+    log.info("→ prompt (%s): %s",
+             "continuar" if continuar else "NUEVA",
+             prompt[:120].replace("\n", " "))
 
     stop = asyncio.Event()
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
     try:
-        rc, out, err = await _run_claude(prompt)
+        rc, out, err = await _run_claude(prompt, continue_session=continuar)
     finally:
         stop.set()
         try:
@@ -256,6 +289,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("id", cmd_id))
+    app.add_handler(CommandHandler("nuevo", cmd_nuevo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_error_handler(on_error)
     log.info("Bot arrancado. Escuchando mensajes… (Ctrl+C para parar)")

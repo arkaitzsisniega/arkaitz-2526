@@ -107,6 +107,17 @@ Escribe al bot desde Telegram como si me hablaras a mí. Ejemplos reales:
 
 El bot puede tardar de **10 segundos a varios minutos** según la petición. Verás "escribiendo…" mientras trabaja.
 
+### 🧠 Memoria de conversación
+
+El bot **mantiene el hilo** entre mensajes: si pregunta algo y le respondes "sí", "hazlo", "dame más detalle"… se acuerda de qué hablabais. Es como una conversación normal.
+
+Comandos útiles:
+- **`/nuevo`** — empezar una conversación nueva, olvidando el contexto anterior. Úsalo cuando cambies totalmente de tema o quieras "borrar la pizarra".
+- **`/id`** — ver tu chat_id (solo útil si te lías con la configuración).
+- **`/start`** — saludo y pistas de uso.
+
+**Tip**: si haces muchas preguntas sobre un mismo tema, mejor hazlo en una sola conversación sin `/nuevo`. Si empiezas algo totalmente distinto, pulsa `/nuevo` primero para no confundirlo.
+
 ---
 
 ## 🆘 Qué hacer si deja de funcionar
