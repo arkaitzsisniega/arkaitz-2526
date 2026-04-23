@@ -22,6 +22,7 @@ para regenerarlo copiando un snippet de 4 líneas en la consola del navegador.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import time
@@ -48,6 +49,19 @@ OLIVER_TOKEN  = os.getenv("OLIVER_TOKEN", "").strip()
 OLIVER_USER   = os.getenv("OLIVER_USER_ID", "").strip()
 OLIVER_TEAM   = os.getenv("OLIVER_TEAM_ID", "1728").strip()
 OLIVER_VERSION = "2.0.35"
+
+
+def _decode_jwt_payload(jwt: str) -> dict:
+    """Decodifica el payload del JWT (sin verificar firma — solo leer)."""
+    try:
+        parts = jwt.split(".")
+        if len(parts) < 2:
+            return {}
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)  # padding base64
+        return json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        return {}
 
 SHEET_NAME    = "Arkaitz - Datos Temporada 2526"
 CREDS_FILE    = ROOT / "google_credentials.json"
@@ -116,15 +130,31 @@ class OliverAPI:
         self.token = token
         self.user_id = str(user_id)
         self.base = OLIVER_API
+        # El JWT lleva dentro los headers con los que se firmó.
+        # Oliver valida que los request lleguen con EXACTAMENTE esos mismos headers.
+        self._jwt = _decode_jwt_payload(token)
 
     def _hdr(self):
-        return {
+        # Headers base del cliente
+        h = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json",
             "x-user-id": self.user_id,
-            "x-version": OLIVER_VERSION,
-            "x-from": "portal",
+            "x-version": self._jwt.get("x-version") or OLIVER_VERSION,
+            "x-from": self._jwt.get("x-from") or "portal",
         }
+        # Copiar el User-Agent, Accept-Language y Accept-Encoding tal como
+        # los tiene firmados el token (si no coinciden → 401 Unauthorized).
+        ua = self._jwt.get("user-agent")
+        if ua:
+            h["User-Agent"] = ua
+        al = self._jwt.get("accept-language")
+        if al:
+            h["Accept-Language"] = al
+        ae = self._jwt.get("accept-encoding")
+        if ae:
+            h["Accept-Encoding"] = ae
+        return h
 
     def _get(self, path: str, params: dict | None = None, max_retries: int = 2):
         url = f"{self.base}{path}"
@@ -220,8 +250,17 @@ def extract_mvp(session_meta: dict, player_session: dict) -> dict:
         "cambios_direccion": int(_get_nested(metrics, "cods.count", 0) or 0),
         "saltos": int(_get_nested(metrics, "jumps.count", 0) or 0),
         "sprints_count": int(_get_nested(metrics, "stats.speed.segments.sprint.count", 0) or 0),
-        "rpe_oliver": player_session.get("rpe") or "",
+        "rpe_oliver": _rpe_value(player_session.get("rpe")),
     }
+
+
+def _rpe_value(rpe):
+    """Extrae el valor numérico del rpe. A veces Oliver devuelve un dict."""
+    if rpe is None or rpe == "":
+        return ""
+    if isinstance(rpe, dict):
+        return rpe.get("value", "")
+    return rpe
 
 
 def flatten_all(metrics: dict, parent: str = "") -> dict:
@@ -276,6 +315,12 @@ def escribir_vista(ss, nombre_hoja: str, df: pd.DataFrame) -> None:
     for col in df.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]):
         df[col] = df[col].dt.strftime("%Y-%m-%d")
     df = df.where(pd.notnull(df), "")
+    # Salvaguarda: convertir dict/list a string (gspread solo acepta escalares)
+    def _flat(v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, ensure_ascii=False)[:200]
+        return v
+    df = df.map(_flat) if hasattr(df, "map") else df.applymap(_flat)
 
     existentes = {ws.title for ws in ss.worksheets()}
     if nombre_hoja in existentes:

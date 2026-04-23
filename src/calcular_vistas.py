@@ -440,10 +440,14 @@ def vista_oliver_cruzado(ss, carga_df: pd.DataFrame, well_df: pd.DataFrame) -> p
     if "fecha" in oliver.columns:
         oliver["fecha"] = oliver["fecha"].apply(_to_date)
     oliver = oliver.rename(columns={"fecha": "FECHA", "jugador": "JUGADOR"})
+    # Forzar JUGADOR a string (gspread puede devolver números si el nombre lo parece)
+    if "JUGADOR" in oliver.columns:
+        oliver["JUGADOR"] = oliver["JUGADOR"].astype(str).str.strip()
 
     # Unir con _VISTA_CARGA (sRPE por jugador/sesión)
     carga_sub = carga_df[["FECHA", "JUGADOR", "BORG", "MINUTOS", "CARGA"]].copy() if not carga_df.empty else pd.DataFrame()
     if not carga_sub.empty:
+        carga_sub["JUGADOR"] = carga_sub["JUGADOR"].astype(str).str.strip()
         carga_sub = carga_sub.groupby(["FECHA", "JUGADOR"], as_index=False).agg({
             "BORG": "mean", "MINUTOS": "sum", "CARGA": "sum",
         })
