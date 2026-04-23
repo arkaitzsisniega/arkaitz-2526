@@ -77,13 +77,40 @@
 - Después de modificar `calcular_vistas.py`, re-ejecutarlo para que las `_VISTA_*` del Sheet reflejen los cambios antes de que el dashboard se actualice.
 - Después de cambios en `dashboard/app.py`: `git push` → Streamlit Cloud tarda 1-2 min en redeplegar.
 
-## Sincronización móvil ↔ ordenador
+## Sincronización móvil ↔ ordenador — **LEER AL ARRANCAR**
 
 El usuario alterna entre hablar con los bots de Telegram (móvil) y con Claude
-Desktop/Code (ordenador). Para no perder contexto:
+Desktop/Code (ordenador). Para que no pierda el hilo al saltar de un sitio a otro:
 
-- Cada intercambio (pregunta + respuesta) se espeja en `telegram_logs/YYYY-MM-DD.md`.
-- Cuando inicies sesión y el usuario mencione algo que parezca continuar una
-  conversación previa del bot (o simplemente si tiene sentido), **lee el log de
-  hoy** con `Read("telegram_logs/YYYY-MM-DD.md")` para recuperar el hilo.
-- La carpeta está en `.gitignore` (datos pueden ser sensibles).
+### Regla obligatoria al iniciar cada conversación nueva en Claude Desktop/Code
+
+**ANTES de contestar al primer mensaje del usuario** en una nueva sesión:
+
+1. Mira si existe el archivo `telegram_logs/YYYY-MM-DD.md` del día de hoy
+   (usa `Read`). Si no existe o está vacío, sigue normal y no menciones nada.
+2. Si existe y tiene contenido:
+   - Empieza tu primera respuesta con un bloque corto: **"📱 Hilo de Telegram hoy:"**
+     seguido de un resumen en 3-6 bullets de lo que el usuario preguntó al bot
+     y lo que el bot respondió (no pegues el log entero, resume).
+   - Incluye la hora de los mensajes más recientes.
+   - Después de ese resumen, contesta normalmente al mensaje del usuario.
+3. Si el usuario escribe algo que claramente continúa un hilo del bot ("sí",
+   "sigue con lo de antes", "hazlo", "y Pirata qué tal?"…), asume contexto
+   del log.
+
+### Cómo se genera ese log
+- Ambos bots (`telegram_bot/bot.py` y `telegram_bot_datos/bot_datos.py`)
+  escriben cada intercambio en `telegram_logs/YYYY-MM-DD.md` con timestamp,
+  bot que atendió, chat_id y texto (tanto del usuario como de Claude).
+- El formato de cada entrada:
+  ```
+  ### HH:MM:SS · <bot_name> · chat <id> · 💬 o 🎤 (voz)
+  **Usuario:** ...
+  **Claude:** ...
+  ```
+- La carpeta `telegram_logs/` está en `.gitignore` (contenido sensible).
+
+### Comandos explícitos del usuario
+Si el usuario dice **"ponme al día"**, **"recap"**, **"qué ha pasado por Telegram"**
+o similar → abre el log del día y pégalo o resúmelo más a fondo (bajo demanda
+puedes ser más detallado que en el preview automático).
