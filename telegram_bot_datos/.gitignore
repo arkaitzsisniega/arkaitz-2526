@@ -1,0 +1,13 @@
+# Secretos
+.env
+
+# Sesiones de usuario (no compartir entre máquinas)
+sesiones/
+
+# Virtualenv
+venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo

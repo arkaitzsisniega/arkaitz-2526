@@ -156,10 +156,10 @@ _fresh_chats: set = set()
 
 async def _run_claude(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
     """Ejecuta `claude -p <prompt>` en PROJECT_DIR.
-    Si continue_session=True, añade `-c` para mantener contexto de la
-    conversación previa. En la primera llamada, `-c` crea una nueva sesión
-    sin romper nada."""
-    args = [CLAUDE_BIN, "-p"]
+    --dangerously-skip-permissions: modo no interactivo, no hay nadie que pueda
+    aprobar permisos. Seguro aquí porque solo el ALLOWED_CHAT_ID manda prompts.
+    -c (--continue) mantiene el hilo de la conversación previa."""
+    args = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions"]
     if continue_session:
         args.append("-c")
     args.append(prompt)
