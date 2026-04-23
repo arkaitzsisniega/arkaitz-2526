@@ -76,3 +76,14 @@
 - Commits en español, forma imperativa corta. Incluir `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`.
 - Después de modificar `calcular_vistas.py`, re-ejecutarlo para que las `_VISTA_*` del Sheet reflejen los cambios antes de que el dashboard se actualice.
 - Después de cambios en `dashboard/app.py`: `git push` → Streamlit Cloud tarda 1-2 min en redeplegar.
+
+## Sincronización móvil ↔ ordenador
+
+El usuario alterna entre hablar con los bots de Telegram (móvil) y con Claude
+Desktop/Code (ordenador). Para no perder contexto:
+
+- Cada intercambio (pregunta + respuesta) se espeja en `telegram_logs/YYYY-MM-DD.md`.
+- Cuando inicies sesión y el usuario mencione algo que parezca continuar una
+  conversación previa del bot (o simplemente si tiene sentido), **lee el log de
+  hoy** con `Read("telegram_logs/YYYY-MM-DD.md")` para recuperar el hilo.
+- La carpeta está en `.gitignore` (datos pueden ser sensibles).

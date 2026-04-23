@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import re
 import asyncio
+import datetime as _dt
 import logging
 import shutil
 import tempfile
@@ -47,6 +48,7 @@ CLAUDE_BIN_ENV      = os.getenv("CLAUDE_BIN", "").strip()
 
 SESIONES_DIR = HERE / "sesiones"
 MAX_MSG_LEN  = 4000
+BOT_NAME     = "InterFS_datos_bot"
 
 # Parsear lista de chat_ids permitidos (separados por comas, espacios o saltos de línea)
 ALLOWED_CHAT_IDS: Set[int] = set()
@@ -116,6 +118,29 @@ SESIONES_DIR.mkdir(parents=True, exist_ok=True)
 log.info("Claude: %s", CLAUDE_BIN)
 log.info("Proyecto: %s", PROJECT_DIR)
 log.info("Autorizados: %s", sorted(ALLOWED_CHAT_IDS))
+
+
+# ─── Espejo de conversaciones (para móvil ↔ ordenador) ───────────────────────
+LOGS_DIR = PROJECT_DIR / "telegram_logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
+
+def _append_log(chat_id: int, user_name: str, user_msg: str, bot_reply: str, kind: str = "texto") -> None:
+    try:
+        hoy = _dt.datetime.now().strftime("%Y-%m-%d")
+        hora = _dt.datetime.now().strftime("%H:%M:%S")
+        path = LOGS_DIR / f"{hoy}.md"
+        etiqueta = "🎤 (voz)" if kind == "voz" else "💬"
+        bloque = (
+            f"\n---\n"
+            f"### {hora} · {BOT_NAME} · chat `{chat_id}` · {etiqueta}\n\n"
+            f"**{user_name or 'usuario'}:**\n{user_msg.strip()}\n\n"
+            f"**Claude:**\n{bot_reply.strip()}\n"
+        )
+        with path.open("a", encoding="utf-8") as f:
+            f.write(bloque)
+    except Exception as e:
+        log.warning("No pude escribir log: %s", e)
 
 
 # ─── System prompt del bot de datos ──────────────────────────────────────────
@@ -333,10 +358,12 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                          kind: str = "texto"):
     """Pasa el prompt a Claude y devuelve la respuesta al chat.
     Misma lógica se usa para mensajes de texto y mensajes de voz transcritos."""
     chat_id = update.effective_chat.id
+    user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
 
@@ -362,15 +389,18 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
         msg = f"⚠️ Algo falló al consultar los datos.\nDetalle técnico (para Arkaitz):\n{detalle[:1500]}"
         for chunk in _chunks(msg):
             await update.message.reply_text(chunk)
+        _append_log(chat_id, user_name, prompt, msg, kind=kind)
         return
 
     response = (out or "").strip()
     if not response:
         await update.message.reply_text("🤷 No he podido generar respuesta.")
+        _append_log(chat_id, user_name, prompt, "(sin respuesta)", kind=kind)
         return
 
     for chunk in _chunks(response):
         await update.message.reply_text(chunk, disable_web_page_preview=True)
+    _append_log(chat_id, user_name, prompt, response, kind=kind)
 
 
 async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -443,7 +473,7 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Confirmar al usuario qué he entendido (por si hay error de transcripción)
     await update.message.reply_text(f"🎤 Entendido: «{text}»")
 
-    await _process_prompt(text, update, ctx)
+    await _process_prompt(text, update, ctx, kind="voz")
 
 
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):

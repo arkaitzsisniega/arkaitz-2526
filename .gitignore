@@ -13,6 +13,9 @@ data/raw/
 # Claude Code local state (sesiones, worktrees, etc.)
 .claude/
 
+# Logs espejados de los bots de Telegram (pueden contener datos sensibles)
+telegram_logs/
+
 # Python
 __pycache__/
 *.pyc
