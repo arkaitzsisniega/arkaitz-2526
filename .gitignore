@@ -7,7 +7,11 @@ google_credentials.json
 
 # Base de datos local
 data/temporada_2526.duckdb
+data/temporada_2526.duckdb.wal
 data/raw/
+
+# Claude Code local state (sesiones, worktrees, etc.)
+.claude/
 
 # Python
 __pycache__/

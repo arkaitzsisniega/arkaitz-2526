@@ -1,0 +1,10 @@
+# Secretos — NUNCA subir a git
+.env
+
+# Entorno virtual de Python
+venv/
+
+# Cachés de Python
+__pycache__/
+*.pyc
+*.pyo

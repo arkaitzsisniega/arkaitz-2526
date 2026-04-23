@@ -40,6 +40,31 @@ def to_num(x):
 
 # ── Lectura de datos crudos ───────────────────────────────────────────────────
 
+def _to_date(x):
+    """Convierte serial de Google Sheets o string a pd.Timestamp de forma robusta.
+    - Seriales (int/float): días desde 1899-12-30 (solo si está en rango razonable).
+    - Strings: intenta formato ISO primero (sin dayfirst, evita que '2025-08-04'
+      se interprete erróneamente como '2025-04-08')."""
+    if x is None or x == "":
+        return pd.NaT
+    if isinstance(x, (int, float)):
+        if isinstance(x, float) and pd.isna(x):
+            return pd.NaT
+        try:
+            n = int(x)
+        except (ValueError, TypeError):
+            return pd.NaT
+        # rango razonable: 1 (1899-12-31) a 60000 (~2063). Rechaza seriales raros.
+        if not (1 <= n <= 60000):
+            return pd.NaT
+        return pd.Timestamp("1899-12-30") + pd.Timedelta(days=n)
+    # String: ISO primero, europeo después
+    ts = pd.to_datetime(x, errors="coerce")
+    if pd.isna(ts):
+        ts = pd.to_datetime(x, dayfirst=True, errors="coerce")
+    return ts
+
+
 def leer_hoja(ss, nombre, parse_dates=None):
     ws = ss.worksheet(nombre)
     # value_render_option unformatted → números como float puro, sin formato de locale
@@ -51,13 +76,7 @@ def leer_hoja(ss, nombre, parse_dates=None):
     if parse_dates:
         for col in parse_dates:
             if col in df.columns:
-                # Con UNFORMATTED, las fechas llegan como serial de Google Sheets (días desde 1899-12-30)
-                # pd.to_datetime tolera tanto serial numérico como string "YYYY-MM-DD"
-                df[col] = df[col].apply(
-                    lambda x: pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(x))
-                    if isinstance(x, (int, float)) and not pd.isna(x)
-                    else pd.to_datetime(x, dayfirst=True, errors="coerce")
-                )
+                df[col] = df[col].apply(_to_date)
     return df
 
 # ── Escritura de vista en Google Sheets ──────────────────────────────────────
@@ -97,8 +116,11 @@ def vista_carga(ses, borg):
         on=["FECHA", "TURNO"],
         how="left"
     )
-    df["CARGA"] = pd.to_numeric(df["BORG"], errors="coerce") * pd.to_numeric(df["MINUTOS"], errors="coerce")
-    df["FECHA_STR"] = df["FECHA"].dt.strftime("%Y-%m-%d")
+    # Convertir BORG a numérico (las letras de estado S/A/L/N/D/NC → NaN)
+    # BORG crudo con letras se preserva en `borg` (entrada) para vista_recuento.
+    df["BORG"]  = pd.to_numeric(df["BORG"], errors="coerce")
+    df["CARGA"] = df["BORG"] * pd.to_numeric(df["MINUTOS"], errors="coerce")
+    df["FECHA_STR"]  = df["FECHA"].dt.strftime("%Y-%m-%d")
     df["DIA_SEMANA"] = df["FECHA"].dt.day_name()
     df = df.sort_values(["FECHA", "JUGADOR"])
     return df[["FECHA", "FECHA_STR", "SEMANA", "DIA_SEMANA", "TURNO",
@@ -145,6 +167,10 @@ def vista_semanal(carga_df):
                 continue
 
             carga_sem  = float(daily[semana_mask].sum())
+            # Saltar semanas sin carga real para este jugador (evita semanas fantasma)
+            if carga_sem == 0:
+                continue
+
             sesiones   = int((jdf["FECHA"].dt.isocalendar().week ==
                               lun.isocalendar()[1]).sum())
             borg_medio = float(jdf[jdf["FECHA"].dt.isocalendar().week ==
@@ -207,8 +233,8 @@ def vista_peso(peso, ses):
     df["PESO_POST"] = pd.to_numeric(df["PESO_POST"], errors="coerce")
     df["H2O_L"]     = pd.to_numeric(df["H2O_L"],     errors="coerce")
 
-    # Sanidad: pesos fuera del rango fisiológico (40-200 kg) → NaN
-    # Esto captura errores tipo "71,5" mal almacenado como 715 en Google Sheets.
+    # Sanidad ANTES de calcular derivados: pesos fuera del rango fisiológico (40-200 kg) → NaN
+    # Captura errores tipo "71,5→715" o valores de tipeo (9.2 para un adulto).
     for c in ("PESO_PRE", "PESO_POST"):
         df[c] = df[c].where(df[c].between(40, 200), np.nan)
 
@@ -303,19 +329,24 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
                         "NARANJA" if well_medio <= 13 else
                         "VERDE")  if not np.isnan(well_medio)  else "GRIS"
 
-        # Peso PRE — última sesión vs baseline (media últimos 2 meses)
-        jpeso = peso_df[peso_df["JUGADOR"] == jugador].sort_values("FECHA")
-        if len(jpeso):
-            fecha_ult  = jpeso["FECHA"].max()
+        # Peso PRE — media de las últimas 3 sesiones vs baseline (media últimos 2 meses)
+        # Usar 3 sesiones evita que un error puntual de tipeo distorsione la alerta.
+        jpeso = (peso_df[(peso_df["JUGADOR"] == jugador) & peso_df["FECHA"].notna()]
+                 .drop_duplicates(["FECHA", "TURNO"] if "TURNO" in peso_df.columns else ["FECHA"])
+                 .sort_values("FECHA"))
+        peso_valido = jpeso[["FECHA", "PESO_PRE"]].dropna(subset=["PESO_PRE"])
+        if len(peso_valido) >= 1:
+            fecha_ult  = peso_valido["FECHA"].max()
             fecha_2m   = fecha_ult - pd.Timedelta(days=60)
-            jpeso_base = jpeso[jpeso["FECHA"] >= fecha_2m]["PESO_PRE"].dropna()
-            baseline_2m = float(jpeso_base.mean()) if len(jpeso_base) >= 3 else float(jpeso["PESO_PRE"].dropna().mean())
-            peso_ultimo = float(jpeso["PESO_PRE"].dropna().iloc[-1]) if jpeso["PESO_PRE"].dropna().size else np.nan
-            if np.isnan(baseline_2m) or np.isnan(peso_ultimo):
+            base_serie = peso_valido[peso_valido["FECHA"] >= fecha_2m]["PESO_PRE"]
+            baseline_2m = float(base_serie.mean()) if len(base_serie) >= 3 else float(peso_valido["PESO_PRE"].mean())
+            ult3 = peso_valido["PESO_PRE"].tail(3)
+            peso_reciente = float(ult3.mean()) if len(ult3) >= 1 else np.nan
+            if np.isnan(baseline_2m) or np.isnan(peso_reciente):
                 desv     = np.nan
                 sem_peso = "GRIS"
             else:
-                desv = round(peso_ultimo - baseline_2m, 2)
+                desv = round(peso_reciente - baseline_2m, 2)
                 sem_peso = ("ROJO"    if desv < -3.0 else
                             "NARANJA" if desv < -1.5 else
                             "VERDE")
@@ -355,19 +386,27 @@ def vista_semaforo(semanal_df, wellness_df, peso_df):
 # ── VISTA 6: RECUENTO DE ASISTENCIA ──────────────────────────────────────────
 
 def vista_recuento(borg, ses):
-    total_ses = len(ses)
+    # Sesiones únicas del equipo (FECHA + TURNO)
+    total_ses = len(ses.drop_duplicates(["FECHA", "TURNO"])) if "TURNO" in ses.columns else len(ses)
     estados_validos = ["S", "A", "L", "N", "D", "NC"]
-    jugadores = borg["JUGADOR"].unique()
+    jugadores = borg["JUGADOR"].dropna().unique()
 
     rows = []
     for j in jugadores:
-        jdf = borg[borg["JUGADOR"] == j]
+        # Deduplicar: cada sesión (FECHA+TURNO) cuenta una vez por jugador
+        jdf = borg[borg["JUGADOR"] == j].drop_duplicates(["FECHA", "TURNO"])
         row = {"JUGADOR": j, "TOTAL_SESIONES_EQUIPO": total_ses}
         for est in estados_validos:
             col = f"EST_{est}"
-            row[col] = int((jdf["BORG"].astype(str) == est).sum())
-        row["SESIONES_CON_DATOS"] = int(jdf["BORG"].notna().sum())
-        row["PCT_PARTICIPACION"]  = round(row["SESIONES_CON_DATOS"] / total_ses * 100, 1) if total_ses else 0
+            # BORG contiene letras (S/A/L/N/D/NC) para estados no-entrenables
+            row[col] = int((jdf["BORG"].astype(str).str.strip() == est).sum())
+        # Sesiones "con datos" = con un número de Borg válido (no letra, no vacío)
+        borg_num = pd.to_numeric(jdf["BORG"], errors="coerce")
+        row["SESIONES_CON_DATOS"] = int(borg_num.notna().sum())
+        row["PCT_PARTICIPACION"]  = (
+            round(min(row["SESIONES_CON_DATOS"] / total_ses * 100, 100), 1)
+            if total_ses else 0
+        )
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values("PCT_PARTICIPACION", ascending=False)
@@ -386,8 +425,10 @@ def main():
     peso = leer_hoja(ss, "PESO",      parse_dates=["FECHA"])
     well = leer_hoja(ss, "WELLNESS",  parse_dates=["FECHA"])
 
-    # Parseo numérico robusto (tolera coma decimal y strings)
-    borg["BORG"]    = borg["BORG"].apply(to_num)
+    # Parseo numérico robusto (tolera coma decimal y strings).
+    # OJO: NO aplicamos to_num a borg["BORG"] porque contiene tanto números
+    # (RPE 0-10) como letras de estado (S/A/L/N/D/NC) que necesita vista_recuento.
+    # vista_carga ya hace su propio pd.to_numeric internamente.
     ses["MINUTOS"]  = ses["MINUTOS"].apply(to_num)
     for col in ["PESO_PRE", "PESO_POST", "H2O_L"]:
         if col in peso.columns:

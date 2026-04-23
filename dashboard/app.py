@@ -119,7 +119,10 @@ def cargar(hoja: str) -> pd.DataFrame:
     ss     = client.open(SHEET_NAME)
     ws     = ss.worksheet(hoja)
     try:
-        data = ws.get_all_records()
+        # UNFORMATTED → números como float puro (no "17,1" que rompe pd.to_numeric)
+        data = ws.get_all_records(
+            value_render_option=gspread.utils.ValueRenderOption.unformatted
+        )
         return pd.DataFrame(data)
     except Exception:
         # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES)
@@ -145,9 +148,30 @@ def cargar(hoja: str) -> pd.DataFrame:
         return pd.DataFrame(data_rows, columns=clean)
 
 
+def _to_date(x):
+    """Convierte serial de Google Sheets o string a Timestamp con validación de rango."""
+    if x is None or x == "":
+        return pd.NaT
+    if isinstance(x, (int, float)):
+        if isinstance(x, float) and pd.isna(x):
+            return pd.NaT
+        try:
+            n = int(x)
+        except (ValueError, TypeError):
+            return pd.NaT
+        if not (1 <= n <= 60000):
+            return pd.NaT
+        return pd.Timestamp("1899-12-30") + pd.Timedelta(days=n)
+    # ISO primero (sin dayfirst: "2025-08-04" NO debe volverse "2025-04-08")
+    ts = pd.to_datetime(x, errors="coerce")
+    if pd.isna(ts):
+        ts = pd.to_datetime(x, dayfirst=True, errors="coerce")
+    return ts
+
+
 def fecha_col(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if col in df.columns:
-        df[col] = pd.to_datetime(df[col], errors="coerce")
+        df[col] = df[col].apply(_to_date)
     return df
 
 
@@ -212,8 +236,9 @@ with st.sidebar:
     if not sel_jugadores:
         sel_jugadores = jugadores_todos
 
+    _hoy = pd.Timestamp.now().normalize().date()
     fecha_min = carga["FECHA"].min().date()
-    fecha_max = carga["FECHA"].max().date()
+    fecha_max = min(carga["FECHA"].max().date(), _hoy)  # nunca permitir futuro
     rango = st.date_input(
         "📅 Período",
         value=(fecha_min, fecha_max),
@@ -241,9 +266,15 @@ _well_periodo = df_well[
 ]
 _well_stats = (
     _well_periodo.groupby("JUGADOR")["TOTAL"]
-    .agg(well_mean="mean", well_below=lambda x: int((x < 15).sum()))
+    .agg(
+        well_mean ="mean",
+        well_below=lambda x: int((x < 15).sum()),
+        well_total="count",
+    )
     .reset_index()
-) if not _well_periodo.empty else pd.DataFrame(columns=["JUGADOR", "well_mean", "well_below"])
+) if not _well_periodo.empty else pd.DataFrame(
+    columns=["JUGADOR", "well_mean", "well_below", "well_total"]
+)
 
 
 def fj(df, col="JUGADOR"):
@@ -356,12 +387,14 @@ with tab_sem:
             alertas     = int(row.get("ALERTAS_ACTIVAS", 0))
             # Wellness dinámico del período seleccionado
             _ws = _well_stats[_well_stats["JUGADOR"] == jugador_nom]
-            well_med   = float(_ws["well_mean"].iloc[0]) if not _ws.empty else float("nan")
-            well_below = int(_ws["well_below"].iloc[0])  if not _ws.empty else 0
+            well_med   = float(_ws["well_mean"].iloc[0])  if not _ws.empty else float("nan")
+            well_below = int(_ws["well_below"].iloc[0])   if not _ws.empty else 0
+            well_total = int(_ws["well_total"].iloc[0])   if not _ws.empty else 0
 
             acwr_txt  = f"{acwr:.2f}" if pd.notna(acwr) else "—"
             well_txt  = (f"{well_med:.1f}/20" if pd.notna(well_med) else "—")
-            below_txt = (f" ({int(well_below)}/7 bajo 15)" if pd.notna(well_below) and int(well_below) > 0 else "")
+            below_txt = (f" ({well_below}/{well_total} bajo 15)"
+                         if well_total > 0 and well_below > 0 else "")
             well_full = well_txt + below_txt
             peso_txt  = f"{peso_desv:+.1f} kg" if pd.notna(peso_desv) else "—"
             alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
@@ -430,8 +463,10 @@ with tab_sem:
 with tab_carga:
     carga_f = ff(fj(carga))
 
-    # ── Selector de semana (como el Excel) ──
-    semanas = sorted(semanal["FECHA_LUNES"].dropna().unique())
+    # ── Selector de semana (solo semanas con datos reales, no futuras) ──
+    _hoy_ts = pd.Timestamp.now().normalize()
+    semanas = [s for s in sorted(semanal["FECHA_LUNES"].dropna().unique())
+               if pd.Timestamp(s) <= _hoy_ts]
     semana_sel = st.select_slider(
         "📅 Semana",
         options=semanas,
@@ -565,7 +600,8 @@ with tab_peso:
     # Selector de semana — usando fecha del lunes de cada semana (evita Period deprecado)
     _peso_lunes = (peso["FECHA"].dropna()
                    - pd.to_timedelta(peso["FECHA"].dropna().dt.dayofweek, unit="D"))
-    semanas_peso = sorted(_peso_lunes.unique())
+    _hoy_ts = pd.Timestamp.now().normalize()
+    semanas_peso = [s for s in sorted(_peso_lunes.unique()) if pd.Timestamp(s) <= _hoy_ts]
     sp_ini = pd.Timestamp(st.select_slider(
         "📅 Semana",
         options=semanas_peso,
@@ -684,6 +720,7 @@ with tab_well:
             range_color=[8, 20],
             title="Wellness total (suma S+F+M+Á) · máximo = 20",
         )
+        fig_heat.update_traces(hovertemplate="%{x|%d/%m}<br>%{y}: %{z:.1f}<extra></extra>")
         fig_heat.update_xaxes(tickformat="%d/%m", tickangle=-45)
         fig_heat.update_layout(**LAYOUT, height=450, coloraxis_showscale=True)
         st.plotly_chart(fig_heat, use_container_width=True)
@@ -691,8 +728,10 @@ with tab_well:
     st.markdown("---")
     st.markdown("### Wellness semanal")
 
-    # Selector semana wellness
-    semanas_w = sorted(semanal["FECHA_LUNES"].dropna().unique())
+    # Selector semana wellness (no permitir futuras)
+    _hoy_ts = pd.Timestamp.now().normalize()
+    semanas_w = [s for s in sorted(semanal["FECHA_LUNES"].dropna().unique())
+                 if pd.Timestamp(s) <= _hoy_ts]
     semana_w  = st.select_slider(
         "📅 Semana",
         options=semanas_w,
@@ -722,7 +761,16 @@ with tab_well:
             if v <= 10: return "background-color:#FFCDD2;font-weight:bold"
             if v <= 13: return "background-color:#FFE0B2"
             return "background-color:#E8F5E9"
-        st.dataframe(pivot_well_dia.style.map(color_well), use_container_width=True)
+        # DÍAS CON DATO es entero; el resto wellness max 1 decimal
+        dias_col = ["DÍAS CON DATO"] if "DÍAS CON DATO" in pivot_well_dia.columns else []
+        well_cols = [c for c in pivot_well_dia.columns if c not in dias_col]
+        styled_w = (
+            pivot_well_dia.style
+            .map(color_well, subset=well_cols)
+            .format("{:.1f}", subset=well_cols, na_rep="—")
+            .format("{:.0f}", subset=dias_col, na_rep="—")
+        )
+        st.dataframe(styled_w, use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Evolución de los componentes del wellness")
@@ -830,6 +878,12 @@ with tab_les:
     les_f = les_f[[c for c in les_f.columns
                    if not c.startswith("_VACÍO") and _col_tiene_datos(les_f[c])]]
 
+    # Filtrar filas vacías o de plantilla: exige JUGADOR + FECHA LESIÓN válidas
+    if "JUGADOR" in les_f.columns and "FECHA LESIÓN" in les_f.columns:
+        jug_ok = les_f["JUGADOR"].astype(str).str.strip().ne("") & les_f["JUGADOR"].notna()
+        fecha_ok = les_f["FECHA LESIÓN"].notna()
+        les_f = les_f[jug_ok & fecha_ok].reset_index(drop=True)
+
     # Lesiones activas (sin fecha de alta)
     try:
         if "FECHA ALTA" in les_f.columns and "FECHA LESIÓN" in les_f.columns:
@@ -891,14 +945,49 @@ with tab_les:
 # TAB 6 — RECUENTO DE ASISTENCIA
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_rec:
-    st.markdown("### Recuento de sesiones — Temporada completa")
+    # Selector: temporada completa (vista pre-calculada) vs período del sidebar (dinámico)
+    modo_rec = st.radio(
+        "Ámbito",
+        ["Temporada completa", "Solo el período seleccionado"],
+        horizontal=True, key="rec_modo",
+    )
 
-    rec_f = rec[rec["JUGADOR"].isin(sel_jugadores)] if "JUGADOR" in rec.columns else rec
-
-    if rec_f.empty:
-        st.info("Sin datos de recuento.")
+    if modo_rec == "Temporada completa":
+        st.markdown("### Recuento — Temporada completa")
+        rec_f = rec[rec["JUGADOR"].isin(sel_jugadores)].copy() if "JUGADOR" in rec.columns else rec.copy()
     else:
-        # Tabla principal de recuento (como Excel RECUENTO)
+        # Cálculo dinámico desde _VISTA_CARGA filtrado por fechas y jugadores
+        st.markdown(f"### Recuento — {f_desde.strftime('%d/%m/%Y')} a {f_hasta.strftime('%d/%m/%Y')}")
+        carga_rec = carga[(carga["FECHA"] >= f_desde) & (carga["FECHA"] <= f_hasta)].copy()
+        carga_rec = carga_rec[carga_rec["JUGADOR"].isin(sel_jugadores)]
+
+        if carga_rec.empty:
+            st.info("Sin datos en el período seleccionado.")
+            rec_f = pd.DataFrame()
+        else:
+            # Sesiones únicas del equipo en el período
+            total_ses = carga_rec.drop_duplicates(["FECHA", "TURNO"]).shape[0] \
+                if "TURNO" in carga_rec.columns else carga_rec["FECHA"].dt.normalize().nunique()
+
+            rows = []
+            estados = ["S", "A", "L", "N", "D", "NC"]
+            for jug in sorted(carga_rec["JUGADOR"].unique()):
+                jdf = carga_rec[carga_rec["JUGADOR"] == jug].drop_duplicates(["FECHA", "TURNO"]) \
+                      if "TURNO" in carga_rec.columns else carga_rec[carga_rec["JUGADOR"] == jug]
+                borg_str = jdf["BORG"].astype(str).str.strip()
+                borg_num = pd.to_numeric(jdf["BORG"], errors="coerce")
+                row = {"JUGADOR": jug, "TOTAL_SESIONES_EQUIPO": total_ses}
+                for est in estados:
+                    row[f"EST_{est}"] = int((borg_str == est).sum())
+                row["SESIONES_CON_DATOS"] = int(borg_num.notna().sum())
+                row["PCT_PARTICIPACION"] = round(
+                    min(row["SESIONES_CON_DATOS"] / total_ses * 100, 100), 1
+                ) if total_ses else 0
+                rows.append(row)
+            rec_f = pd.DataFrame(rows).sort_values("PCT_PARTICIPACION", ascending=False)
+
+    if not rec_f.empty:
+        # Tabla principal
         st.dataframe(rec_f, use_container_width=True, hide_index=True)
 
         st.markdown("---")
