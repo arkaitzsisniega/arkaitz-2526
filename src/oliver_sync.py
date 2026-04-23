@@ -190,6 +190,35 @@ class OliverAPI:
             time.sleep(0.3)
         return out
 
+    def list_players(self, team_id: str) -> list[dict]:
+        """Players del equipo (incluyen user_id)."""
+        r = self._get("/players/", params={"team_id": team_id})
+        return r.get("players") or []
+
+    def list_users(self, team_id: str) -> list[dict]:
+        """Users del equipo (tienen f_name y l_name)."""
+        r = self._get("/users/", params={"team_id": team_id})
+        return r.get("users") or []
+
+    def build_player_name_map(self, team_id: str) -> dict:
+        """Devuelve dict player_id → 'Nombre Apellido'."""
+        try:
+            players = self.list_players(team_id)
+            users   = self.list_users(team_id)
+        except Exception as e:
+            _warn(f"No pude construir mapa de nombres: {e}")
+            return {}
+        user_by_id = {u["id"]: u for u in users}
+        mapa = {}
+        for p in players:
+            uid = p.get("user_id")
+            u = user_by_id.get(uid)
+            if u:
+                nom = f"{u.get('f_name','').strip()} {u.get('l_name','').strip()}".strip()
+                if nom:
+                    mapa[p["id"]] = nom
+        return mapa
+
     def session_average(self, session_id: int) -> dict:
         """Devuelve player_sessions con las 68 métricas por jugador."""
         return self._get(f"/sessions/{session_id}/average", params={"raw_data": 1})
@@ -210,11 +239,12 @@ def _get_nested(d: dict, path: str, default=None):
     return cur
 
 
-def extract_mvp(session_meta: dict, player_session: dict) -> dict:
+def extract_mvp(session_meta: dict, player_session: dict, name_map: dict | None = None) -> dict:
     """Extrae las 15 columnas principales para un jugador/sesión."""
     psi = (player_session or {}).get("player_session_info") or {}
     metrics = psi.get("metrics") or {}
     player  = (player_session or {}).get("player") or {}
+    player_id = player_session.get("player_id") or player.get("id")
 
     start_ms = session_meta.get("start") or 0
     fecha = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date().isoformat() if start_ms else ""
@@ -226,9 +256,14 @@ def extract_mvp(session_meta: dict, player_session: dict) -> dict:
     vel_max_ms = _get_nested(metrics, "stats.speed.max", 0) or 0  # m/s
     vel_max_kmh = round(float(vel_max_ms) * 3.6, 2)
 
-    jugador_nombre = (
-        (player.get("name") or "") + " " + (player.get("surname") or "")
-    ).strip() or str(player.get("id") or "")
+    # Nombre: prioriza mapa (construido desde /users/) → player.name+surname → id
+    jugador_nombre = ""
+    if name_map and player_id in name_map:
+        jugador_nombre = name_map[player_id]
+    if not jugador_nombre:
+        jugador_nombre = ((player.get("name") or "") + " " + (player.get("surname") or "")).strip()
+    if not jugador_nombre:
+        jugador_nombre = str(player_id or "")
 
     return {
         "fecha": fecha,
@@ -277,16 +312,21 @@ def flatten_all(metrics: dict, parent: str = "") -> dict:
     return out
 
 
-def extract_deep(session_meta: dict, player_session: dict) -> dict:
+def extract_deep(session_meta: dict, player_session: dict, name_map: dict | None = None) -> dict:
     """Las 68 métricas aplanadas (para análisis quincenal)."""
     psi = (player_session or {}).get("player_session_info") or {}
     metrics_flat = flatten_all(psi.get("metrics") or {})
     player = (player_session or {}).get("player") or {}
+    player_id = player_session.get("player_id") or player.get("id")
     start_ms = session_meta.get("start") or 0
     fecha = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date().isoformat() if start_ms else ""
-    jugador_nombre = (
-        (player.get("name") or "") + " " + (player.get("surname") or "")
-    ).strip() or str(player.get("id") or "")
+    jugador_nombre = ""
+    if name_map and player_id in name_map:
+        jugador_nombre = name_map[player_id]
+    if not jugador_nombre:
+        jugador_nombre = ((player.get("name") or "") + " " + (player.get("surname") or "")).strip()
+    if not jugador_nombre:
+        jugador_nombre = str(player_id or "")
     base = {
         "fecha": fecha,
         "jugador": jugador_nombre,
@@ -367,6 +407,10 @@ def main():
     client = gs_client()
     ss = client.open(SHEET_NAME)
 
+    _info(f"▶ Construyendo mapa player_id → nombre…")
+    name_map = api.build_player_name_map(OLIVER_TEAM)
+    _info(f"  → {len(name_map)} jugadores mapeados")
+
     _info(f"▶ Listando sesiones del equipo {OLIVER_TEAM}…")
     sesiones = api.list_sessions(OLIVER_TEAM)
     _info(f"  → {len(sesiones)} sesiones totales en Oliver")
@@ -398,9 +442,9 @@ def main():
             continue
         player_sessions = (avg or {}).get("player_sessions") or []
         for ps in player_sessions:
-            filas_mvp.append(extract_mvp(sess_meta, ps))
+            filas_mvp.append(extract_mvp(sess_meta, ps, name_map))
             if args.deep:
-                filas_deep.append(extract_deep(sess_meta, ps))
+                filas_deep.append(extract_deep(sess_meta, ps, name_map))
         time.sleep(0.3)  # respetar rate limit
 
     if not filas_mvp:
