@@ -46,9 +46,11 @@ load_dotenv(ROOT / ".env")
 # ─── Configuración ──────────────────────────────────────────────────────────
 OLIVER_API    = "https://api-prod.tryoliver.com/v1"
 OLIVER_TOKEN  = os.getenv("OLIVER_TOKEN", "").strip()
+OLIVER_REFRESH = os.getenv("OLIVER_REFRESH_TOKEN", "").strip()
 OLIVER_USER   = os.getenv("OLIVER_USER_ID", "").strip()
 OLIVER_TEAM   = os.getenv("OLIVER_TEAM_ID", "1728").strip()
 OLIVER_VERSION = "2.0.35"
+ENV_PATH      = ROOT / ".env"
 
 
 def _decode_jwt_payload(jwt: str) -> dict:
@@ -62,6 +64,30 @@ def _decode_jwt_payload(jwt: str) -> dict:
         return json.loads(base64.urlsafe_b64decode(payload))
     except Exception:
         return {}
+
+
+def _actualizar_env(tokens: dict) -> None:
+    """Reescribe OLIVER_TOKEN y OLIVER_REFRESH_TOKEN en el .env de la raíz."""
+    if not ENV_PATH.exists():
+        return
+    lineas = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    out = []
+    claves_escritas = set()
+    for ln in lineas:
+        if ln.startswith("OLIVER_TOKEN=") and "token" in tokens:
+            out.append(f"OLIVER_TOKEN={tokens['token']}")
+            claves_escritas.add("OLIVER_TOKEN")
+        elif ln.startswith("OLIVER_REFRESH_TOKEN=") and "refresh_token" in tokens:
+            out.append(f"OLIVER_REFRESH_TOKEN={tokens['refresh_token']}")
+            claves_escritas.add("OLIVER_REFRESH_TOKEN")
+        else:
+            out.append(ln)
+    # Añadir claves que no existieran
+    if "token" in tokens and "OLIVER_TOKEN" not in claves_escritas:
+        out.append(f"OLIVER_TOKEN={tokens['token']}")
+    if "refresh_token" in tokens and "OLIVER_REFRESH_TOKEN" not in claves_escritas:
+        out.append(f"OLIVER_REFRESH_TOKEN={tokens['refresh_token']}")
+    ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 SHEET_NAME    = "Arkaitz - Datos Temporada 2526"
 CREDS_FILE    = ROOT / "google_credentials.json"
@@ -122,17 +148,54 @@ Para regenerar el token de Oliver (tarda 20 segundos):
 
 # ─── Cliente Oliver ─────────────────────────────────────────────────────────
 class OliverAPI:
-    def __init__(self, token: str, user_id: str):
+    def __init__(self, token: str, user_id: str, refresh_token: str = ""):
         if not token:
             _fatal("Falta OLIVER_TOKEN en .env." + _instrucciones_token())
         if not user_id:
             _fatal("Falta OLIVER_USER_ID en .env." + _instrucciones_token())
         self.token = token
+        self.refresh_token = refresh_token
         self.user_id = str(user_id)
         self.base = OLIVER_API
         # El JWT lleva dentro los headers con los que se firmó.
         # Oliver valida que los request lleguen con EXACTAMENTE esos mismos headers.
         self._jwt = _decode_jwt_payload(token)
+
+    def refresh_access_token(self) -> bool:
+        """Usa el refresh_token (14 días) para pedir un token nuevo (2 horas).
+        Si funciona, actualiza self.token, self.refresh_token y escribe al .env.
+        Devuelve True si tuvo éxito."""
+        if not self.refresh_token:
+            return False
+        url = f"{self.base}/auth/token"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-user-id": self.user_id,
+            "x-version": self._jwt.get("x-version") or OLIVER_VERSION,
+            "x-from": self._jwt.get("x-from") or "portal",
+        }
+        ua = self._jwt.get("user-agent")
+        if ua: headers["User-Agent"] = ua
+        al = self._jwt.get("accept-language")
+        if al: headers["Accept-Language"] = al
+        try:
+            r = requests.post(url, headers=headers, json={"refresh_token": self.refresh_token}, timeout=15)
+            if r.status_code != 200:
+                return False
+            data = r.json()
+            if not data.get("success") or not data.get("token"):
+                return False
+            self.token = data["token"]
+            if data.get("refresh_token"):
+                self.refresh_token = data["refresh_token"]
+            self._jwt = _decode_jwt_payload(self.token)
+            _actualizar_env({"token": self.token, "refresh_token": self.refresh_token})
+            _info("  🔄 Token renovado automáticamente con refresh_token.")
+            return True
+        except Exception as e:
+            _warn(f"Fallo al renovar token: {e}")
+            return False
 
     def _hdr(self):
         # Headers base del cliente
@@ -158,10 +221,16 @@ class OliverAPI:
 
     def _get(self, path: str, params: dict | None = None, max_retries: int = 2):
         url = f"{self.base}{path}"
+        ya_refrescado = False
         for intento in range(max_retries + 1):
             r = requests.get(url, headers=self._hdr(), params=params, timeout=30)
             if r.status_code == 401:
-                _fatal("Token de Oliver caducado o inválido (401)." + _instrucciones_token())
+                # Intentar refrescar el token (usa refresh_token, dura 14 días)
+                if not ya_refrescado and self.refresh_access_token():
+                    ya_refrescado = True
+                    continue  # reintentar con token nuevo
+                _fatal("Token de Oliver caducado o inválido (401) y el refresh "
+                       "también falló." + _instrucciones_token())
             if r.status_code == 429:
                 time.sleep(2 ** intento)
                 continue
@@ -398,7 +467,7 @@ def main():
                         help="Incluye las 68 métricas aplanadas en hoja _OLIVER_DEEP (quincenal).")
     args = parser.parse_args()
 
-    api = OliverAPI(OLIVER_TOKEN, OLIVER_USER)
+    api = OliverAPI(OLIVER_TOKEN, OLIVER_USER, OLIVER_REFRESH)
     client = gs_client()
     ss = client.open(SHEET_NAME)
 

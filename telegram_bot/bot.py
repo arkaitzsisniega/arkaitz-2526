@@ -355,6 +355,74 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
 
+async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Recibe un token nuevo por Telegram y lo escribe al .env.
+    El usuario pega las 3 líneas (OLIVER_TOKEN=..., OLIVER_REFRESH_TOKEN=..., OLIVER_USER_ID=...)
+    directamente desde el snippet del navegador."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    texto = (update.message.text or "").replace("/oliver_token", "", 1).strip()
+    if not texto:
+        await update.message.reply_text(
+            "📋 Cómo usarlo:\n"
+            "1. En Safari → platform.oliversports.ai → consola (⌥⌘C)\n"
+            "2. Ejecuta el snippet de siempre para sacar las 3 líneas.\n"
+            "3. Cópialas TODAS y mándame:\n"
+            "`/oliver_token`\n"
+            "seguido de las 3 líneas (copia+pega tal cual).",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Parsear líneas "CLAVE=VALOR"
+    nuevos = {}
+    for ln in texto.splitlines():
+        ln = ln.strip()
+        # Quitar el prefijo "[Log] " que mete Safari al copiar de la consola
+        if ln.startswith("[Log]"):
+            ln = ln[5:].strip()
+        if "=" in ln:
+            k, v = ln.split("=", 1)
+            k = k.strip(); v = v.strip()
+            if k in ("OLIVER_TOKEN", "OLIVER_REFRESH_TOKEN", "OLIVER_USER_ID"):
+                nuevos[k] = v
+
+    if "OLIVER_TOKEN" not in nuevos or "OLIVER_REFRESH_TOKEN" not in nuevos:
+        await update.message.reply_text(
+            "⚠️ No encuentro OLIVER_TOKEN y OLIVER_REFRESH_TOKEN en tu mensaje.\n"
+            "Copia LAS TRES LÍNEAS del snippet (tal cual salen en la consola) y mándalas."
+        )
+        return
+
+    env_path = PROJECT_DIR / ".env"
+    try:
+        if env_path.exists():
+            lineas = env_path.read_text(encoding="utf-8").splitlines()
+        else:
+            lineas = []
+        escritas = set()
+        out = []
+        for ln in lineas:
+            matched = False
+            for k in nuevos:
+                if ln.startswith(k + "="):
+                    out.append(f"{k}={nuevos[k]}")
+                    escritas.add(k); matched = True; break
+            if not matched:
+                out.append(ln)
+        for k, v in nuevos.items():
+            if k not in escritas:
+                out.append(f"{k}={v}")
+        env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+        await update.message.reply_text(
+            f"✅ Token actualizado en .env ({len(nuevos)} claves).\n"
+            "Ya puedes lanzar /oliver_sync."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error guardando .env: {e}")
+
+
 async def cmd_oliver_deep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Sincronización profunda quincenal (las 68 métricas)."""
     if not _authorized(update):
@@ -550,6 +618,7 @@ def main():
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))
     app.add_handler(CommandHandler("oliver_sync", cmd_oliver_sync))
     app.add_handler(CommandHandler("oliver_deep", cmd_oliver_deep))
+    app.add_handler(CommandHandler("oliver_token", cmd_oliver_token))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)

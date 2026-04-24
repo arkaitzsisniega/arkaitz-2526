@@ -444,22 +444,35 @@ def vista_oliver_cruzado(ss, carga_df: pd.DataFrame, well_df: pd.DataFrame) -> p
     if "JUGADOR" in oliver.columns:
         oliver["JUGADOR"] = oliver["JUGADOR"].astype(str).str.strip()
 
+    # Leer alias manuales de la hoja _OLIVER_ALIASES (editables por el usuario)
+    aliases_df = _leer_hoja_opt(ss, "_OLIVER_ALIASES")
+    aliases_manual = {}
+    if not aliases_df.empty and "nombre_oliver" in aliases_df.columns and "nombre_sheet" in aliases_df.columns:
+        for _, r in aliases_df.iterrows():
+            ol = str(r.get("nombre_oliver", "")).strip()
+            sh = str(r.get("nombre_sheet", "")).strip()
+            if ol and sh:
+                aliases_manual[ol.upper()] = sh
+
     # Construir mapeo Oliver ("Sergio Barona") → Sheet ("BARONA")
-    # Match por: alguna palabra del nombre Oliver coincide (ignorando case) con un JUGADOR del Sheet.
+    # 1º alias manual (_OLIVER_ALIASES), 2º match fuzzy por palabra compartida.
     carga_sub = carga_df[["FECHA", "JUGADOR", "BORG", "MINUTOS", "CARGA"]].copy() if not carga_df.empty else pd.DataFrame()
     if not carga_sub.empty:
         carga_sub["JUGADOR"] = carga_sub["JUGADOR"].astype(str).str.strip()
         jugadores_sheet = {j.upper(): j for j in carga_sub["JUGADOR"].dropna().unique()}
 
         def _normalizar(oliver_name: str) -> str:
-            """Convierte 'Sergio Barona' → 'BARONA' si existe en el Sheet."""
             if not isinstance(oliver_name, str):
                 return oliver_name
+            # 1) Alias manual exacto (case-insensitive)
+            if oliver_name.upper() in aliases_manual:
+                return aliases_manual[oliver_name.upper()]
+            # 2) Match fuzzy: alguna palabra del nombre Oliver coincide con un JUGADOR del Sheet
             for palabra in oliver_name.split():
                 up = palabra.upper()
                 if up in jugadores_sheet:
                     return jugadores_sheet[up]
-            return oliver_name  # si no hay match, devuelve el nombre Oliver tal cual
+            return oliver_name
 
         oliver["JUGADOR"] = oliver["JUGADOR"].apply(_normalizar)
 
