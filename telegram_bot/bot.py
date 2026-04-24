@@ -355,6 +355,173 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
 
+async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Genera enlaces pre-rellenados de los Forms para cada jugador del
+    entreno de hoy. Si hay 2 sesiones, avisa de cuál es primera/segunda."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+
+    # Imports locales para no colgar el arranque del bot si algo falla
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        import sys as _sys
+        _sys.path.insert(0, str(PROJECT_DIR / "src"))
+        import forms_utils as fu
+    except Exception as e:
+        await update.message.reply_text(f"❌ No pude cargar la configuración de Forms: {e}")
+        return
+
+    hoy = _dt.date.today().isoformat()
+    try:
+        SCOPES = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_file(
+            str(PROJECT_DIR / "google_credentials.json"), scopes=SCOPES
+        )
+        ss = gspread.authorize(creds).open("Arkaitz - Datos Temporada 2526")
+        sesiones_ws = ss.worksheet("SESIONES")
+        sesiones_rows = sesiones_ws.get_all_records(
+            value_render_option=gspread.utils.ValueRenderOption.unformatted
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ No pude leer el Sheet: {e}")
+        return
+
+    # Filtrar sesiones de hoy
+    def _iso(v):
+        if isinstance(v, (int, float)) and 1 <= v <= 60000:
+            import pandas as _pd
+            return (_pd.Timestamp("1899-12-30") + _pd.Timedelta(days=int(v))).date().isoformat()
+        if isinstance(v, str) and len(v) >= 10:
+            return v[:10]
+        return ""
+    ses_hoy = [s for s in sesiones_rows if _iso(s.get("FECHA")) == hoy]
+
+    if not ses_hoy:
+        await update.message.reply_text(
+            f"📭 No hay sesiones registradas en SESIONES para hoy ({hoy}).\n"
+            "Añade la sesión en el Sheet y vuelve a lanzar /enlaces_hoy."
+        )
+        return
+
+    # Ordenar por turno (M antes que T)
+    ses_hoy.sort(key=lambda s: 0 if str(s.get("TURNO", "")).upper().startswith("M") else 1)
+    doble = len(ses_hoy) > 1
+
+    # Lista de jugadores: del desplegable del Form PRE (más fiable que del Sheet)
+    cfg = fu.load_config()
+    # Los nombres los sacaremos de la lista de jugadores del Form (del HTML guardado?)
+    # Por simplicidad los cogemos del Sheet BORG (JUGADOR únicos):
+    try:
+        borg_ws = ss.worksheet("BORG")
+        borg_rows = borg_ws.get_all_records(
+            value_render_option=gspread.utils.ValueRenderOption.unformatted
+        )
+        jugadores = sorted({str(r.get("JUGADOR", "")).strip()
+                            for r in borg_rows if str(r.get("JUGADOR", "")).strip()})
+    except Exception as e:
+        await update.message.reply_text(f"❌ No pude leer jugadores de BORG: {e}")
+        return
+
+    await update.message.reply_text(
+        f"🗓 Sesiones de hoy ({hoy}): **{len(ses_hoy)}**"
+        + ("\n⚠️ Doble sesión: el wellness solo en la 1ª (Mañana)." if doble else ""),
+        parse_mode="Markdown",
+    )
+
+    for idx, ses in enumerate(ses_hoy):
+        turno = str(ses.get("TURNO", "")).strip() or ("M" if idx == 0 else "T")
+        primera = (idx == 0)
+        cabecera = (
+            f"📌 *Sesión {idx+1}/{len(ses_hoy)}* · turno {turno}"
+            + ("\n🧠 Incluye wellness" if primera or not doble else "\n🚫 Sin wellness (2ª sesión del día)")
+        )
+        await update.message.reply_text(cabecera, parse_mode="Markdown")
+
+        # Generar enlaces por jugador
+        bloques = []
+        for jug in jugadores:
+            pre = fu.enlace_pre(jug, hoy, turno, incluir_wellness=(primera or not doble))
+            post = fu.enlace_post(jug, hoy, turno)
+            bloques.append(f"*{jug}*\nPRE:  {pre}\nPOST: {post}")
+        # Enviar en mensajes de ~3900 chars cada uno
+        buffer = ""
+        for b in bloques:
+            if len(buffer) + len(b) + 2 > 3900:
+                await update.message.reply_text(buffer, parse_mode="Markdown", disable_web_page_preview=True)
+                buffer = b
+            else:
+                buffer = (buffer + "\n\n" + b) if buffer else b
+        if buffer:
+            await update.message.reply_text(buffer, parse_mode="Markdown", disable_web_page_preview=True)
+
+    await update.message.reply_text(
+        "✅ Listo. Copia el par PRE+POST de cada jugador y pégalo en su WhatsApp.\n"
+        "Cuando los jugadores respondan, lanza `/oliver_sync` o `/consolidar` "
+        "para que las respuestas se integren al Sheet."
+    )
+
+
+async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Lee _FORM_PRE y _FORM_POST, consolida a BORG/PESO/WELLNESS, y avisa de duplicados."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    try:
+        import gspread, sys as _sys
+        from google.oauth2.service_account import Credentials
+        _sys.path.insert(0, str(PROJECT_DIR / "src"))
+        import forms_utils as fu
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error cargando módulos: {e}")
+        return
+
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🔄 Consolidando respuestas de los Forms…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+                  "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_file(
+            str(PROJECT_DIR / "google_credentials.json"), scopes=SCOPES
+        )
+        ss = gspread.authorize(creds).open("Arkaitz - Datos Temporada 2526")
+        pre = fu.leer_respuestas_pre(ss)
+        post = fu.leer_respuestas_post(ss)
+        duplicados = fu.detectar_duplicados(pre, post)
+        cont = fu.consolidar_a_sheet(ss, pre, post)
+    except Exception as e:
+        stop.set()
+        try: await task
+        except Exception: pass
+        await update.message.reply_text(f"❌ Error consolidando: {e}")
+        return
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+
+    # Reporte
+    msg = (
+        f"✅ Consolidación terminada.\n\n"
+        f"📝 PRE: {len(pre)} respuestas · POST: {len(post)} respuestas\n\n"
+        f"Integrado al Sheet:\n"
+        f"• PESO: {cont['peso_nuevos']} nuevos, {cont['peso_actualizados']} actualizados\n"
+        f"• BORG: {cont['borg_nuevos']} nuevos, {cont['borg_actualizados']} actualizados\n"
+        f"• WELLNESS: {cont['wellness_nuevos']} nuevos, {cont['wellness_actualizados']} actualizados"
+    )
+    if not duplicados.empty:
+        msg += "\n\n⚠️ *Alertas de duplicados:*\n"
+        for _, r in duplicados.iterrows():
+            msg += f"• {r['jugador']} envió {r['n_envios']}× el {r['tipo']} del {r['fecha']} {r['turno']}\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Recibe un token nuevo por Telegram y lo escribe al .env.
     El usuario pega las 3 líneas (OLIVER_TOKEN=..., OLIVER_REFRESH_TOKEN=..., OLIVER_USER_ID=...)
@@ -679,6 +846,8 @@ def main():
     app.add_handler(CommandHandler("oliver_sync", cmd_oliver_sync))
     app.add_handler(CommandHandler("oliver_deep", cmd_oliver_deep))
     app.add_handler(CommandHandler("oliver_token", cmd_oliver_token))
+    app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
+    app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)

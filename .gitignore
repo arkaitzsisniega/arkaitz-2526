@@ -2,6 +2,9 @@
 # Credenciales — NUNCA subir esto
 google_credentials.json
 *.json
+# Excepciones (no son secretos)
+!src/forms_config.json
+!package.json
 .streamlit/secrets_PLANTILLA.toml
 .streamlit/secrets.toml
 

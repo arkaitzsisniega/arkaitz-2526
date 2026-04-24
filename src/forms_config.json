@@ -1,0 +1,35 @@
+{
+  "pre": {
+    "form_id": "1FAIpQLSd504u2e35cudsNBIJstIG4wceVk3lOGDBatdhkngZqy-LPLw",
+    "titulo": "Inter — Antes del entreno",
+    "hoja_respuestas": "_FORM_PRE",
+    "campos": {
+      "jugador":   "entry.1358239112",
+      "fecha":     "entry.171365458",
+      "turno":     "entry.1664286509",
+      "peso_pre":  "entry.1326546692",
+      "sueno":     "entry.1666664334",
+      "fatiga":    "entry.1592921031",
+      "molestias": "entry.381554002",
+      "animo":     "entry.704891911"
+    }
+  },
+  "post": {
+    "form_id": "1FAIpQLScgGiEZ4Q3xPPRz0FVX8-8TUD1AffYCRw_bMoarjH7WuNXY1A",
+    "titulo": "Inter — POST entreno",
+    "hoja_respuestas": "_FORM_POST",
+    "campos": {
+      "jugador":   "entry.53762352",
+      "fecha":     "entry.136458484",
+      "turno":     "entry.366292867",
+      "peso_post": "entry.772738948",
+      "borg":      "entry.1603236359"
+    }
+  },
+  "turno_mapeo": {
+    "M": "Mañana",
+    "T": "Tarde",
+    "Mañana": "M",
+    "Tarde": "T"
+  }
+}
