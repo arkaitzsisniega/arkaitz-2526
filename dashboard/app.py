@@ -1050,6 +1050,10 @@ with tab_oliver:
         if oliver_f.empty:
             st.warning("No hay datos de Oliver en el período / jugadores seleccionados.")
         else:
+            # Redondeo defensivo: max 2 decimales en todas las columnas numéricas
+            _cols_numericas = oliver_f.select_dtypes(include="number").columns
+            oliver_f[_cols_numericas] = oliver_f[_cols_numericas].round(2)
+
             # ── KPIs del equipo en el período ──
             c1, c2, c3, c4, c5 = st.columns(5)
             kpis = [
@@ -1069,8 +1073,13 @@ with tab_oliver:
 
             st.markdown("---")
 
-            # ── Tabla por jugador (agregado del período) ──
+            # ── Tabla por jugador (agregado del período) coloreada por cuartiles ──
             st.markdown("#### Resumen por jugador (período seleccionado)")
+            st.caption(
+                "🟢 por encima de la media del equipo · ⚪ en la media · 🔴 por debajo. "
+                "Colores SUTILES para comparar de un vistazo. 'Por debajo' NO es malo necesariamente: "
+                "depende del puesto y del rol."
+            )
             agg = oliver_f.groupby("JUGADOR", as_index=False).agg(
                 sesiones=("session_id", "nunique"),
                 oliver_load_total=("oliver_load", "sum"),
@@ -1084,9 +1093,21 @@ with tab_oliver:
                 dec_max=("dec_max_count", "sum"),
                 kcal=("kcal", "sum"),
                 velocidad_max=("velocidad_max_kmh", "max"),
-            ).round(1)
+            ).round(2)
             agg = agg.sort_values("oliver_load_total", ascending=False)
-            st.dataframe(agg, use_container_width=True, hide_index=True)
+
+            # Styler: gradiente suave por columna numérica (rojo bajo ↔ verde alto)
+            num_cols_agg = [c for c in agg.columns if c != "JUGADOR"]
+            styled_agg = (
+                agg.style
+                .background_gradient(
+                    cmap="RdYlGn", subset=num_cols_agg, axis=0,
+                    vmin=None, vmax=None,
+                )
+                .format("{:.2f}", subset=num_cols_agg, na_rep="—")
+                .format("{:.0f}", subset=["sesiones", "sprints", "acc_alta", "dec_alta", "acc_max", "dec_max"], na_rep="—")
+            )
+            st.dataframe(styled_agg, use_container_width=True, hide_index=True)
 
             st.markdown("---")
 
@@ -1098,6 +1119,7 @@ with tab_oliver:
                 color_discrete_map=color_jug(oliver_f["JUGADOR"].unique()),
                 title="Oliver Load por sesión",
             )
+            fig_load.update_traces(hovertemplate="%{x|%d/%m/%Y}<br>%{fullData.name}: %{y:.2f}<extra></extra>")
             fig_load.update_layout(**LAYOUT, height=380)
             st.plotly_chart(fig_load, use_container_width=True)
 
@@ -1113,6 +1135,7 @@ with tab_oliver:
                 fig_acwr.add_hrect(y0=0.8, y1=1.3, fillcolor="green",  opacity=0.08, line_width=0)
                 fig_acwr.add_hrect(y0=1.3, y1=1.5, fillcolor="orange", opacity=0.10, line_width=0)
                 fig_acwr.add_hrect(y0=1.5, y1=3.0, fillcolor="red",    opacity=0.08, line_width=0)
+                fig_acwr.update_traces(hovertemplate="%{x|%d/%m/%Y}<br>%{fullData.name}: %{y:.2f}<extra></extra>")
                 fig_acwr.update_layout(**LAYOUT, height=360)
                 st.plotly_chart(fig_acwr, use_container_width=True)
 
@@ -1132,8 +1155,122 @@ with tab_oliver:
                     color_discrete_map=color_jug(oliver_f["JUGADOR"].unique()),
                     title="Distribución del ratio Borg/Oliver por jugador",
                 )
+                fig_ratio.update_traces(hovertemplate="%{y:.2f}<extra></extra>")
                 fig_ratio.update_layout(**LAYOUT, height=360, showlegend=False)
                 st.plotly_chart(fig_ratio, use_container_width=True)
+
+            st.markdown("---")
+
+            # ═══════════════════════════════════════════════════════════════
+            # EVALUACIÓN AUTOMÁTICA POR JUGADOR
+            # Para cada jugador del período, genera una ficha con diagnóstico
+            # ═══════════════════════════════════════════════════════════════
+            st.markdown("### 🩺 Evaluación informativa por jugador")
+            st.caption(
+                "Análisis automático del estado de cada jugador en el período seleccionado. "
+                "Compara sus números con la media del equipo y con su propia historia para "
+                "señalar lo relevante. **No sustituye el criterio del staff** — es una ayuda de lectura rápida."
+            )
+
+            # Referencias del equipo (medias) para comparar
+            team_mean_load_sesion  = oliver_f["oliver_load"].mean()
+            team_mean_dist_sesion  = oliver_f["distancia_total_m"].mean()
+            team_mean_sprints      = oliver_f["sprints_count"].mean()
+            team_mean_accmax       = oliver_f["acc_max_count"].mean()
+
+            for jugador in sorted(oliver_f["JUGADOR"].unique()):
+                jsub = oliver_f[oliver_f["JUGADOR"] == jugador].sort_values("FECHA")
+                n_ses = int(jsub["session_id"].nunique())
+                load_total = float(jsub["oliver_load"].sum())
+                load_medio = float(jsub["oliver_load"].mean())
+                dist_medio = float(jsub["distancia_total_m"].mean())
+                sprints_medio = float(jsub["sprints_count"].mean())
+                accmax_medio = float(jsub["acc_max_count"].mean())
+                decmax_medio = float(jsub["dec_max_count"].mean())
+                acwr_ult = jsub["acwr_mecanico"].dropna().iloc[-1] if "acwr_mecanico" in jsub.columns and jsub["acwr_mecanico"].notna().any() else None
+                ratio_medio = jsub["ratio_borg_oliver"].dropna().mean() if "ratio_borg_oliver" in jsub.columns and jsub["ratio_borg_oliver"].notna().any() else None
+
+                # Tendencia: comparar primera mitad del período vs segunda mitad
+                tendencia_txt = ""
+                if len(jsub) >= 4:
+                    mid = len(jsub) // 2
+                    load_pre = float(jsub.iloc[:mid]["oliver_load"].mean())
+                    load_post = float(jsub.iloc[mid:]["oliver_load"].mean())
+                    if load_pre > 0:
+                        delta_pct = (load_post - load_pre) / load_pre * 100
+                        if abs(delta_pct) >= 15:
+                            tendencia_txt = f"tendencia {'↑ subiendo' if delta_pct > 0 else '↓ bajando'} ({delta_pct:+.0f}% entre primera y segunda mitad del período)"
+                        else:
+                            tendencia_txt = "tendencia estable"
+                    else:
+                        tendencia_txt = "tendencia indeterminable (load medio 0 en primera mitad)"
+
+                # Comparativa con el equipo
+                def _comp(val, ref, margen=0.10):
+                    if ref == 0 or pd.isna(val) or pd.isna(ref):
+                        return "—"
+                    diff_pct = (val - ref) / ref * 100
+                    if diff_pct >= margen * 100:
+                        return f"por encima ({diff_pct:+.0f}%)"
+                    if diff_pct <= -margen * 100:
+                        return f"por debajo ({diff_pct:+.0f}%)"
+                    return "en la media"
+
+                comp_load = _comp(load_medio, team_mean_load_sesion)
+                comp_dist = _comp(dist_medio, team_mean_dist_sesion)
+                comp_sprints = _comp(sprints_medio, team_mean_sprints)
+                comp_accmax = _comp(accmax_medio, team_mean_accmax)
+
+                # Asimetría acc/dec
+                asimetria_txt = ""
+                if accmax_medio > 0:
+                    asim = abs(accmax_medio - decmax_medio) / max(accmax_medio + decmax_medio, 1)
+                    if asim > 0.25:
+                        asimetria_txt = f"⚠️ asimetría acc/dec alta ({asim*100:.0f}%) — revisar descompensación tren inferior"
+
+                # Alertas
+                alertas = []
+                if acwr_ult is not None:
+                    if acwr_ult > 1.5:
+                        alertas.append(f"🔴 ACWR mecánico {acwr_ult:.2f} — zona de riesgo de sobrecarga")
+                    elif acwr_ult > 1.3:
+                        alertas.append(f"🟠 ACWR mecánico {acwr_ult:.2f} — precaución")
+                    elif acwr_ult < 0.8:
+                        alertas.append(f"🔵 ACWR mecánico {acwr_ult:.2f} — infra-carga")
+                if ratio_medio is not None:
+                    # Ratio Borg/Oliver muy alto = sufre mentalmente más de lo que su cuerpo hace
+                    # (valor de referencia depende mucho del contexto; orientativo ±50% sobre la mediana)
+                    ratio_equipo = oliver_f["ratio_borg_oliver"].dropna().median()
+                    if ratio_equipo and ratio_medio >= ratio_equipo * 1.5:
+                        alertas.append(f"🧠 Percepción de esfuerzo elevada sin correlato mecánico (ratio {ratio_medio:.2f})")
+                if asimetria_txt:
+                    alertas.append(asimetria_txt)
+                if not alertas:
+                    alertas.append("✅ Sin alertas destacables")
+
+                with st.expander(f"**{jugador}**  ·  {n_ses} sesiones  ·  load total {load_total:.0f}"):
+                    c_a, c_b = st.columns(2)
+                    with c_a:
+                        st.markdown(f"""
+**Medias del jugador en este período:**
+- Oliver Load por sesión: **{load_medio:.0f}**  ({comp_load} vs equipo)
+- Distancia por sesión: **{dist_medio:.0f} m**  ({comp_dist} vs equipo)
+- Sprints por sesión: **{sprints_medio:.1f}**  ({comp_sprints} vs equipo)
+- Acc. máx por sesión: **{accmax_medio:.1f}**  ({comp_accmax} vs equipo)
+- Dec. máx por sesión: **{decmax_medio:.1f}**
+""")
+                    with c_b:
+                        tendencia_line = f"- {tendencia_txt.capitalize()}" if tendencia_txt else ""
+                        st.markdown(f"""
+**Estado general:**
+{tendencia_line}
+- ACWR mecánico último: {"**"+f"{acwr_ult:.2f}"+"**" if acwr_ult is not None else "—"}
+- Ratio Borg/Oliver medio: {"**"+f"{ratio_medio:.2f}"+"**" if ratio_medio is not None else "— (sin datos Borg)"}
+
+**Alertas:**
+""" + "\n".join(f"- {a}" for a in alertas))
+
+            st.markdown("---")
 
             # ── Detalle expandible ──
             with st.expander("📋 Detalle sesión por sesión (tabla completa)"):
@@ -1145,7 +1282,8 @@ with tab_oliver:
                     "sprints_count", "cambios_direccion", "saltos", "kcal",
                     "BORG", "CARGA", "ratio_borg_oliver", "acwr_mecanico",
                 ] if c in oliver_f.columns]
-                st.dataframe(
-                    oliver_f.sort_values(["FECHA", "JUGADOR"])[cols_detalle],
-                    use_container_width=True, hide_index=True,
-                )
+                detalle = oliver_f.sort_values(["FECHA", "JUGADOR"])[cols_detalle].copy()
+                # Formatear decimales del detalle también
+                num_cols_det = detalle.select_dtypes(include="number").columns
+                styled_det = detalle.style.format("{:.2f}", subset=num_cols_det, na_rep="—")
+                st.dataframe(styled_det, use_container_width=True, hide_index=True)
