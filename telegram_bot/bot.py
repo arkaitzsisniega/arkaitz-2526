@@ -355,171 +355,81 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
 
+async def _run_script(path: Path, *args, timeout: int = 600) -> Tuple[int, str, str]:
+    """Ejecuta un script Python del proyecto con el Python del sistema
+    (que tiene gspread instalado globalmente)."""
+    proc = await asyncio.create_subprocess_exec(
+        "/usr/bin/python3", str(path), *args,
+        cwd=str(PROJECT_DIR),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill(); await proc.wait()
+        return -1, "", f"Timeout tras {timeout}s."
+    return proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+
+
+async def _enviar_bloques(update: Update, stdout: str):
+    """El script separa bloques con '---MSG---'. Cada bloque = 1 mensaje Telegram."""
+    bloques = [b.strip() for b in stdout.split("---MSG---") if b.strip()]
+    for b in bloques:
+        # Limitar 4000 chars por si acaso
+        if len(b) > 4000:
+            b = b[:3997] + "…"
+        try:
+            await update.message.reply_text(b, parse_mode="Markdown", disable_web_page_preview=True)
+        except Exception:
+            # Si falla el Markdown, reintentar como texto plano
+            await update.message.reply_text(b, disable_web_page_preview=True)
+
+
 async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Genera enlaces pre-rellenados de los Forms para cada jugador del
-    entreno de hoy. Si hay 2 sesiones, avisa de cuál es primera/segunda."""
+    """Lee sesiones del día y manda los enlaces pre-rellenados por cada jugador."""
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
-
-    # Imports locales para no colgar el arranque del bot si algo falla
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-        import sys as _sys
-        _sys.path.insert(0, str(PROJECT_DIR / "src"))
-        import forms_utils as fu
-    except Exception as e:
-        await update.message.reply_text(f"❌ No pude cargar la configuración de Forms: {e}")
-        return
-
-    hoy = _dt.date.today().isoformat()
-    try:
-        SCOPES = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_file(
-            str(PROJECT_DIR / "google_credentials.json"), scopes=SCOPES
-        )
-        ss = gspread.authorize(creds).open("Arkaitz - Datos Temporada 2526")
-        sesiones_ws = ss.worksheet("SESIONES")
-        sesiones_rows = sesiones_ws.get_all_records(
-            value_render_option=gspread.utils.ValueRenderOption.unformatted
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ No pude leer el Sheet: {e}")
-        return
-
-    # Filtrar sesiones de hoy
-    def _iso(v):
-        if isinstance(v, (int, float)) and 1 <= v <= 60000:
-            import pandas as _pd
-            return (_pd.Timestamp("1899-12-30") + _pd.Timedelta(days=int(v))).date().isoformat()
-        if isinstance(v, str) and len(v) >= 10:
-            return v[:10]
-        return ""
-    ses_hoy = [s for s in sesiones_rows if _iso(s.get("FECHA")) == hoy]
-
-    if not ses_hoy:
-        await update.message.reply_text(
-            f"📭 No hay sesiones registradas en SESIONES para hoy ({hoy}).\n"
-            "Añade la sesión en el Sheet y vuelve a lanzar /enlaces_hoy."
-        )
-        return
-
-    # Ordenar por turno (M antes que T)
-    ses_hoy.sort(key=lambda s: 0 if str(s.get("TURNO", "")).upper().startswith("M") else 1)
-    doble = len(ses_hoy) > 1
-
-    # Lista de jugadores: del desplegable del Form PRE (más fiable que del Sheet)
-    cfg = fu.load_config()
-    # Los nombres los sacaremos de la lista de jugadores del Form (del HTML guardado?)
-    # Por simplicidad los cogemos del Sheet BORG (JUGADOR únicos):
-    try:
-        borg_ws = ss.worksheet("BORG")
-        borg_rows = borg_ws.get_all_records(
-            value_render_option=gspread.utils.ValueRenderOption.unformatted
-        )
-        jugadores = sorted({str(r.get("JUGADOR", "")).strip()
-                            for r in borg_rows if str(r.get("JUGADOR", "")).strip()})
-    except Exception as e:
-        await update.message.reply_text(f"❌ No pude leer jugadores de BORG: {e}")
-        return
-
-    await update.message.reply_text(
-        f"🗓 Sesiones de hoy ({hoy}): **{len(ses_hoy)}**"
-        + ("\n⚠️ Doble sesión: el wellness solo en la 1ª (Mañana)." if doble else ""),
-        parse_mode="Markdown",
-    )
-
-    for idx, ses in enumerate(ses_hoy):
-        turno = str(ses.get("TURNO", "")).strip() or ("M" if idx == 0 else "T")
-        primera = (idx == 0)
-        cabecera = (
-            f"📌 *Sesión {idx+1}/{len(ses_hoy)}* · turno {turno}"
-            + ("\n🧠 Incluye wellness" if primera or not doble else "\n🚫 Sin wellness (2ª sesión del día)")
-        )
-        await update.message.reply_text(cabecera, parse_mode="Markdown")
-
-        # Generar enlaces por jugador
-        bloques = []
-        for jug in jugadores:
-            pre = fu.enlace_pre(jug, hoy, turno, incluir_wellness=(primera or not doble))
-            post = fu.enlace_post(jug, hoy, turno)
-            bloques.append(f"*{jug}*\nPRE:  {pre}\nPOST: {post}")
-        # Enviar en mensajes de ~3900 chars cada uno
-        buffer = ""
-        for b in bloques:
-            if len(buffer) + len(b) + 2 > 3900:
-                await update.message.reply_text(buffer, parse_mode="Markdown", disable_web_page_preview=True)
-                buffer = b
-            else:
-                buffer = (buffer + "\n\n" + b) if buffer else b
-        if buffer:
-            await update.message.reply_text(buffer, parse_mode="Markdown", disable_web_page_preview=True)
-
-    await update.message.reply_text(
-        "✅ Listo. Copia el par PRE+POST de cada jugador y pégalo en su WhatsApp.\n"
-        "Cuando los jugadores respondan, lanza `/oliver_sync` o `/consolidar` "
-        "para que las respuestas se integren al Sheet."
-    )
-
-
-async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Lee _FORM_PRE y _FORM_POST, consolida a BORG/PESO/WELLNESS, y avisa de duplicados."""
-    if not _authorized(update):
-        await update.message.reply_text("🚫 Acceso denegado.")
-        return
-    try:
-        import gspread, sys as _sys
-        from google.oauth2.service_account import Credentials
-        _sys.path.insert(0, str(PROJECT_DIR / "src"))
-        import forms_utils as fu
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error cargando módulos: {e}")
-        return
-
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🔄 Consolidando respuestas de los Forms…")
     stop = asyncio.Event()
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
-        SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
-                  "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_file(
-            str(PROJECT_DIR / "google_credentials.json"), scopes=SCOPES
-        )
-        ss = gspread.authorize(creds).open("Arkaitz - Datos Temporada 2526")
-        pre = fu.leer_respuestas_pre(ss)
-        post = fu.leer_respuestas_post(ss)
-        duplicados = fu.detectar_duplicados(pre, post)
-        cont = fu.consolidar_a_sheet(ss, pre, post)
-    except Exception as e:
-        stop.set()
-        try: await task
-        except Exception: pass
-        await update.message.reply_text(f"❌ Error consolidando: {e}")
-        return
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_hoy.py")
     finally:
         stop.set()
         try: await task
         except Exception: pass
 
-    # Reporte
-    msg = (
-        f"✅ Consolidación terminada.\n\n"
-        f"📝 PRE: {len(pre)} respuestas · POST: {len(post)} respuestas\n\n"
-        f"Integrado al Sheet:\n"
-        f"• PESO: {cont['peso_nuevos']} nuevos, {cont['peso_actualizados']} actualizados\n"
-        f"• BORG: {cont['borg_nuevos']} nuevos, {cont['borg_actualizados']} actualizados\n"
-        f"• WELLNESS: {cont['wellness_nuevos']} nuevos, {cont['wellness_actualizados']} actualizados"
-    )
-    if not duplicados.empty:
-        msg += "\n\n⚠️ *Alertas de duplicados:*\n"
-        for _, r in duplicados.iterrows():
-            msg += f"• {r['jugador']} envió {r['n_envios']}× el {r['tipo']} del {r['fecha']} {r['turno']}\n"
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error generando enlaces (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+
+
+async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Lee _FORM_PRE y _FORM_POST y los integra en BORG/PESO/WELLNESS."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🔄 Consolidando respuestas de los Forms…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "consolidar_forms.py", timeout=300)
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error consolidando (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
 
 
 async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
