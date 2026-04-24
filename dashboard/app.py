@@ -1096,16 +1096,39 @@ with tab_oliver:
             ).round(2)
             agg = agg.sort_values("oliver_load_total", ascending=False)
 
-            # Styler: gradiente suave por columna numérica (rojo bajo ↔ verde alto)
+            # Gradiente rojo→amarillo→verde por columna (sin matplotlib).
+            # Rojo claro = valor bajo vs resto del equipo · verde claro = alto.
+            def _col_gradient(s: pd.Series):
+                vals = pd.to_numeric(s, errors="coerce")
+                vmin, vmax = vals.min(), vals.max()
+                out = []
+                for v in vals:
+                    if pd.isna(v) or vmax == vmin:
+                        out.append("")
+                        continue
+                    t = (v - vmin) / (vmax - vmin)
+                    t = max(0.0, min(1.0, float(t)))
+                    if t < 0.5:
+                        ratio = t * 2
+                        r = 255
+                        g = int(170 + (240 - 170) * ratio)
+                        b = int(170 + (190 - 170) * ratio)
+                    else:
+                        ratio = (t - 0.5) * 2
+                        r = int(255 + (170 - 255) * ratio)
+                        g = int(240 + (225 - 240) * ratio)
+                        b = int(190 + (170 - 190) * ratio)
+                    out.append(f"background-color: rgb({r},{g},{b})")
+                return out
+
             num_cols_agg = [c for c in agg.columns if c != "JUGADOR"]
+            int_cols = [c for c in ["sesiones", "sprints", "acc_alta", "dec_alta", "acc_max", "dec_max"] if c in agg.columns]
+            float_cols = [c for c in num_cols_agg if c not in int_cols]
             styled_agg = (
                 agg.style
-                .background_gradient(
-                    cmap="RdYlGn", subset=num_cols_agg, axis=0,
-                    vmin=None, vmax=None,
-                )
-                .format("{:.2f}", subset=num_cols_agg, na_rep="—")
-                .format("{:.0f}", subset=["sesiones", "sprints", "acc_alta", "dec_alta", "acc_max", "dec_max"], na_rep="—")
+                .apply(_col_gradient, subset=num_cols_agg, axis=0)
+                .format("{:.2f}", subset=float_cols, na_rep="—")
+                .format("{:.0f}", subset=int_cols, na_rep="—")
             )
             st.dataframe(styled_agg, use_container_width=True, hide_index=True)
 
