@@ -71,6 +71,31 @@
 - [ ] **Dashboard de estadísticas de partido** desde `Estadisticas_pruebas_CLAUDE.xlsx`
       (minutos jugados, goles, asistencias, etc. por jugador).
 
+## Google Forms (PRE/POST por entreno)
+- 2 Forms creados por Arkaitz en su Google (IDs en `src/forms_config.json`).
+  - Form PRE: peso + wellness (4 items 1-5). Wellness OPCIONAL (para 2ª sesión del día).
+  - Form POST: peso + Borg (1-10).
+- Respuestas caen a `_FORM_PRE` y `_FORM_POST` (automático, vía Forms).
+- `src/forms_utils.py`: leer_respuestas_* + consolidar_a_sheet + detectar_duplicados.
+- `src/consolidar_forms.py` + `/consolidar` del bot: consolida a BORG/PESO/WELLNESS,
+  avisa de duplicados y **relanza automáticamente `calcular_vistas`**.
+- Enlaces al jugador:
+  - `/enlaces` → 2 enlaces genéricos (sin prefill, jugador elige su nombre).
+  - `/enlaces_hoy` → pares PRE+POST pre-rellenados por jugador para la sesión del día.
+
+## Ejercicios (timeline Oliver por bloques)
+- Hoja `_EJERCICIOS` (editable por el usuario): session_id, fecha, turno,
+  nombre_ejercicio, tipo_ejercicio, minuto_inicio, minuto_fin, jugadores, notas.
+- Endpoint Oliver:
+  `GET /v1/player-sessions/{id}?include=player_session_info:attr:timeline`
+  → devuelve arrays de 67 valores (1 por minuto) para cada métrica.
+- `src/oliver_ejercicios.py` + comando `/ejercicios_sync` del bot:
+  lee `_EJERCICIOS`, descarga timeline de cada jugador, agrega métricas en el
+  rango [minuto_inicio, minuto_fin), escribe una fila por jugador×ejercicio
+  en `_VISTA_EJERCICIOS` (37 columnas).
+- Dashboard pestaña **🎯 Ejercicios**: filtros por ejercicio/tipo, ranking por
+  jugador con gradiente de colores, comparativa entre ejercicios.
+
 ## Oliver Sports — funcionamiento
 - `src/oliver_sync.py` — sync incremental (modo MVP) o `--deep` (68 métricas).
   Lee token de `.env` raíz (OLIVER_TOKEN, OLIVER_USER_ID, OLIVER_TEAM_ID).

@@ -386,6 +386,21 @@ async def _enviar_bloques(update: Update, stdout: str):
             await update.message.reply_text(b, disable_web_page_preview=True)
 
 
+async def cmd_enlaces(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Devuelve los 2 enlaces genéricos (PRE y POST) del Form.
+    Ideal para mandar al grupo de WhatsApp una sola vez."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_genericos.py")
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error generando enlaces (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+
+
 async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Lee sesiones del día y manda los enlaces pre-rellenados por cada jugador."""
     if not _authorized(update):
@@ -410,7 +425,8 @@ async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Lee _FORM_PRE y _FORM_POST y los integra en BORG/PESO/WELLNESS."""
+    """Lee _FORM_PRE y _FORM_POST, los integra en BORG/PESO/WELLNESS y
+    luego recalcula todas las vistas para que el dashboard se actualice."""
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
@@ -430,6 +446,61 @@ async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
     await _enviar_bloques(update, out)
+
+    # Después de consolidar, recalcular vistas para que el dashboard refleje los datos
+    await update.message.reply_text("🧮 Recalculando vistas para el dashboard…")
+    stop2 = asyncio.Event()
+    task2 = asyncio.create_task(_keep_typing(chat_id, ctx, stop2))
+    try:
+        rc2, out2, err2 = await _run_script(PROJECT_DIR / "src" / "calcular_vistas.py", timeout=600)
+    finally:
+        stop2.set()
+        try: await task2
+        except Exception: pass
+    if rc2 != 0:
+        await update.message.reply_text(
+            f"⚠️ Consolidación OK pero el recálculo de vistas falló:\n{(err2 or out2)[-1500:]}"
+        )
+        return
+    await update.message.reply_text(
+        "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
+    )
+
+
+async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Procesa la hoja _EJERCICIOS: baja timelines de Oliver, agrega métricas
+    por rango de minutos y escribe _VISTA_EJERCICIOS."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "🎯 Procesando ejercicios…\n"
+        "Esto puede tardar un par de minutos si hay muchas sesiones (baja los "
+        "timelines de Oliver por jugador)."
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "oliver_ejercicios.py", timeout=1500
+        )
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error (código {rc}):\n{(err or out)[-1500:]}"
+        )
+        return
+    # Resumen de lo que devolvió el script
+    lineas = out.strip().split("\n")
+    resumen = "\n".join(lineas[-15:])
+    await update.message.reply_text(
+        f"✅ Ejercicios procesados.\n\n```\n{resumen}\n```",
+        parse_mode="Markdown",
+    )
 
 
 async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -756,8 +827,10 @@ def main():
     app.add_handler(CommandHandler("oliver_sync", cmd_oliver_sync))
     app.add_handler(CommandHandler("oliver_deep", cmd_oliver_deep))
     app.add_handler(CommandHandler("oliver_token", cmd_oliver_token))
+    app.add_handler(CommandHandler("enlaces", cmd_enlaces))
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
+    app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)

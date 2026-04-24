@@ -1,4 +1,4 @@
-# Investigación Oliver Sports — 23/04/2026
+# Investigación Oliver Sports — 23/04/2026 (actualizado 24/04/2026)
 
 ## Plataforma
 - URL: `https://platform.oliversports.ai/#/main/team-managers`
@@ -160,6 +160,80 @@ Dos hojas nuevas:
 - Semáforo de coherencia: si Borg=9 pero Oliver Load bajo → día mental flojo.
 - Alertas: acumulado de aceleraciones máximas > umbral → riesgo lumbar.
 - Rendimiento comparado: sprints por puesto.
+
+## 🎯 TIMELINE minuto a minuto (descubierto 24/04/2026)
+
+**Endpoint clave:**
+```
+GET /v1/player-sessions/{player_session_id}?include=player_session_info:attr:timeline
+```
+
+Descubierto interceptando la opción "Métricas por Minuto" del dropdown de
+la vista de jugador. Devuelve el detalle **por minuto de sesión**.
+
+### Estructura (ejemplo de una sesión de 67 min)
+
+Cada métrica es un **array de N valores** donde N = `total_time` (minutos).
+El valor en la posición `i` corresponde al minuto `i` de la sesión.
+
+**Metadatos:**
+- `total_time`: duración total en minutos (int).
+- `session_prefix`: array con "antes de empezar" (calentamiento previo).
+- `session_suffix`: array con "después de terminar".
+
+**Métricas simples (array[N] por minuto):**
+- `played_time` (0-1): fracción del minuto "en juego".
+- `raw_activity_time` (0-1): fracción del minuto con actividad real.
+- `active_rest_time` (0-1): fracción descanso activo.
+- `top_speed` (m/s): velocidad máxima registrada en ese minuto.
+- `cods` (int): cambios de dirección.
+- `jumps` (int): saltos.
+- `kicks` (int): golpeos (puede venir vacío).
+- `oli_session_volume` (0-1): volumen de carga.
+
+**Metabólico (`metabolic_power.*`, arrays[N]):**
+- `kcal`: kcal quemadas ese minuto.
+- `dist_high_intensity`: metros en alta intensidad.
+- `dist_low_intensity`: metros en baja intensidad.
+- `met_energy_high_intensity`, `met_energy_low_intensity`: energía metabólica (kJ/kg aprox).
+- `perc_time_high_intensity`: % del minuto en alta intensidad.
+
+**Intensidad Oliver (`oli_session_intensity.*`, arrays[N]):**
+- `intensity`: índice compuesto (0-100).
+- `acceleration`: intensidad de acc/dec (0-100).
+- `speed`: intensidad de velocidad (0-100).
+
+**Segmentos por zona de velocidad (`segments.*` y `segments_count.*`, arrays[N]):**
+Por minuto, distancia y conteo de:
+- `walking`, `jogging`, `lsprint` (low sprint), `sprint`
+
+**Aceleraciones (`accelerations.*` y `accelerations_count.*`, arrays[N]):**
+Por minuto, para cada intensidad (`high`, `max`):
+- `pos`: aceleraciones positivas.
+- `neg`: deceleraciones (negativas).
+
+**Ratio m/min por intensidad:** `meter_minute_ratio_for_intensity.*`
+(escalares + arrays para tendencias lineales).
+
+### Uso práctico
+
+Con estos 30+ arrays por jugador × 14 jugadores × 414 sesiones se puede:
+1. **Marcar ejercicios**: Arkaitz apunta "sesión X, minuto 10-30 = rondo 3x1".
+2. **Agregar métricas en ese rango**: sumamos/promediamos los valores de
+   arrays[10:30] para ese jugador.
+3. **Comparar ejercicios** entre sí, entre jugadores, o el mismo ejercicio
+   repetido en distintos días.
+4. **Cruzar con resultados** (goles recibidos/marcados) en el futuro.
+
+### Peso de los datos
+
+67 minutos × ~30 métricas × 14 jugadores × 414 sesiones ≈ 11 millones de
+datapoints. No cabe en una sola hoja de Sheet sin sufrir. Estrategias:
+- **On-demand**: solo descargar timeline al calcular un ejercicio concreto.
+- **Cache local**: JSON por sesión en `data/oliver_timelines/`.
+- **Hoja resumen**: escribir solo el agregado por ejercicio en `_EJERCICIOS_METRICAS`.
+
+---
 
 ## Credenciales pegadas en chat (⚠ cambiar)
 Usuario `Txubas` / Contraseña `@Inter1977`. Anotado aquí temporalmente.

@@ -197,6 +197,11 @@ def datos():
         oliver = fecha_col(cargar("_VISTA_OLIVER"), "FECHA")
     except Exception:
         oliver = pd.DataFrame()
+    # _VISTA_EJERCICIOS es opcional (solo existe si se ha corrido oliver_ejercicios.py)
+    try:
+        ejercicios = fecha_col(cargar("_VISTA_EJERCICIOS"), "fecha")
+    except Exception:
+        ejercicios = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -220,7 +225,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -235,7 +240,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios = datos()
         data_ok = True
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
@@ -330,7 +335,7 @@ def color_jug(jugadores):
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
-tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver = st.tabs([
+tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver, tab_ejer = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
@@ -338,6 +343,7 @@ tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver = st.tabs([
     "🏥 Lesiones",
     "📋 Recuento",
     "🏃 Oliver",
+    "🎯 Ejercicios",
 ])
 
 
@@ -1310,3 +1316,164 @@ with tab_oliver:
                 num_cols_det = detalle.select_dtypes(include="number").columns
                 styled_det = detalle.style.format("{:.2f}", subset=num_cols_det, na_rep="—")
                 st.dataframe(styled_det, use_container_width=True, hide_index=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — EJERCICIOS (timeline Oliver agregado por bloques)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_ejer:
+    st.markdown("### 🎯 Ejercicios del entrenamiento")
+    st.caption(
+        "Aquí se agrega el timeline minuto-a-minuto de Oliver en los bloques "
+        "que defines en la hoja **`_EJERCICIOS`** del Sheet (nombre, tipo, "
+        "minuto inicio, minuto fin). Para regenerar: `/ejercicios_sync` en el bot."
+    )
+
+    if ejercicios.empty:
+        st.info(
+            "Aún no hay datos de ejercicios.\n\n"
+            "**Cómo empezar:**\n"
+            "1. Abre la hoja `_EJERCICIOS` del Sheet.\n"
+            "2. Añade filas con: `session_id`, `fecha`, `turno`, `nombre_ejercicio`, "
+            "`tipo_ejercicio`, `minuto_inicio`, `minuto_fin`.\n"
+            "3. En Telegram envía `/ejercicios_sync` al bot.\n\n"
+            "Ver el ejemplo en la propia hoja."
+        )
+    else:
+        ejer_f = ejercicios.copy()
+        # Filtrar por jugadores seleccionados
+        if "jugador" in ejer_f.columns:
+            ejer_f = ejer_f[ejer_f["jugador"].isin(sel_jugadores)]
+
+        # Redondeo defensivo
+        num_cols_e = ejer_f.select_dtypes(include="number").columns
+        ejer_f[num_cols_e] = ejer_f[num_cols_e].round(2)
+
+        # ── Selector de ejercicio ──
+        ejercicios_list = sorted(ejer_f["ejercicio"].dropna().unique().tolist()) if "ejercicio" in ejer_f.columns else []
+        if not ejercicios_list:
+            st.warning("Sin ejercicios que mostrar para los jugadores seleccionados.")
+        else:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                ejercicio_sel = st.selectbox(
+                    "Ejercicio",
+                    options=["(todos)"] + ejercicios_list,
+                    index=0,
+                    key="ejer_sel",
+                )
+            with c2:
+                tipos = sorted(ejer_f["tipo_ejercicio"].dropna().unique().tolist()) if "tipo_ejercicio" in ejer_f.columns else []
+                tipo_sel = st.selectbox(
+                    "Tipo",
+                    options=["(todos)"] + tipos,
+                    index=0,
+                    key="tipo_sel",
+                )
+
+            # Filtrar
+            f = ejer_f.copy()
+            if ejercicio_sel != "(todos)":
+                f = f[f["ejercicio"] == ejercicio_sel]
+            if tipo_sel != "(todos)":
+                f = f[f["tipo_ejercicio"] == tipo_sel]
+
+            if f.empty:
+                st.warning("No hay datos para la combinación seleccionada.")
+            else:
+                # ── KPIs del ejercicio ──
+                c1, c2, c3, c4, c5 = st.columns(5)
+                for col, val, lbl, color in [
+                    (c1, f"{f['dist_total'].mean():.0f}", "Distancia media (m)", AZUL),
+                    (c2, f"{f['n_sprint'].sum():.0f}",    "Sprints totales", NARANJA),
+                    (c3, f"{f['n_acc_alta_pos'].sum():.0f}", "Acc. alta+", ROJO),
+                    (c4, f"{f['top_speed_kmh'].max():.1f}", "Vel. máx (km/h)", VERDE),
+                    (c5, f"{f['intensity_medio'].mean():.1f}", "Intensidad media", GRIS),
+                ]:
+                    col.markdown(
+                        f'<div class="metric-card">'
+                        f'<div class="val" style="color:{color}">{val}</div>'
+                        f'<div class="lbl">{lbl}</div></div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("---")
+
+                # ── Comparativa por jugador ──
+                st.markdown("#### Ranking por jugador")
+                st.caption("Agregado del jugador en el/los ejercicio(s) seleccionado(s).")
+                rank = f.groupby("jugador", as_index=False).agg(
+                    veces=("ejercicio", "count"),
+                    duracion_total=("duracion_min", "sum"),
+                    dist_total=("dist_total", "sum"),
+                    dist_alta_int=("dist_high_intensity", "sum"),
+                    sprints=("n_sprint", "sum"),
+                    acc_alta=("n_acc_alta_pos", "sum"),
+                    dec_alta=("n_acc_alta_neg", "sum"),
+                    intensity=("intensity_medio", "mean"),
+                    kcal=("kcal", "sum"),
+                    top_speed_kmh=("top_speed_kmh", "max"),
+                ).round(2).sort_values("dist_total", ascending=False)
+
+                # Gradiente suave por columna
+                def _grad(s: pd.Series):
+                    vals = pd.to_numeric(s, errors="coerce")
+                    mn, mx = vals.min(), vals.max()
+                    out = []
+                    for v in vals:
+                        if pd.isna(v) or mx == mn:
+                            out.append(""); continue
+                        t = max(0, min(1, (v - mn)/(mx - mn)))
+                        if t < 0.5:
+                            r, g, b = 255, int(170 + 70*t*2), int(170 + 20*t*2)
+                        else:
+                            r = int(255 - 85*(t-0.5)*2); g = int(240 - 15*(t-0.5)*2); b = int(190 - 20*(t-0.5)*2)
+                        out.append(f"background-color: rgb({r},{g},{b})")
+                    return out
+
+                cols_num = [c for c in rank.columns if c != "jugador"]
+                styled = (
+                    rank.style
+                    .apply(_grad, subset=cols_num, axis=0)
+                    .format("{:.2f}", subset=cols_num, na_rep="—")
+                )
+                st.dataframe(styled, use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+
+                # ── Si hay múltiples ejercicios, comparativa ──
+                if ejercicio_sel == "(todos)":
+                    st.markdown("#### Comparativa entre ejercicios (media del equipo)")
+                    comp = f.groupby(["ejercicio", "tipo_ejercicio"], as_index=False).agg(
+                        duracion_min=("duracion_min", "first"),
+                        dist_total_media=("dist_total", "mean"),
+                        intensity_media=("intensity_medio", "mean"),
+                        sprints_total=("n_sprint", "sum"),
+                        acc_alta_total=("n_acc_alta_pos", "sum"),
+                    ).round(2)
+
+                    fig = px.bar(
+                        comp.sort_values("intensity_media", ascending=False),
+                        x="ejercicio", y="intensity_media",
+                        color="tipo_ejercicio",
+                        title="Intensidad media por ejercicio",
+                        hover_data=["duracion_min", "dist_total_media", "sprints_total"],
+                    )
+                    fig.update_layout(**LAYOUT, height=360)
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # ── Detalle expandible ──
+                with st.expander("📋 Detalle por jugador y ejercicio"):
+                    cols_show = [c for c in [
+                        "fecha", "turno", "ejercicio", "tipo_ejercicio", "jugador",
+                        "minuto_inicio", "minuto_fin", "duracion_min",
+                        "dist_total", "dist_high_intensity", "top_speed_kmh",
+                        "n_sprint", "n_acc_alta_pos", "n_acc_alta_neg",
+                        "intensity_medio", "kcal",
+                    ] if c in f.columns]
+                    det = f.sort_values(["fecha", "ejercicio", "jugador"])[cols_show]
+                    num_det = det.select_dtypes(include="number").columns
+                    st.dataframe(
+                        det.style.format("{:.2f}", subset=num_det, na_rep="—"),
+                        use_container_width=True, hide_index=True,
+                    )
