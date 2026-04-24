@@ -48,6 +48,63 @@ def _connect_sheet():
     return gspread.authorize(creds).open(SHEET_NAME)
 
 
+def cargar_mapeo_jugadores(ss) -> tuple[dict, dict]:
+    """Lee BORG para la lista de nombres 'cortos' del Sheet (BARONA, CARLOS...)
+    y la hoja _OLIVER_ALIASES para alias manuales (DAVID SEGOVIA → SEGO).
+    Devuelve (dict_upper_to_canonical, dict_alias_upper_to_nombre_sheet)."""
+    sheet_upper: dict = {}
+    try:
+        borg = pd.DataFrame(ss.worksheet("BORG").get_all_records(
+            value_render_option=gspread.utils.ValueRenderOption.unformatted
+        ))
+        # Si hay duplicados case-insensitive (ej. "Carlos" y "CARLOS"),
+        # preferir la versión TODO MAYÚSCULAS como forma canónica.
+        for j in borg["JUGADOR"].dropna().unique():
+            j_str = str(j).strip()
+            if not j_str or j_str.upper() == "JUG 16":
+                continue
+            up = j_str.upper()
+            canonica = sheet_upper.get(up)
+            if canonica is None:
+                sheet_upper[up] = j_str
+            else:
+                # Reemplazar si la nueva es "más mayúscula" o la canonica no lo es
+                if j_str == up and canonica != up:
+                    sheet_upper[up] = j_str
+    except Exception:
+        pass
+
+    alias_map = {}
+    try:
+        aliases = pd.DataFrame(ss.worksheet("_OLIVER_ALIASES").get_all_records(
+            value_render_option=gspread.utils.ValueRenderOption.unformatted
+        ))
+        if not aliases.empty and "nombre_oliver" in aliases.columns and "nombre_sheet" in aliases.columns:
+            for _, r in aliases.iterrows():
+                ol = str(r.get("nombre_oliver", "")).strip()
+                sh = str(r.get("nombre_sheet", "")).strip()
+                if ol and sh:
+                    alias_map[ol.upper()] = sh
+    except Exception:
+        pass
+    return sheet_upper, alias_map
+
+
+def normalizar_nombre(nombre_oliver: str, sheet_upper: dict, alias_map: dict) -> str:
+    """Convierte 'Sergio Barona' → 'BARONA' si hay match; si no, devuelve el original."""
+    if not isinstance(nombre_oliver, str) or not nombre_oliver:
+        return nombre_oliver
+    # 1. Alias manual exacto (case-insensitive)
+    if nombre_oliver.upper() in alias_map:
+        return alias_map[nombre_oliver.upper()]
+    # 2. Match fuzzy: alguna palabra del nombre Oliver coincide con un jugador del Sheet
+    for palabra in nombre_oliver.split():
+        up = palabra.upper()
+        if up in sheet_upper:
+            return sheet_upper[up]
+    return nombre_oliver
+
+
 def leer_ejercicios(ss) -> pd.DataFrame:
     """Lee la hoja _EJERCICIOS y devuelve DataFrame limpio."""
     ws = ss.worksheet("_EJERCICIOS")
@@ -219,6 +276,11 @@ def main():
     print("▶ Construyendo mapa player_id → nombre…")
     name_map = api.build_player_name_map(OLIVER_TEAM)
 
+    # Cargar mapeo Oliver → Sheet para que los nombres cuadren con el dashboard
+    print("▶ Cargando mapeo Oliver ↔ Sheet…")
+    sheet_upper, alias_map = cargar_mapeo_jugadores(ss)
+    print(f"  → {len(sheet_upper)} jugadores en Sheet · {len(alias_map)} aliases manuales")
+
     filas_salida = []
     for i, fila in ej.iterrows():
         sid = int(fila["session_id"])
@@ -245,7 +307,9 @@ def main():
 
         for ps in ps_list:
             pid = ps.get("player_id")
-            jugador = name_map.get(pid, f"player_{pid}")
+            jugador_oliver = name_map.get(pid, f"player_{pid}")
+            # Normalizar a formato Sheet: "Sergio Barona" → "BARONA"
+            jugador = normalizar_nombre(jugador_oliver, sheet_upper, alias_map)
             metricas = agregar_metricas(ps["timeline"], ini, fin)
             if not metricas:
                 continue
