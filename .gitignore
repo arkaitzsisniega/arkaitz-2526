@@ -16,6 +16,10 @@ data/raw/
 # Logs espejados de los bots de Telegram (pueden contener datos sensibles)
 telegram_logs/
 
+# Estado local del bot (marcas de recordatorios, últimas ejecuciones…)
+.recordatorios.json
+.oliver_deep_ultimo
+
 # Python
 __pycache__/
 *.pyc

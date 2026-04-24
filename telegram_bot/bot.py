@@ -489,6 +489,66 @@ async def _check_recordatorio_deep(ctx: ContextTypes.DEFAULT_TYPE):
         log.warning("Error en check de recordatorio: %s", e)
 
 
+# ─── Recordatorios con fecha específica ──────────────────────────────────────
+# Archivo JSON con lista de {"fecha": "YYYY-MM-DD", "mensaje": "...", "hecho": bool}
+# Se revisa cada 24h; los que lleguen a su fecha y no estén hechos se envían.
+RECORDATORIOS_FILE = PROJECT_DIR / ".recordatorios.json"
+
+
+def _leer_recordatorios() -> list:
+    try:
+        if RECORDATORIOS_FILE.exists():
+            import json as _json
+            return _json.loads(RECORDATORIOS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning("No pude leer recordatorios.json: %s", e)
+    return []
+
+
+def _guardar_recordatorios(lista: list) -> None:
+    try:
+        import json as _json
+        RECORDATORIOS_FILE.write_text(
+            _json.dumps(lista, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        log.warning("No pude escribir recordatorios.json: %s", e)
+
+
+async def _check_recordatorios_fecha(ctx: ContextTypes.DEFAULT_TYPE):
+    """Se ejecuta cada 24h. Envía los recordatorios cuya fecha ya haya llegado."""
+    try:
+        recs = _leer_recordatorios()
+        if not recs:
+            return
+        hoy = _dt.date.today()
+        cambios = False
+        for r in recs:
+            if r.get("hecho"):
+                continue
+            try:
+                fecha = _dt.date.fromisoformat(r.get("fecha", ""))
+            except ValueError:
+                continue
+            if hoy >= fecha:
+                mensaje = r.get("mensaje", "").strip() or "(recordatorio vacío)"
+                try:
+                    await ctx.bot.send_message(
+                        ALLOWED_CHAT_ID,
+                        f"⏰ *Recordatorio programado*\n\n{mensaje}",
+                        parse_mode="Markdown",
+                    )
+                    r["hecho"] = True
+                    r["enviado_en"] = hoy.isoformat()
+                    cambios = True
+                except Exception as e:
+                    log.warning("Fallo enviando recordatorio: %s", e)
+        if cambios:
+            _guardar_recordatorios(recs)
+    except Exception as e:
+        log.warning("Error en check de recordatorios con fecha: %s", e)
+
+
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
                           kind: str = "texto"):
     """Lógica común para texto y voz transcrita."""
@@ -631,7 +691,13 @@ def main():
             first=30,            # primer check a los 30 segundos de arrancar
             name="oliver_deep_reminder",
         )
-        log.info("Recordatorio quincenal Oliver deep: activo")
+        app.job_queue.run_repeating(
+            _check_recordatorios_fecha,
+            interval=24 * 3600,  # cada 24 horas
+            first=45,            # 15s después del otro check
+            name="recordatorios_fecha",
+        )
+        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas específicas)")
     else:
         log.warning("job_queue no disponible (instala python-telegram-bot[job-queue]); "
                     "sin recordatorios automáticos")
