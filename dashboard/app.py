@@ -242,6 +242,22 @@ with st.sidebar:
     try:
         carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios = datos()
         data_ok = True
+    except ValueError as e:
+        # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
+        if "values to unpack" in str(e):
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            try:
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios = datos()
+                data_ok = True
+            except Exception as e2:
+                st.error(f"Error cargando datos (tras limpiar cache): {e2}")
+                st.stop()
+        else:
+            st.error(f"Error cargando datos: {e}")
+            st.stop()
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
         st.stop()
