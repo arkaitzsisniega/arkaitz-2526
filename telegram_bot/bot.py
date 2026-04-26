@@ -189,6 +189,10 @@ async def _keep_typing(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, stop: async
 # (vacío = continuar sesión previa con -c)
 _fresh_chats: set = set()
 
+# Modo "/ejercicios_voz": chat_id → timestamp de activación (vence a los 15 min)
+_modo_ejercicios_voz: dict = {}
+EJVOZ_TTL_SEG = 15 * 60
+
 # Modelo Whisper (lazy load; primera vez descarga ~150MB, luego cacheado)
 _whisper_model = None
 _whisper_lock = asyncio.Lock()
@@ -465,6 +469,63 @@ async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
     )
+
+
+async def cmd_ejercicios_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Activa modo captura: el siguiente audio se procesa como descripción
+    de los ejercicios del entreno y se vuelca a _EJERCICIOS + se sincroniza
+    con Oliver. Caduca a los 15 min."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    _modo_ejercicios_voz[chat_id] = _dt.datetime.now().timestamp()
+    await update.message.reply_text(
+        "🎤 *Modo ejercicios activado.*\n\n"
+        "Mándame ahora un audio describiendo los ejercicios del entreno "
+        "(qué hicisteis, en qué orden y duración aproximada). En cuanto "
+        "lo recibas y lo transcriba, lo estructuro y lo meto en el Sheet.\n\n"
+        "_Si el GPS se encendió después de algún ejercicio (movilidad, etc.), "
+        "menciónalo en el audio y lo tendré en cuenta._\n\n"
+        "Tienes 15 min para mandar el audio.",
+        parse_mode="Markdown",
+    )
+
+
+async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Llama al script parse_ejercicios_voz.py con la transcripción por stdin."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🧠 Estructurando los ejercicios con Claude…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/python3", str(PROJECT_DIR / "src" / "parse_ejercicios_voz.py"),
+            cwd=str(PROJECT_DIR),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(
+                proc.communicate(input=transcripcion.encode("utf-8")),
+                timeout=900,
+            )
+        except asyncio.TimeoutError:
+            proc.kill(); await proc.wait()
+            await update.message.reply_text("⚠️ Timeout (>15 min).")
+            return
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if proc.returncode != 0:
+        await update.message.reply_text(
+            f"❌ Error procesando audio (código {proc.returncode}):\n"
+            f"{(err or out).decode('utf-8', 'replace')[-1500:]}"
+        )
+        return
+    await _enviar_bloques(update, out.decode("utf-8", "replace"))
 
 
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -803,6 +864,19 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(f"🎤 Entendido: «{text}»")
+
+    # Si el chat está en modo /ejercicios_voz y no ha caducado → procesar como ejercicios
+    chat_id_v = update.effective_chat.id
+    ts = _modo_ejercicios_voz.get(chat_id_v)
+    ahora = _dt.datetime.now().timestamp()
+    if ts and (ahora - ts) < EJVOZ_TTL_SEG:
+        _modo_ejercicios_voz.pop(chat_id_v, None)
+        _append_log(chat_id_v,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    text, "(procesado como ejercicios_voz)", kind="voz")
+        await _procesar_audio_ejercicios(text, update, ctx)
+        return
+
     await _process_prompt(text, update, ctx, kind="voz")
 
 
@@ -831,6 +905,7 @@ def main():
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
+    app.add_handler(CommandHandler("ejercicios_voz", cmd_ejercicios_voz))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)
