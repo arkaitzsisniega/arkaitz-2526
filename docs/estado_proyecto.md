@@ -212,17 +212,29 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
 ## 🔜 Hilos abiertos (orden sugerido)
 
 ### En curso
-- *Ninguno crítico*. El sistema está operativo.
+- **Bot de gastos personales** ✅ funcionando. Carpeta `gastos_bot/`.
+  Sheet propio (independiente del de Inter) con 80 gastos históricos
+  importados desde el Numbers (ene-abr 2026). Pendiente: añadir chat_id
+  de Lis tras `/id` y monitorizar la categorización en uso real.
 
 ### Próximos
 1. **Dashboard de estadísticas de partido** — Arkaitz tiene Excel
    `Estadisticas_pruebas_CLAUDE.xlsx` con minutos jugados, goles,
-   asistencias, etc. por jugador. Crear vista en el dashboard cuando
-   Arkaitz lo suba.
-2. **Mejorar pestaña Lesiones** — pospuesto. Candidato: gráfico días
+   asistencias, etc. por jugador. Tres frentes:
+   - **Dashboard final**: máxima calidad visual, muchas opciones de
+     filtrado/comparativa.
+   - **Picado cómodo**: que rellenar los datos sea ágil para Arkaitz.
+   - **App tablet en directo** (futuro, último): Excel/app para picar
+     tiempos en vivo desde tablet durante el partido. Hacer cuando
+     todo lo demás esté terminado.
+2. **Documento de fisios** — formulario/Sheet sencillo donde los
+   fisios apunten lo que hacen con cada jugador. **Crítico**: el menor
+   tiempo posible de cumplimentación. Hay que diseñarlo pensando en
+   ergonomía, no en exhaustividad.
+3. **Mejorar pestaña Lesiones** — pospuesto. Candidato: gráfico días
    baja por zona, tiempos medios de retorno, lesiones activas con
    countdown.
-3. **Plantilla 26/27** (recordatorio programado para 15/06/2026):
+4. **Plantilla 26/27** (recordatorio programado para 15/06/2026):
    Arkaitz pasará lista oficial de porteros + jugadores primer equipo
    + filial que sube. Actualizar `_OLIVER_ALIASES` y archivar datos
    históricos de jugadores que se vayan.
