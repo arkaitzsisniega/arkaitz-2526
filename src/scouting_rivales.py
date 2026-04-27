@@ -161,7 +161,7 @@ def calcular_agregado_rival(df: pd.DataFrame) -> pd.DataFrame:
     # Porcentajes por origen
     for c in cols_acciones:
         pct_col = f"%{c}"
-        g[pct_col] = (g[c] / g["total_goles"].replace(0, pd.NA) * 100).round(1)
+        g[pct_col] = (g[c] / g["total_goles"].replace(0, float("nan")) * 100).round(1)
     return g.sort_values("total_goles", ascending=False)
 
 

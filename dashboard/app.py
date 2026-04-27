@@ -1704,8 +1704,8 @@ with tab_efic:
                 goles=("goles_a_favor", "sum"),
             )
             agr_e["dt"] = agr_e["dp"] + agr_e["dpalo"] + agr_e["db"] + agr_e["df"]
-            agr_e["pct_a_puerta"] = (agr_e["dp"] / agr_e["dt"].replace(0, pd.NA) * 100).round(1)
-            agr_e["pct_conversion"] = (agr_e["goles"] / agr_e["dp"].replace(0, pd.NA) * 100).round(1)
+            agr_e["pct_a_puerta"] = (agr_e["dp"] / agr_e["dt"].replace(0, np.nan) * 100).round(1)
+            agr_e["pct_conversion"] = (agr_e["goles"] / agr_e["dp"].replace(0, np.nan) * 100).round(1)
             inv_min_e = 1 / agr_e["min_total"].clip(lower=1)
             agr_e["dp_por_40"] = (agr_e["dp"] * 40 * inv_min_e).round(2)
             agr_e["dt_por_40"] = (agr_e["dt"] * 40 * inv_min_e).round(2)
@@ -2032,7 +2032,7 @@ with tab_equipo:
             agr["dif_rec_per"] = agr["robos"] + agr["cortes"] - (agr["pf"] + agr["pnf"])
             agr["dif_bd"] = agr["bdg"] - agr["bdp"]
             agr["g+a"] = agr["goles"] + agr["asists"]
-            agr["pct_dp_total"] = (agr["dp"] / agr["dt"].replace(0, pd.NA) * 100).round(1)
+            agr["pct_dp_total"] = (agr["dp"] / agr["dt"].replace(0, np.nan) * 100).round(1)
 
             # +/- desde eventos
             plusminus = []
