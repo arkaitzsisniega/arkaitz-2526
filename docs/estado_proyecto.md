@@ -216,25 +216,28 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
   Sheet propio (independiente del de Inter) con 80 gastos históricos
   importados desde el Numbers (ene-abr 2026). Pendiente: añadir chat_id
   de Lis tras `/id` y monitorizar la categorización en uso real.
+- **Estadísticas de partido** 🟡 v0 funcional. `src/estadisticas_partidos.py`
+  lee el Excel `Estadisticas2526.xlsx` (en `~/Mi unidad/Deporte/...`),
+  extrae rotaciones y eventos de gol de las 38 pestañas-partido
+  jugadas, y vuelca a 3 hojas del Sheet maestro: `EST_PARTIDOS`,
+  `EST_EVENTOS`, `_VISTA_EST_JUGADOR`. Pestaña 🏆 Estadísticas en
+  el dashboard (Streamlit Cloud). **Pendientes** (ver
+  `docs/estadisticas_partidos.md`):
+  - Goles_en_contra atribuidos al cuarteto en pista.
+  - Marcador final del partido (no se extrae aún).
+  - Asistencias: confirmar que solo se cuentan las nuestras.
+  - Fecha del partido: comprobar columna exacta.
+  - **Picado cómodo** y **app tablet en directo** aún pendientes.
 
 ### Próximos
-1. **Dashboard de estadísticas de partido** — Arkaitz tiene Excel
-   `Estadisticas_pruebas_CLAUDE.xlsx` con minutos jugados, goles,
-   asistencias, etc. por jugador. Tres frentes:
-   - **Dashboard final**: máxima calidad visual, muchas opciones de
-     filtrado/comparativa.
-   - **Picado cómodo**: que rellenar los datos sea ágil para Arkaitz.
-   - **App tablet en directo** (futuro, último): Excel/app para picar
-     tiempos en vivo desde tablet durante el partido. Hacer cuando
-     todo lo demás esté terminado.
-2. **Documento de fisios** — formulario/Sheet sencillo donde los
+1. **Documento de fisios** — formulario/Sheet sencillo donde los
    fisios apunten lo que hacen con cada jugador. **Crítico**: el menor
    tiempo posible de cumplimentación. Hay que diseñarlo pensando en
    ergonomía, no en exhaustividad.
-3. **Mejorar pestaña Lesiones** — pospuesto. Candidato: gráfico días
+2. **Mejorar pestaña Lesiones** — pospuesto. Candidato: gráfico días
    baja por zona, tiempos medios de retorno, lesiones activas con
    countdown.
-4. **Plantilla 26/27** (recordatorio programado para 15/06/2026):
+3. **Plantilla 26/27** (recordatorio programado para 15/06/2026):
    Arkaitz pasará lista oficial de porteros + jugadores primer equipo
    + filial que sube. Actualizar `_OLIVER_ALIASES` y archivar datos
    históricos de jugadores que se vayan.
