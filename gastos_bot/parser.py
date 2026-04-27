@@ -69,6 +69,44 @@ class GastoParseado:
     cantidad: Optional[float]
     concepto: str
     raw: str
+    categoria_explicita: Optional[str] = None
+
+
+# Detector de "en categoría X" / "categoría X" para extraer la
+# categoría que el usuario menciona explícitamente.
+PATRON_CATEGORIA_EXPLICITA = re.compile(
+    r"\b(?:en\s+)?categor[ií]a\s+(?:de\s+|el\s+|la\s+)?([A-Za-zÁÉÍÓÚáéíóúÑñ\/\s]+?)(?:\s*[,\.]|\s*$)",
+    re.IGNORECASE,
+)
+
+# Mapa de palabras del usuario → categoría canónica (para "categoría supermercados" → "Supermercado").
+_MAPA_CAT_USUARIO = {
+    "supermercado": "Supermercado", "supermercados": "Supermercado",
+    "restaurante": "Restaurantes", "restaurantes": "Restaurantes",
+    "casa": "Casa", "hogar": "Casa",
+    "alquiler": "Alquiler/Hipoteca", "hipoteca": "Alquiler/Hipoteca",
+    "transporte": "Transporte",
+    "salud": "Salud",
+    "ocio": "Ocio",
+    "compras": "Compras", "compra": "Compras",
+    "mascotas": "Mascotas", "mascota": "Mascotas",
+    "fin de semana": "Fin de semana", "finde": "Fin de semana",
+    "otros": "Otros", "otro": "Otros",
+}
+
+
+def _detectar_categoria_explicita(texto: str) -> Optional[str]:
+    m = PATRON_CATEGORIA_EXPLICITA.search(texto)
+    if not m:
+        return None
+    raw = m.group(1).strip().lower().rstrip(",.;:")
+    # Buscar match exacto o por palabra clave
+    if raw in _MAPA_CAT_USUARIO:
+        return _MAPA_CAT_USUARIO[raw]
+    for k, v in _MAPA_CAT_USUARIO.items():
+        if k in raw:
+            return v
+    return None
 
 
 def parsear(texto: str) -> GastoParseado:
@@ -76,8 +114,13 @@ def parsear(texto: str) -> GastoParseado:
     if not raw:
         return GastoParseado(None, "", raw)
 
+    # Detectar categoría explícita ("en categoría X") ANTES de limpiar nada,
+    # y borrarla del texto para que no contamine el concepto.
+    categoria_explicita = _detectar_categoria_explicita(raw)
+    s = PATRON_CATEGORIA_EXPLICITA.sub(" ", raw)
+
     # Limpiar puntuación final típica de transcripciones
-    s = raw.rstrip(" .!?¿¡,;:")
+    s = s.rstrip(" .!?¿¡,;:")
 
     # Quitar muletillas iniciales (varias pasadas por si hay encadenadas)
     for _ in range(3):
@@ -125,4 +168,4 @@ def parsear(texto: str) -> GastoParseado:
     if not concepto and cantidad is not None:
         concepto = "(sin concepto)"
 
-    return GastoParseado(cantidad, concepto, raw)
+    return GastoParseado(cantidad, concepto, raw, categoria_explicita)
