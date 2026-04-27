@@ -7,10 +7,18 @@ tipo y parámetros; si no, devolvemos None y el bot intenta apuntar.
 
 Tipos de intención:
   - ("ultimos", None)            — últimos gastos
-  - ("resumen_semana", None)     — últimos 7 días
-  - ("resumen_mes", None)        — mes en curso
-  - ("resumen_mes_de", N)        — mes N (1-12) del año actual
+  - ("resumen_semana", None)     — resumen últimos 7 días (totales)
+  - ("resumen_mes", None)        — resumen mes en curso (totales)
+  - ("resumen_mes_de", N)        — resumen mes N (1-12)
+  - ("lista_semana", None)       — lista detallada últimos 7 días
+  - ("lista_mes", None)          — lista detallada mes en curso
+  - ("lista_mes_de", N)          — lista detallada mes N (1-12)
+  - ("lista_todos", None)        — lista detallada de todos los gastos
   - ("ayuda", None)              — explicar qué puede hacer
+
+Diferencia resumen vs lista:
+  - "Resumen del mes"             → resumen (totales por categoría)
+  - "Todos los gastos uno a uno"  → lista (cada fila con fecha+concepto+€)
 """
 from __future__ import annotations
 
@@ -45,6 +53,17 @@ PALABRAS_RESUMEN = (
     "llevo gastado", "hemos gastado", "gastado en",
 )
 
+# Frases que piden el LISTADO COMPLETO (no resumen agregado)
+PALABRAS_LISTA = (
+    "uno a uno", "uno por uno", "uno x uno",
+    "una a una", "una por una", "una x una",
+    "todos los gastos", "todas las compras",
+    "todo el detalle", "el detalle", "detallado", "detallada",
+    "detalla", "detallame", "detallamelos",
+    "lista", "listado", "listame", "listamelos",
+    "fila a fila", "linea a linea",
+)
+
 
 def _normalizar(s: str) -> str:
     s = s.lower().strip()
@@ -76,29 +95,39 @@ def detectar_intencion(texto: str) -> Optional[Tuple[str, Optional[int]]]:
     inicia_pregunta = any(s.startswith(p) for p in PALABRAS_PREGUNTA_INICIAL)
     contiene_frase = any(f in s for f in FRASES_CONSULTA)
     contiene_resumen = any(p in s for p in PALABRAS_RESUMEN)
-    pide_listado = ("ultimos" in s or "ultimas" in s) and ("gasto" in s or "compra" in s)
+    pide_lista_detallada = any(p in s for p in PALABRAS_LISTA)
+    # "ultimos gastos" sin más → comando /ultimos (top N recientes)
+    pide_ultimos = ("ultimos" in s or "ultimas" in s) and ("gasto" in s or "compra" in s)
 
-    if not (es_pregunta or inicia_pregunta or contiene_frase or contiene_resumen or pide_listado):
+    if not (es_pregunta or inicia_pregunta or contiene_frase
+            or contiene_resumen or pide_lista_detallada or pide_ultimos):
         return None
+
+    # ¿Es lista detallada (uno a uno) o resumen agregado?
+    modo = "lista" if pide_lista_detallada else "resumen"
 
     # 1) Mes específico ("abril", "mes de mayo", etc.)
     for nombre, num in MESES.items():
         if re.search(rf"\b{nombre}\b", s):
-            return ("resumen_mes_de", num)
+            return (f"{modo}_mes_de", num)
 
     # 2) Periodo semana
     if "semana" in s or "ultimos 7" in s or "siete dias" in s:
-        return ("resumen_semana", None)
+        return (f"{modo}_semana", None)
 
     # 3) Este mes / mes actual / del mes
     if "este mes" in s or "del mes" in s or "mes actual" in s or "mes en curso" in s:
-        return ("resumen_mes", None)
+        return (f"{modo}_mes", None)
 
-    # 4) Listado de últimos gastos
-    if pide_listado or "ultimos" in s or "ultimas" in s:
+    # 4) Lista detallada sin periodo: "todos los gastos" → lista completa
+    if pide_lista_detallada:
+        return ("lista_todos", None)
+
+    # 5) Listado de últimos gastos (variante "últimos 10", etc.)
+    if pide_ultimos:
         return ("ultimos", None)
 
-    # 5) "Resumen" / "total" sin más → mes en curso por defecto
+    # 6) "Resumen" / "total" sin más → mes en curso por defecto
     if contiene_resumen:
         return ("resumen_mes", None)
 

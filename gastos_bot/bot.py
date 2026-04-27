@@ -212,6 +212,18 @@ async def _procesar_texto_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
         if tipo == "resumen_mes_de":
             await _enviar_resumen_mes_de(update, param)
             return
+        if tipo == "lista_semana":
+            await _enviar_lista_semana(update)
+            return
+        if tipo == "lista_mes":
+            await _enviar_lista_mes_actual(update)
+            return
+        if tipo == "lista_mes_de":
+            await _enviar_lista_mes_de(update, param)
+            return
+        if tipo == "lista_todos":
+            await _enviar_lista_todos(update)
+            return
         if tipo == "ultimos":
             await _enviar_ultimos(update)
             return
@@ -219,12 +231,11 @@ async def _procesar_texto_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
             await update.message.reply_text(
                 "Te puedo ayudar con esto:\n"
                 "  • Apuntar un gasto: «Lidl 15,85» o «cena 23 euros».\n"
-                "  • Resumen del mes en curso: «resumen del mes».\n"
-                "  • Resumen de un mes concreto: «resumen de abril».\n"
-                "  • Última semana: «resumen de la semana».\n"
+                "  • Resumen agregado del mes: «resumen del mes», «resumen de abril».\n"
+                "  • Lista detallada: «todos los gastos de abril uno a uno».\n"
+                "  • Última semana: «resumen de la semana» o «gastos de la semana uno a uno».\n"
                 "  • Últimos gastos: «últimos gastos».\n\n"
-                "También funcionan los comandos: /resumen_mes, "
-                "/resumen_semana, /ultimos, /borrar, /categorias."
+                "Comandos: /resumen_mes, /resumen_semana, /ultimos, /borrar, /categorias."
             )
             return
 
@@ -450,6 +461,112 @@ async def _enviar_resumen_mes_de(update: Update, mes: int):
     nombre = NOMBRES_MESES[mes].capitalize() + f" {año}"
     txt = _formatear_resumen(f"📅 {nombre}", rows)
     await update.message.reply_text(txt, parse_mode=constants.ParseMode.MARKDOWN)
+
+
+def _filtrar_por_periodo(rows, desde, hasta):
+    """Filtra rows por rango de fecha (inclusive). desde/hasta = date."""
+    out = []
+    for r in rows:
+        try:
+            f = _dt.date.fromisoformat(str(r.get("fecha", "")))
+        except Exception:
+            continue
+        if desde <= f <= hasta:
+            try:
+                r["_cantidad"] = float(str(r.get("cantidad", 0)).replace(",", "."))
+            except Exception:
+                r["_cantidad"] = 0.0
+            r["_fecha"] = f
+            out.append(r)
+    return out
+
+
+async def _enviar_lista_chunks(update: Update, titulo: str, rows: list[dict]):
+    """Envía un listado detallado de gastos. Trocea en mensajes de hasta
+    ~3500 chars para no chocar con el límite de Telegram (4096)."""
+    if not rows:
+        await update.message.reply_text(f"*{titulo}*\nSin gastos en este periodo.",
+                                        parse_mode=constants.ParseMode.MARKDOWN)
+        return
+
+    # Ordenar por fecha y luego por cantidad descendente para legibilidad
+    rows_ord = sorted(rows, key=lambda r: (r.get("_fecha") or _dt.date.min,
+                                            -(r.get("_cantidad") or 0)))
+    total = sum(r.get("_cantidad", 0) for r in rows_ord)
+
+    cab = f"*{titulo}* — {len(rows_ord)} gastos · {fmt_eur(total)}\n"
+    bloques: list[str] = []
+    actual = cab
+    for i, r in enumerate(rows_ord, 1):
+        fecha = r.get("_fecha")
+        ftxt = fecha.strftime("%d/%m") if isinstance(fecha, _dt.date) else str(r.get("fecha", ""))
+        concepto = str(r.get("concepto", "")).strip()
+        cant = r.get("_cantidad", 0)
+        cat = str(r.get("categoria", ""))
+        quien = str(r.get("quien_apunta", ""))
+        linea = f"`{ftxt}` {fmt_eur(cant):>9} — {concepto} _({cat}, {quien})_"
+        # +1 por el \n
+        if len(actual) + len(linea) + 1 > 3500:
+            bloques.append(actual)
+            actual = ""
+        actual += "\n" + linea
+    if actual.strip():
+        bloques.append(actual)
+
+    for b in bloques:
+        await update.message.reply_text(b, parse_mode=constants.ParseMode.MARKDOWN)
+
+
+async def _enviar_lista_mes_de(update: Update, mes: int):
+    hoy = _dt.date.today()
+    año = hoy.year
+    desde = _dt.date(año, mes, 1)
+    hasta = (_dt.date(año, 12, 31) if mes == 12
+             else _dt.date(año, mes + 1, 1) - _dt.timedelta(days=1))
+    try:
+        rows = _filtrar_por_periodo(sheets.leer_todos(), desde, hasta)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error leyendo Sheet: {e}")
+        return
+    titulo = f"📅 {NOMBRES_MESES[mes].capitalize()} {año}"
+    await _enviar_lista_chunks(update, titulo, rows)
+
+
+async def _enviar_lista_mes_actual(update: Update):
+    hoy = _dt.date.today()
+    await _enviar_lista_mes_de(update, hoy.month)
+
+
+async def _enviar_lista_semana(update: Update):
+    hoy = _dt.date.today()
+    desde = hoy - _dt.timedelta(days=6)
+    try:
+        rows = _filtrar_por_periodo(sheets.leer_todos(), desde, hoy)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error leyendo Sheet: {e}")
+        return
+    titulo = f"📅 Últimos 7 días ({desde.strftime('%d/%m')} – {hoy.strftime('%d/%m')})"
+    await _enviar_lista_chunks(update, titulo, rows)
+
+
+async def _enviar_lista_todos(update: Update):
+    try:
+        rows = sheets.leer_todos()
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error leyendo Sheet: {e}")
+        return
+    out = []
+    for r in rows:
+        try:
+            r["_fecha"] = _dt.date.fromisoformat(str(r.get("fecha", "")))
+        except Exception:
+            r["_fecha"] = None
+        try:
+            r["_cantidad"] = float(str(r.get("cantidad", 0)).replace(",", "."))
+        except Exception:
+            r["_cantidad"] = 0.0
+        out.append(r)
+    await _enviar_lista_chunks(update, "📋 Todos los gastos", out)
 
 
 async def _enviar_ultimos(update: Update, n: int = 10):
