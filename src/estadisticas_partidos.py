@@ -70,6 +70,30 @@ EVT_COL_C1, EVT_COL_C2, EVT_COL_C3, EVT_COL_C4 = 14, 16, 18, 20  # O, Q, S, U
 EVT_COL_GOLEADOR = 22  # W
 EVT_COL_ASIST = 25     # Z
 
+# Bloque de métricas individuales por jugador (filas 134-147)
+# Cabecera en fila 133. Mapeo de columnas (0-indexed):
+MET_FILA_INI, MET_FILA_FIN = 134, 148        # idx 133..147 → range 133..148 exclusive
+MET_COL_DORSAL = 3       # D — Nº
+MET_COL_JUGADOR = 4      # E — JUGADOR
+MET_COL_MINS = 6         # G — MINS (timedelta)
+MET_COL_PF = 7           # H — Pérdidas Forzadas
+MET_COL_PNF = 8          # I — Pérdidas No Forzadas
+MET_COL_ROBOS = 9        # J
+MET_COL_CORTES = 10      # K
+MET_COL_BDG = 12         # M — Balón Dividido Ganado
+MET_COL_BDP = 13         # N — Balón Dividido Perdido
+MET_COL_DP = 15          # P — Disparos a Puerta
+MET_COL_DPALO = 16       # Q — Disparos al Palo
+MET_COL_DB = 17          # R — Disparos Bloqueados
+MET_COL_DF = 18          # S — Disparos Fuera
+MET_COL_OUT = 19         # T — OUT (campo)
+# Columnas de PORTERO (solo aplica a porteros):
+MET_COL_POSTE = 20       # U
+MET_COL_BLOQ = 21        # V — bloqueos del portero
+MET_COL_PAR = 22         # W — paradas
+MET_COL_GOL_PORT = 23    # X — goles encajados
+MET_COL_TA = 24          # Y — Tarjeta Amarilla
+
 
 def clasificar_competicion(nombre_hoja: str) -> tuple[str, str]:
     """Devuelve (tipo, competicion_legible)."""
@@ -165,6 +189,24 @@ class JugadorEnPartido:
     min_total: float
     convocado: bool
     participa: bool
+    # Métricas individuales de juego (de filas 134-147 en cada partido)
+    pf: int = 0           # Pérdidas Forzadas
+    pnf: int = 0          # Pérdidas No Forzadas
+    robos: int = 0
+    cortes: int = 0
+    bdg: int = 0          # Balón Dividido Ganado
+    bdp: int = 0          # Balón Dividido Perdido
+    dp: int = 0           # Disparos a Puerta
+    dpalo: int = 0        # Disparos al Palo
+    db: int = 0           # Disparos Bloqueados
+    df: int = 0           # Disparos Fuera
+    out: int = 0          # OUT (jugadores de campo)
+    # Columnas de portero (vacías para jugadores de campo)
+    poste_p: int = 0      # Tiros del rival al poste (portero)
+    bloq_p: int = 0       # Bloqueos del portero
+    par: int = 0          # Paradas del portero
+    gol_p: int = 0        # Goles encajados estando el portero en pista
+    ta: int = 0           # Tarjeta Amarilla
 
 
 @dataclass
@@ -313,7 +355,68 @@ def parsear_partido(
             cuarteto=cuarteto,
         ))
 
+    # ─── Métricas individuales (filas 134-147) ──────────────────────────────
+    # Construimos un dict por nombre de jugador para inyectar luego en jugadores.
+    metricas_por_jugador: dict[str, dict] = {}
+    for r_idx in range(MET_FILA_INI - 1, min(MET_FILA_FIN, len(valores))):
+        row = valores[r_idx]
+        if not row or len(row) <= MET_COL_JUGADOR:
+            continue
+        nombre = _norm_nombre(row[MET_COL_JUGADOR])
+        if not nombre or nombre in ("EQUIPO", "TOTALES", "JUGADOR"):
+            continue
+        metricas_por_jugador[nombre] = {
+            "pf":      _to_int(row, MET_COL_PF),
+            "pnf":     _to_int(row, MET_COL_PNF),
+            "robos":   _to_int(row, MET_COL_ROBOS),
+            "cortes":  _to_int(row, MET_COL_CORTES),
+            "bdg":     _to_int(row, MET_COL_BDG),
+            "bdp":     _to_int(row, MET_COL_BDP),
+            "dp":      _to_int(row, MET_COL_DP),
+            "dpalo":   _to_int(row, MET_COL_DPALO),
+            "db":      _to_int(row, MET_COL_DB),
+            "df":      _to_int(row, MET_COL_DF),
+            "out":     _to_int(row, MET_COL_OUT),
+            "poste_p": _to_int(row, MET_COL_POSTE),
+            "bloq_p":  _to_int(row, MET_COL_BLOQ),
+            "par":     _to_int(row, MET_COL_PAR),
+            "gol_p":   _to_int(row, MET_COL_GOL_PORT),
+            "ta":      _to_int(row, MET_COL_TA),
+        }
+
+    # Inyectar en los JugadorEnPartido ya creados
+    for j in jugadores:
+        m = metricas_por_jugador.get(j.jugador)
+        if m:
+            for k, v in m.items():
+                setattr(j, k, v)
+
     return jugadores, eventos
+
+
+def _to_int(row, col: int) -> int:
+    """Lee row[col] como int seguro. Devuelve 0 si vacío, None, o no parseable."""
+    if col >= len(row):
+        return 0
+    v = row[col]
+    if v is None or v == "":
+        return 0
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (int, float)):
+        try:
+            return int(v)
+        except (ValueError, OverflowError):
+            return 0
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return 0
+        try:
+            return int(float(s.replace(",", ".")))
+        except ValueError:
+            return 0
+    return 0
 
 
 def hoja_es_partido(nombre: str) -> bool:
@@ -409,6 +512,15 @@ def calcular_agregados_jugador(df_jug: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values("goles", ascending=False)
 
 
+def _col_letra(n: int) -> str:
+    """1 → A, 2 → B, ..., 27 → AA, 28 → AB, ..."""
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
 def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFrame) -> None:
     """Sube las 3 hojas al Sheet maestro (mismo Sheet que el resto del proyecto)."""
     import gspread
@@ -448,7 +560,7 @@ def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFra
 
         valores = [list(out.columns)] + out.astype(str).values.tolist()
         ws.update(values=valores, range_name="A1")
-        ws.format(f"A1:{chr(64 + len(out.columns))}1", {"textFormat": {"bold": True}})
+        ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
         print(f"  ✅ {hoja}: {len(out)} filas, {len(out.columns)} cols")
 
     print("Subiendo a Google Sheet:")
