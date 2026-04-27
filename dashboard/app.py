@@ -202,6 +202,15 @@ def datos():
         ejercicios = fecha_col(cargar("_VISTA_EJERCICIOS"), "fecha")
     except Exception:
         ejercicios = pd.DataFrame()
+    # Estadísticas de partido — opcional (solo si se corrió estadisticas_partidos.py --upload)
+    try:
+        est_jug = cargar("_VISTA_EST_JUGADOR")
+        est_partidos = cargar("EST_PARTIDOS")
+        est_eventos = cargar("EST_EVENTOS")
+    except Exception:
+        est_jug = pd.DataFrame()
+        est_partidos = pd.DataFrame()
+        est_eventos = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -225,7 +234,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -240,7 +249,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -250,7 +259,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -351,7 +360,7 @@ def color_jug(jugadores):
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
-tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver, tab_ejer = st.tabs([
+tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver, tab_ejer, tab_estad = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
@@ -360,6 +369,7 @@ tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver, tab_ejer =
     "📋 Recuento",
     "🏃 Oliver",
     "🎯 Ejercicios",
+    "🏆 Estadísticas",
 ])
 
 
@@ -1493,3 +1503,149 @@ with tab_ejer:
                         det.style.format("{:.2f}", subset=num_det, na_rep="—"),
                         use_container_width=True, hide_index=True,
                     )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 9 — 🏆 ESTADÍSTICAS DE PARTIDO
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_estad:
+    if est_jug.empty or est_partidos.empty:
+        st.info(
+            "Aún no hay datos de estadísticas de partido en el Sheet.\n\n"
+            "Para subirlos, ejecuta:\n\n"
+            "`/usr/bin/python3 src/estadisticas_partidos.py --upload`"
+        )
+    else:
+        st.markdown("### Estadísticas de partido — Temporada 25/26")
+        st.caption(
+            f"{est_partidos['partido_id'].nunique()} partidos procesados · "
+            f"{int((est_partidos['participa'] == '1').sum() + (est_partidos['participa'] == 1).sum() + (est_partidos['participa'] == True).sum())} "
+            f"participaciones · {len(est_eventos)} goles registrados."
+        )
+
+        # ── Normalización de tipos ──
+        ep = est_partidos.copy()
+        ev = est_eventos.copy()
+        ej = est_jug.copy()
+
+        for c in ["min_total", "min_1t", "min_2t", "goles_a_favor", "asistencias", "dorsal"]:
+            if c in ep.columns:
+                ep[c] = pd.to_numeric(ep[c], errors="coerce").fillna(0)
+        for c in ej.columns:
+            if c == "jugador":
+                continue
+            ej[c] = pd.to_numeric(ej[c], errors="coerce").fillna(0)
+        if "minuto" in ev.columns:
+            ev["minuto"] = pd.to_numeric(ev["minuto"], errors="coerce")
+
+        # ── Filtros ──
+        cf1, cf2 = st.columns([2, 2])
+        with cf1:
+            tipos = ["TODAS"] + sorted(ep["tipo"].dropna().unique().tolist()) if "tipo" in ep.columns else ["TODAS"]
+            tipo_sel = st.selectbox("Competición", tipos, key="estad_tipo")
+        with cf2:
+            jugadores_op = sorted(ep["jugador"].dropna().unique().tolist())
+            jug_sel = st.multiselect("Jugadores", jugadores_op, default=jugadores_op, key="estad_jug")
+
+        # Aplicar filtros
+        ep_f = ep.copy()
+        ev_f = ev.copy()
+        if tipo_sel != "TODAS":
+            ep_f = ep_f[ep_f["tipo"] == tipo_sel]
+            ev_f = ev_f[ev_f["tipo"] == tipo_sel]
+        if jug_sel:
+            ep_f = ep_f[ep_f["jugador"].isin(jug_sel)]
+
+        # ── KPIs cabecera ──
+        kc1, kc2, kc3, kc4 = st.columns(4)
+        kc1.metric("Partidos", int(ep_f["partido_id"].nunique()))
+        kc2.metric("Goles a favor",
+                   int(ev_f[ev_f["equipo_marca"] == "INTER"].shape[0]) if not ev_f.empty else 0)
+        kc3.metric("Goles en contra",
+                   int(ev_f[ev_f["equipo_marca"] == "RIVAL"].shape[0]) if not ev_f.empty else 0)
+        kc4.metric("Min. totales jugados", f"{ep_f['min_total'].sum():.0f}")
+
+        st.markdown("---")
+
+        # ── Ranking goleadores ──
+        st.markdown("#### Ranking goleadores")
+        ranking = ep_f.groupby("jugador", as_index=False).agg(
+            partidos=("participa", lambda s: (pd.to_numeric(s, errors="coerce").fillna(0).astype(int) > 0).sum()),
+            min_total=("min_total", "sum"),
+            goles=("goles_a_favor", "sum"),
+            asists=("asistencias", "sum"),
+        )
+        ranking["g+a"] = ranking["goles"] + ranking["asists"]
+        ranking["min/partido"] = (ranking["min_total"] / ranking["partidos"].clip(lower=1)).round(1)
+        ranking = ranking.sort_values("goles", ascending=False)
+
+        st.dataframe(
+            ranking.style.format({
+                "min_total": "{:.0f}",
+                "min/partido": "{:.1f}",
+                "goles": "{:.0f}", "asists": "{:.0f}", "g+a": "{:.0f}",
+                "partidos": "{:.0f}",
+            }, na_rep="—").background_gradient(subset=["goles", "g+a"], cmap="Greens"),
+            use_container_width=True, hide_index=True,
+        )
+
+        # ── Distribución goles por jugador (barras) ──
+        st.markdown("#### Goles a favor por jugador")
+        try:
+            import altair as alt
+            chart_data = ranking[ranking["goles"] > 0].copy()
+            if not chart_data.empty:
+                ch = (alt.Chart(chart_data)
+                      .mark_bar()
+                      .encode(
+                          x=alt.X("goles:Q", title="Goles"),
+                          y=alt.Y("jugador:N", sort="-x", title=""),
+                          color=alt.Color("goles:Q", scale=alt.Scale(scheme="greens"), legend=None),
+                          tooltip=["jugador", "goles", "asists", "g+a", "partidos", "min_total"],
+                      )
+                      .properties(height=max(220, 26 * len(chart_data))))
+                st.altair_chart(ch, use_container_width=True)
+        except Exception as _e:
+            st.bar_chart(ranking.set_index("jugador")["goles"])
+
+        st.markdown("---")
+
+        # ── Goles por intervalos de 5 minutos ──
+        st.markdown("#### Goles por minuto del partido (intervalos de 5')")
+        if not ev_f.empty and "intervalo_5min" in ev_f.columns:
+            orden_ints = ["0-5", "5-10", "10-15", "15-20", "20-25",
+                          "25-30", "30-35", "35-40"]
+            piv = (ev_f.groupby(["intervalo_5min", "equipo_marca"])
+                   .size()
+                   .unstack(fill_value=0)
+                   .reindex(orden_ints, fill_value=0))
+            for col in ("INTER", "RIVAL"):
+                if col not in piv.columns:
+                    piv[col] = 0
+            piv = piv[["INTER", "RIVAL"]].rename(columns={"INTER": "A favor", "RIVAL": "En contra"})
+            st.bar_chart(piv)
+        else:
+            st.caption("Sin eventos de gol para este filtro.")
+
+        st.markdown("---")
+
+        # ── Goles por tipo de acción ──
+        st.markdown("#### Goles a favor por tipo de acción")
+        if not ev_f.empty and "accion" in ev_f.columns:
+            acciones = (ev_f[ev_f["equipo_marca"] == "INTER"]
+                        .groupby("accion").size().sort_values(ascending=False))
+            if not acciones.empty:
+                st.bar_chart(acciones)
+            else:
+                st.caption("Sin goles a favor para este filtro.")
+        else:
+            st.caption("Sin datos.")
+
+        # ── Detalle expandible ──
+        with st.expander("📋 Detalle por partido"):
+            cols = ["partido_id", "tipo", "rival", "fecha", "dorsal", "jugador",
+                    "min_1t", "min_2t", "min_total", "goles_a_favor", "asistencias"]
+            cols = [c for c in cols if c in ep_f.columns]
+            st.dataframe(
+                ep_f[cols].sort_values(["partido_id", "jugador"]),
+                use_container_width=True, hide_index=True,
+            )
