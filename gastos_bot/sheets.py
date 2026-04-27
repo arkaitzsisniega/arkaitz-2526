@@ -52,6 +52,13 @@ def _ws():
     return sh.worksheet(HOJA)
 
 
+def _fmt_cantidad(c: float) -> str:
+    """Formato español: 15.85 → '15,85'. Necesario porque el Sheet está
+    en locale español y, con USER_ENTERED, interpreta el punto como
+    separador de miles (15.85 → 1585). Pasando '15,85' lo guarda bien."""
+    return f"{round(float(c), 2):.2f}".replace(".", ",")
+
+
 def append_gasto(
     concepto: str,
     cantidad: float,
@@ -66,7 +73,7 @@ def append_gasto(
     fila = [
         f.strftime("%Y-%m-%d"),
         concepto,
-        round(float(cantidad), 2),
+        _fmt_cantidad(cantidad),
         categoria,
         quien,
         notas,
@@ -78,8 +85,24 @@ def append_gasto(
 
 
 def leer_todos() -> list[dict]:
+    """Lee todas las filas como list[dict] con todos los valores como
+    strings formateados.
+
+    Evitamos `get_all_records()` porque su numericise convierte "9,99"
+    a entero 999 (ignora la coma decimal española). Devolvemos strings
+    y dejamos que el caller parsee cantidad y fecha con conocimiento
+    del locale.
+    """
     ws = _ws()
-    return ws.get_all_records()
+    valores = ws.get_values()
+    if not valores:
+        return []
+    cabeceras = valores[0]
+    filas = []
+    for fila in valores[1:]:
+        fila = list(fila) + [""] * (len(cabeceras) - len(fila))
+        filas.append({h: fila[i] for i, h in enumerate(cabeceras)})
+    return filas
 
 
 def _ultima_fila_de(ws, quien: str) -> Optional[int]:

@@ -181,11 +181,12 @@ def main() -> int:
     sh = gc.open_by_key(os.getenv("GASTOS_SHEET_ID", "").strip())
     ws = sh.worksheet("GASTOS")
 
+    from sheets import _fmt_cantidad
     matriz = [
         [
             f["fecha"].strftime("%Y-%m-%d"),
             f["concepto"],
-            f["cantidad"],
+            _fmt_cantidad(f["cantidad"]),
             f["categoria"],
             QUIEN,
             NOTA_IMPORT,
