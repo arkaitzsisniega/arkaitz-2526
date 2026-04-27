@@ -114,6 +114,11 @@ MVP_COLUMNS = [
 
 
 # ─── Ayudantes ──────────────────────────────────────────────────────────────
+class OliverAuthError(RuntimeError):
+    """Token caducado / refresh fallido. Capturarlo permite a los callers
+    (parse_ejercicios_voz, etc.) tratar Oliver como NO crítico y seguir."""
+
+
 def _fatal(msg: str, code: int = 1):
     print(f"\n❌ {msg}\n", file=sys.stderr)
     sys.exit(code)
@@ -246,9 +251,11 @@ class OliverAPI:
                 if not ya_refrescado and self.refresh_access_token():
                     ya_refrescado = True
                     continue
-                _fatal("Token de Oliver caducado o inválido (401) y el refresh "
-                       "también falló (puede que hayas hecho login en el navegador "
-                       "y eso invalidó los tokens guardados)." + _instrucciones_token())
+                raise OliverAuthError(
+                    "Token de Oliver caducado o inválido (401) y el refresh "
+                    "también falló (puede que hayas hecho login en el navegador "
+                    "y eso invalidó los tokens guardados)." + _instrucciones_token()
+                )
             if r.status_code == 429:
                 time.sleep(2 ** intento)
                 continue
@@ -572,4 +579,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except OliverAuthError as e:
+        # Ejecutado como script: damos el tratamiento "fatal" de antes.
+        _fatal(str(e))
