@@ -50,6 +50,7 @@ except Exception:
     _WHISPER_OK = False
 
 from categorias import CATEGORIAS, categorizar
+from intencion import detectar_intencion
 from parser import GastoParseado, parsear
 import sheets
 
@@ -191,12 +192,49 @@ def _kb_categorias(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(botones)
 
 
+NOMBRES_MESES = [
+    "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
 async def _procesar_texto_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE, texto: str):
+    # ¿El mensaje es una CONSULTA (resumen, listado) en vez de un apunte?
+    intencion = detectar_intencion(texto)
+    if intencion is not None:
+        tipo, param = intencion
+        if tipo == "resumen_semana":
+            await _enviar_resumen_semana(update)
+            return
+        if tipo == "resumen_mes":
+            await _enviar_resumen_mes_actual(update)
+            return
+        if tipo == "resumen_mes_de":
+            await _enviar_resumen_mes_de(update, param)
+            return
+        if tipo == "ultimos":
+            await _enviar_ultimos(update)
+            return
+        if tipo == "ayuda":
+            await update.message.reply_text(
+                "Te puedo ayudar con esto:\n"
+                "  • Apuntar un gasto: «Lidl 15,85» o «cena 23 euros».\n"
+                "  • Resumen del mes en curso: «resumen del mes».\n"
+                "  • Resumen de un mes concreto: «resumen de abril».\n"
+                "  • Última semana: «resumen de la semana».\n"
+                "  • Últimos gastos: «últimos gastos».\n\n"
+                "También funcionan los comandos: /resumen_mes, "
+                "/resumen_semana, /ultimos, /borrar, /categorias."
+            )
+            return
+
     g = parsear(texto)
     if g.cantidad is None:
         await update.message.reply_text(
-            "No he sabido encontrar la cantidad. Prueba con algo como "
-            "«Lidl 15,85» o «cena 23 euros»."
+            "No he sabido si quieres apuntar un gasto o pedirme un resumen.\n\n"
+            "Para apuntar: «Lidl 15,85» o «cena 23 euros».\n"
+            "Para consultar: «resumen del mes», «resumen de abril», "
+            "«últimos gastos»."
         )
         return
 
@@ -366,9 +404,7 @@ def _formatear_resumen(titulo: str, rows: list[dict]) -> str:
     return "\n".join(lineas)
 
 
-async def cmd_resumen_semana(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not autorizado(update):
-        return
+async def _enviar_resumen_semana(update: Update):
     hoy = _dt.date.today()
     desde = hoy - _dt.timedelta(days=6)
     try:
@@ -382,9 +418,7 @@ async def cmd_resumen_semana(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(txt, parse_mode=constants.ParseMode.MARKDOWN)
 
 
-async def cmd_resumen_mes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not autorizado(update):
-        return
+async def _enviar_resumen_mes_actual(update: Update):
     hoy = _dt.date.today()
     desde = hoy.replace(day=1)
     try:
@@ -392,14 +426,33 @@ async def cmd_resumen_mes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error leyendo Sheet: {e}")
         return
-    nombre_mes = hoy.strftime("%B %Y").capitalize()
+    nombre_mes = NOMBRES_MESES[hoy.month].capitalize() + f" {hoy.year}"
     txt = _formatear_resumen(f"📅 {nombre_mes}", rows)
     await update.message.reply_text(txt, parse_mode=constants.ParseMode.MARKDOWN)
 
 
-async def cmd_ultimos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not autorizado(update):
+async def _enviar_resumen_mes_de(update: Update, mes: int):
+    """Resumen del mes 'mes' (1-12). Usa el año en curso, salvo que ya
+    estemos en un mes igual o anterior y no haya datos: cae al año previo."""
+    hoy = _dt.date.today()
+    año = hoy.year
+    desde = _dt.date(año, mes, 1)
+    if mes == 12:
+        hasta = _dt.date(año, 12, 31)
+    else:
+        hasta = _dt.date(año, mes + 1, 1) - _dt.timedelta(days=1)
+    try:
+        rows_all = sheets.leer_todos()
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error leyendo Sheet: {e}")
         return
+    rows = _filtrar(rows_all, desde, hasta)
+    nombre = NOMBRES_MESES[mes].capitalize() + f" {año}"
+    txt = _formatear_resumen(f"📅 {nombre}", rows)
+    await update.message.reply_text(txt, parse_mode=constants.ParseMode.MARKDOWN)
+
+
+async def _enviar_ultimos(update: Update, n: int = 10):
     try:
         rows = sheets.leer_todos()
     except Exception as e:
@@ -408,8 +461,8 @@ async def cmd_ultimos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not rows:
         await update.message.reply_text("Aún no hay gastos.")
         return
-    ult = rows[-10:][::-1]
-    lineas = ["*Últimos 10 gastos*", ""]
+    ult = rows[-n:][::-1]
+    lineas = [f"*Últimos {len(ult)} gastos*", ""]
     for r in ult:
         try:
             cant = float(str(r.get("cantidad", 0)).replace(",", "."))
@@ -423,6 +476,24 @@ async def cmd_ultimos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "\n".join(lineas), parse_mode=constants.ParseMode.MARKDOWN
     )
+
+
+async def cmd_resumen_semana(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update):
+        return
+    await _enviar_resumen_semana(update)
+
+
+async def cmd_resumen_mes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update):
+        return
+    await _enviar_resumen_mes_actual(update)
+
+
+async def cmd_ultimos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update):
+        return
+    await _enviar_ultimos(update)
 
 
 async def cmd_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
