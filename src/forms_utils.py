@@ -92,34 +92,91 @@ def _str_turno(v) -> str:
 
 
 def _parse_fecha(v) -> str | None:
-    """Normaliza fecha a 'YYYY-MM-DD'."""
+    """Normaliza fecha a 'YYYY-MM-DD'.
+
+    Acepta '27/04/2026', '27-04-2026', '27/04/26', etc. Devuelve None
+    si la fecha resultante cae fuera de un rango razonable (2020-2030)
+    porque muchas veces eso indica un parseo erróneo (p. ej. el jugador
+    escribió solo "27" y pandas lo interpretó como año 27 → 1927).
+    """
     if v is None or v == "":
         return None
     try:
         # Ya viene como YYYY-MM-DD
         if isinstance(v, str) and len(v) >= 10 and v[4] == "-" and v[7] == "-":
-            return v[:10]
-        # Serial Google Sheets o timestamp
+            iso = v[:10]
+            return iso if "2020" <= iso[:4] <= "2030" else None
+        # Serial Google Sheets o timestamp en serial Excel
         if isinstance(v, (int, float)):
-            return (pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(v))).date().isoformat()
-        # String tipo dd/mm/yyyy
+            d = (pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(v))).date()
+            iso = d.isoformat()
+            return iso if 2020 <= d.year <= 2030 else None
+        # String: probar dayfirst=True (formato es-ES).
         ts = pd.to_datetime(v, dayfirst=True, errors="coerce")
         if pd.notna(ts):
-            return ts.date().isoformat()
+            iso = ts.date().isoformat()
+            return iso if 2020 <= ts.year <= 2030 else None
     except Exception:
         pass
     return None
 
 
+def _parse_timestamp_a_fecha(ts) -> str | None:
+    """Saca solo la fecha de un TIMESTAMP de Google Forms.
+
+    Formato típico: '27/04/2026 12:53:40' (es-ES). El timestamp es
+    siempre completo y consistente porque lo pone Forms automáticamente,
+    así que es la fuente más fiable cuando el campo manual de fecha
+    está mal escrito por el jugador."""
+    if ts is None or ts == "":
+        return None
+    if isinstance(ts, (int, float)):
+        try:
+            return (pd.Timestamp("1899-12-30") + pd.Timedelta(days=float(ts))).date().isoformat()
+        except Exception:
+            return None
+    pd_ts = pd.to_datetime(ts, dayfirst=True, errors="coerce")
+    if pd.notna(pd_ts):
+        return pd_ts.date().isoformat()
+    return None
+
+
 def _to_float(v):
+    """Convierte a float tolerando porquerías: '€8,60', '71,1', '60.5', '  72  '.
+    Limpia símbolos de moneda y acepta coma o punto decimal."""
     if v is None or v == "":
         return None
     if isinstance(v, (int, float)):
         return float(v)
     try:
-        return float(str(v).strip().replace(",", "."))
+        s = str(v).strip()
+        if not s:
+            return None
+        # Quitar símbolos de moneda y caracteres no numéricos típicos
+        s = s.replace("€", "").replace("$", "").replace("£", "")
+        s = s.replace("kg", "").replace("Kg", "").replace("KG", "")
+        s = s.strip()
+        # Aceptar coma o punto como decimal
+        s = s.replace(",", ".")
+        # Si quedan varios puntos (ej. "1.234.5"), quedarse con el último
+        if s.count(".") > 1:
+            partes = s.split(".")
+            s = "".join(partes[:-1]) + "." + partes[-1]
+        return float(s)
     except (ValueError, TypeError):
         return None
+
+
+def _to_peso(v):
+    """Como _to_float pero con filtro fisiológico 30-200kg.
+    Valores fuera del rango (típico error '€8,60' → 8.6, o '716' por error
+    al teclear '71,6') se descartan."""
+    f = _to_float(v)
+    if f is None:
+        return None
+    if not (30 <= f <= 200):
+        return None
+    return f
 
 
 def leer_respuestas_pre(ss) -> pd.DataFrame:
@@ -148,18 +205,29 @@ def leer_respuestas_pre(ss) -> pd.DataFrame:
     col_mol = next((c for c in df.columns if "molestia" in c.lower()), None)
     col_ani = next((c for c in df.columns if "ánim" in c.lower() or "animo" in c.lower() or "anim" in c.lower()), None)
 
+    # Fecha: PRIMERO intentamos del campo manual (por si el jugador la pone bien),
+    # PERO si está mal/vacío caemos al TIMESTAMP (siempre fiable porque lo pone
+    # Forms automáticamente con la fecha de envío).
+    def _fecha_robusta(row):
+        v_manual = row.get(col_fecha) if col_fecha else None
+        f = _parse_fecha(v_manual)
+        if f:
+            return f
+        return _parse_timestamp_a_fecha(row.get(col_ts) if col_ts else None)
+
     out = pd.DataFrame({
         "TIMESTAMP": df[col_ts] if col_ts else "",
         "JUGADOR":   df[col_jug].astype(str).str.strip() if col_jug else "",
-        "FECHA":     df[col_fecha].apply(_parse_fecha) if col_fecha else None,
+        "FECHA":     df.apply(_fecha_robusta, axis=1),
         "TURNO":     df[col_turno].apply(_str_turno) if col_turno else "",
-        "PESO_PRE":  df[col_peso].apply(_to_float) if col_peso else None,
+        "PESO_PRE":  df[col_peso].apply(_to_peso) if col_peso else None,
         "SUENO":     df[col_sueno].apply(_to_float) if col_sueno else None,
         "FATIGA":    df[col_fat].apply(_to_float) if col_fat else None,
         "MOLESTIAS": df[col_mol].apply(_to_float) if col_mol else None,
         "ANIMO":     df[col_ani].apply(_to_float) if col_ani else None,
     })
-    # Descarta filas sin jugador/fecha
+    # Descarta filas sin jugador/fecha (con el fallback a TIMESTAMP esto solo
+    # debería pasar si el envío es totalmente raro)
     out = out[out["JUGADOR"].astype(str).str.strip().ne("") & out["FECHA"].notna()]
     return out.reset_index(drop=True)
 
@@ -183,12 +251,20 @@ def leer_respuestas_post(ss) -> pd.DataFrame:
     col_peso = next((c for c in df.columns if "peso" in c.lower() and "post" in c.lower()), None)
     col_borg = next((c for c in df.columns if "borg" in c.lower()), None)
 
+    # Misma lógica robusta de fecha que en PRE: prefer campo manual, fallback timestamp
+    def _fecha_robusta(row):
+        v_manual = row.get(col_fecha) if col_fecha else None
+        f = _parse_fecha(v_manual)
+        if f:
+            return f
+        return _parse_timestamp_a_fecha(row.get(col_ts) if col_ts else None)
+
     out = pd.DataFrame({
         "TIMESTAMP": df[col_ts] if col_ts else "",
         "JUGADOR":   df[col_jug].astype(str).str.strip() if col_jug else "",
-        "FECHA":     df[col_fecha].apply(_parse_fecha) if col_fecha else None,
+        "FECHA":     df.apply(_fecha_robusta, axis=1),
         "TURNO":     df[col_turno].apply(_str_turno) if col_turno else "",
-        "PESO_POST": df[col_peso].apply(_to_float) if col_peso else None,
+        "PESO_POST": df[col_peso].apply(_to_peso) if col_peso else None,
         "BORG":      df[col_borg].apply(_to_float) if col_borg else None,
     })
     out = out[out["JUGADOR"].astype(str).str.strip().ne("") & out["FECHA"].notna()]
