@@ -1529,6 +1529,48 @@ with tab_ejer:
                     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Helpers compartidos para las pestañas de estadísticas
+# ═══════════════════════════════════════════════════════════════════════════════
+_EST_METRICAS_NUM = [
+    "min_total", "min_1t", "min_2t", "dorsal",
+    "pf", "pnf", "robos", "cortes", "bdg", "bdp",
+    "dp", "dpalo", "db", "df", "out",
+    "poste_p", "bloq_p", "par", "gol_p", "ta",
+    "goles_a_favor", "asistencias",
+]
+
+
+def _est_num(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    for c in _EST_METRICAS_NUM:
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0)
+    if "participa" in out.columns:
+        out["participa"] = out["participa"].astype(str).map(
+            lambda v: 1 if v in ("1", "True", "true") else 0
+        )
+    if "convocado" in out.columns:
+        out["convocado"] = out["convocado"].astype(str).map(
+            lambda v: 1 if v in ("1", "True", "true") else 0
+        )
+    return out
+
+
+def _fmt_minutos(v) -> str:
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if v <= 0:
+        return "—"
+    m = int(v)
+    s = int(round((v - m) * 60))
+    return f"{m}:{s:02d}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # TAB 10 — 📈 EFICIENCIA (disparos, ratios, métricas avanzadas)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_efic:
@@ -1644,6 +1686,49 @@ with tab_efic:
                 use_container_width=True, hide_index=True,
             )
 
+        st.markdown("---")
+
+        # ── Eficiencia por jugador (datos individuales del Excel) ──────────
+        if not est_partidos.empty:
+            st.markdown("#### 🎯 Eficiencia por jugador")
+            st.caption(
+                "Disparos individuales de cada jugador (DP=a puerta, DPalo, DB=bloqueado, "
+                "DF=fuera) y conversión a gol."
+            )
+            ep_e = _est_num(est_partidos)
+            agr_e = ep_e.groupby("jugador", as_index=False).agg(
+                partidos=("participa", "sum"),
+                min_total=("min_total", "sum"),
+                dp=("dp", "sum"), dpalo=("dpalo", "sum"),
+                db=("db", "sum"), df=("df", "sum"),
+                goles=("goles_a_favor", "sum"),
+            )
+            agr_e["dt"] = agr_e["dp"] + agr_e["dpalo"] + agr_e["db"] + agr_e["df"]
+            agr_e["pct_a_puerta"] = (agr_e["dp"] / agr_e["dt"].replace(0, pd.NA) * 100).round(1)
+            agr_e["pct_conversion"] = (agr_e["goles"] / agr_e["dp"].replace(0, pd.NA) * 100).round(1)
+            inv_min_e = 1 / agr_e["min_total"].clip(lower=1)
+            agr_e["dp_por_40"] = (agr_e["dp"] * 40 * inv_min_e).round(2)
+            agr_e["dt_por_40"] = (agr_e["dt"] * 40 * inv_min_e).round(2)
+            agr_e["goles_por_40"] = (agr_e["goles"] * 40 * inv_min_e).round(2)
+            agr_e = agr_e[agr_e["dt"] > 0].sort_values("dt", ascending=False)
+
+            cols_e = ["jugador", "partidos", "min_total",
+                      "dp", "dpalo", "db", "df", "dt",
+                      "pct_a_puerta", "goles", "pct_conversion",
+                      "dp_por_40", "dt_por_40", "goles_por_40"]
+            cols_e = [c for c in cols_e if c in agr_e.columns]
+            st.dataframe(
+                agr_e[cols_e].style.format({
+                    "min_total": "{:.0f}",
+                    "dp": "{:.0f}", "dpalo": "{:.0f}", "db": "{:.0f}",
+                    "df": "{:.0f}", "dt": "{:.0f}",
+                    "pct_a_puerta": "{:.1f}%", "pct_conversion": "{:.1f}%",
+                    "dp_por_40": "{:.2f}", "dt_por_40": "{:.2f}",
+                    "goles_por_40": "{:.2f}",
+                }, na_rep="—"),
+                use_container_width=True, hide_index=True,
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 11 — 🔍 SCOUTING DE RIVALES
@@ -1730,49 +1815,6 @@ with tab_scout:
                     use_container_width=True, hide_index=True,
                 )
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Helpers compartidos para las pestañas de estadísticas
-# ═══════════════════════════════════════════════════════════════════════════════
-_EST_METRICAS_NUM = [
-    "min_total", "min_1t", "min_2t", "dorsal",
-    "pf", "pnf", "robos", "cortes", "bdg", "bdp",
-    "dp", "dpalo", "db", "df", "out",
-    "poste_p", "bloq_p", "par", "gol_p", "ta",
-    "goles_a_favor", "asistencias",
-]
-
-
-def _est_num(df: pd.DataFrame) -> pd.DataFrame:
-    """Devuelve copia con métricas numéricas convertidas."""
-    if df.empty:
-        return df
-    out = df.copy()
-    for c in _EST_METRICAS_NUM:
-        if c in out.columns:
-            out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0)
-    if "participa" in out.columns:
-        out["participa"] = out["participa"].astype(str).map(
-            lambda v: 1 if v in ("1", "True", "true") else 0
-        )
-    if "convocado" in out.columns:
-        out["convocado"] = out["convocado"].astype(str).map(
-            lambda v: 1 if v in ("1", "True", "true") else 0
-        )
-    return out
-
-
-def _fmt_minutos(v) -> str:
-    """Convierte minutos float a 'mm:ss'. 0/None → '—'."""
-    try:
-        v = float(v)
-    except (TypeError, ValueError):
-        return "—"
-    if v <= 0:
-        return "—"
-    m = int(v)
-    s = int(round((v - m) * 60))
-    return f"{m}:{s:02d}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
