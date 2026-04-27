@@ -182,19 +182,26 @@ class OliverAPI:
         try:
             r = requests.post(url, headers=headers, json={"refresh_token": self.refresh_token}, timeout=15)
             if r.status_code != 200:
+                _warn(f"Refresh devolvió HTTP {r.status_code}: {r.text[:200]}")
                 return False
             data = r.json()
             if not data.get("success") or not data.get("token"):
+                _warn(f"Refresh sin success/token. Respuesta: {str(data)[:200]}")
                 return False
             self.token = data["token"]
             if data.get("refresh_token"):
                 self.refresh_token = data["refresh_token"]
             self._jwt = _decode_jwt_payload(self.token)
-            _actualizar_env({"token": self.token, "refresh_token": self.refresh_token})
+            try:
+                _actualizar_env({"token": self.token, "refresh_token": self.refresh_token})
+            except Exception as e:
+                _warn(f"Token refrescado pero NO se pudo escribir al .env: {e}. "
+                      f"La próxima ejecución usará el token viejo.")
+                return True  # el token sí es válido para esta sesión
             _info("  🔄 Token renovado automáticamente con refresh_token.")
             return True
         except Exception as e:
-            _warn(f"Fallo al renovar token: {e}")
+            _warn(f"Excepción al renovar token: {type(e).__name__}: {e}")
             return False
 
     def _hdr(self):
@@ -219,18 +226,29 @@ class OliverAPI:
             h["Accept-Encoding"] = ae
         return h
 
+    def _token_va_a_caducar(self, margen_seg: int = 120) -> bool:
+        """True si quedan menos de `margen_seg` para que caduque el token."""
+        exp = self._jwt.get("exp")
+        if not exp:
+            return False
+        return (time.time() + margen_seg) >= float(exp)
+
     def _get(self, path: str, params: dict | None = None, max_retries: int = 2):
         url = f"{self.base}{path}"
+        # Pre-refresco: si el token está a punto de caducar, renovar ANTES
+        # de fallar con 401 (más rápido y resistente a invalidaciones puntuales).
+        if self._token_va_a_caducar():
+            self.refresh_access_token()
         ya_refrescado = False
         for intento in range(max_retries + 1):
             r = requests.get(url, headers=self._hdr(), params=params, timeout=30)
             if r.status_code == 401:
-                # Intentar refrescar el token (usa refresh_token, dura 14 días)
                 if not ya_refrescado and self.refresh_access_token():
                     ya_refrescado = True
-                    continue  # reintentar con token nuevo
+                    continue
                 _fatal("Token de Oliver caducado o inválido (401) y el refresh "
-                       "también falló." + _instrucciones_token())
+                       "también falló (puede que hayas hecho login en el navegador "
+                       "y eso invalidó los tokens guardados)." + _instrucciones_token())
             if r.status_code == 429:
                 time.sleep(2 ** intento)
                 continue
