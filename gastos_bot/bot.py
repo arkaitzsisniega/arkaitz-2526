@@ -211,11 +211,25 @@ AYUDA_TXT = (
 )
 
 
-async def _despachar_intencion(update: Update, intencion: tuple) -> bool:
-    """Ejecuta la intención. Devuelve True si la ha manejado, False si no."""
+async def _despachar_intencion(update: Update, intencion) -> bool:
+    """Ejecuta la intención. Devuelve True si la ha manejado, False si no.
+
+    `intencion` puede ser:
+      - tupla (tipo, param)  ← formato heurístico legacy
+      - dict con keys tipo/param/cantidad/concepto/categoria  ← formato Claude
+    """
     if not intencion:
         return False
-    tipo, param = intencion
+    if isinstance(intencion, tuple):
+        tipo, param = intencion
+        cantidad = concepto = categoria = None
+    else:
+        tipo = intencion.get("tipo")
+        param = intencion.get("param")
+        cantidad = intencion.get("cantidad")
+        concepto = intencion.get("concepto")
+        categoria = intencion.get("categoria")
+
     if tipo == "resumen_semana":
         await _enviar_resumen_semana(update); return True
     if tipo == "resumen_mes":
@@ -232,44 +246,127 @@ async def _despachar_intencion(update: Update, intencion: tuple) -> bool:
         await _enviar_lista_todos(update); return True
     if tipo == "ultimos":
         await _enviar_ultimos(update); return True
+    if tipo == "cambiar_categoria_ultimo":
+        await _cambiar_categoria_ultimo(update, categoria); return True
     if tipo == "ayuda":
         await update.message.reply_text(AYUDA_TXT); return True
     return False
 
 
+async def _cambiar_categoria_ultimo(update: Update, categoria: Optional[str]):
+    if not autorizado(update):
+        return
+    if not categoria:
+        await update.message.reply_text(
+            "¿A qué categoría? Mira las opciones con /categorias."
+        )
+        return
+    if categoria not in CATEGORIAS:
+        await update.message.reply_text(
+            f"No conozco la categoría «{categoria}». Opciones:\n"
+            + "\n".join(f"• {c}" for c in CATEGORIAS)
+        )
+        return
+    quien = nombre_de(update.effective_chat.id)
+    try:
+        info = sheets.actualizar_categoria_ultimo(quien, categoria)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return
+    if info is None:
+        await update.message.reply_text("No tienes gastos para cambiar.")
+        return
+    await update.message.reply_text(
+        f"✅ Cambiada categoría a *{categoria}* en: {info.get('concepto','')} "
+        f"({info.get('cantidad','')}€)",
+        parse_mode=constants.ParseMode.MARKDOWN,
+    )
+
+
+def _texto_parece_natural(texto: str) -> bool:
+    """Heurística simple: si el texto es "Lidl 15,85" lo manejamos local;
+    si es "Apunta 11 euros del mercado en categoría supermercados" lo
+    pasamos a Claude porque entiende mejor."""
+    s = texto.strip()
+    palabras = s.split()
+    if len(palabras) > 6:
+        return True
+    s_low = s.lower()
+    senales = (
+        "categoria", "categoría", "como ", "ponlo", "ahora mismo",
+        "acabo de", "hemos gastado", "me he gastado", "apunta",
+        "anota", "anotame", "registra", "guarda", "el último",
+        "cambialo", "cámbialo",
+    )
+    return any(p in s_low for p in senales)
+
+
 async def _procesar_texto_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE, texto: str):
-    # ─── 1) Heurística rápida ────────────────────────────────────────────────
+    # ─── 1) Heurística rápida de intención (consultas) ──────────────────────
     intencion = detectar_intencion(texto)
-    # Si la heurística da una consulta CLARA (no "ayuda"), la usamos.
     if intencion is not None and intencion[0] != "ayuda":
         if await _despachar_intencion(update, intencion):
             return
 
-    # ─── 2) ¿Tiene cantidad clara? → apunte ──────────────────────────────────
+    # ─── 2) Apunte rápido y limpio (regex local) ────────────────────────────
+    # Solo cuando el mensaje es claramente "Lidl 15,85" o similar:
+    # - Tiene cantidad
+    # - NO parece lenguaje natural (frase corta sin muletillas)
     g = parsear(texto)
+    if g.cantidad is not None and not _texto_parece_natural(texto):
+        await _procesar_apunte(update, ctx, g)
+        return
+
+    # ─── 3) Mensaje complejo → Claude (entiende lenguaje natural) ───────────
+    await update.message.chat.send_action(constants.ChatAction.TYPING)
+    intent_claude = await clasificar_con_claude(texto)
+
+    if intent_claude is not None:
+        # Caso especial: Claude dice "apuntar_gasto" y trae cantidad+concepto
+        if intent_claude.get("tipo") == "apuntar_gasto":
+            cantidad = intent_claude.get("cantidad")
+            concepto = intent_claude.get("concepto")
+            categoria = intent_claude.get("categoria")
+            if cantidad is not None and concepto:
+                g_claude = GastoParseado(
+                    cantidad=float(cantidad),
+                    concepto=str(concepto),
+                    raw=texto,
+                )
+                # Si Claude sugiere una categoría válida, la pasamos
+                await _procesar_apunte(update, ctx, g_claude,
+                                       categoria_forzada=categoria)
+                return
+            # Sin cantidad → fallback a parser
+            if g.cantidad is not None:
+                await _procesar_apunte(update, ctx, g)
+                return
+
+        # Otras intenciones (resumen, lista, cambiar categoría, etc.)
+        if await _despachar_intencion(update, intent_claude):
+            return
+
+    # ─── 4) Nada ha clasificado: si tenemos cantidad → apuntar igualmente ──
     if g.cantidad is not None:
         await _procesar_apunte(update, ctx, g)
         return
 
-    # ─── 3) Sin heurística clara y sin cantidad → preguntamos a Claude ──────
-    await update.message.chat.send_action(constants.ChatAction.TYPING)
-    intent_claude = await clasificar_con_claude(texto)
-    if intent_claude is not None:
-        if await _despachar_intencion(update, intent_claude):
-            return
-
-    # ─── 4) Nada ha clasificado → ayuda ──────────────────────────────────────
-    if intencion is not None and intencion[0] == "ayuda":
-        await update.message.reply_text(AYUDA_TXT)
-        return
+    # ─── 5) Total desconocido → ayuda ───────────────────────────────────────
     await update.message.reply_text(
         "🤔 No he sabido si quieres apuntar un gasto o consultar algo.\n\n"
         + AYUDA_TXT
     )
 
 
-async def _procesar_apunte(update: Update, ctx: ContextTypes.DEFAULT_TYPE, g: GastoParseado):
-    cat_sugerida = categorizar(g.concepto)
+async def _procesar_apunte(update: Update, ctx: ContextTypes.DEFAULT_TYPE, g: GastoParseado,
+                           categoria_forzada: Optional[str] = None):
+    # Prioridad de categoría: forzada (Claude) > explícita en el texto > sugerida por keywords
+    if categoria_forzada and categoria_forzada in CATEGORIAS:
+        cat_sugerida = categoria_forzada
+    elif getattr(g, "categoria_explicita", None) and g.categoria_explicita in CATEGORIAS:
+        cat_sugerida = g.categoria_explicita
+    else:
+        cat_sugerida = categorizar(g.concepto)
     # Guardamos el estado pendiente con un token único en chat_data
     token = _dt.datetime.now().strftime("%H%M%S%f")
     pendientes = ctx.chat_data.setdefault("pendientes", {})

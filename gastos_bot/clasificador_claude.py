@@ -41,7 +41,14 @@ INTENCIONES_VALIDAS = {
     "lista_todos",
     "ultimos",
     "borrar_ultimo",
+    "cambiar_categoria_ultimo",
     "ayuda",
+}
+
+CATEGORIAS_VALIDAS = {
+    "Supermercado", "Restaurantes", "Casa", "Alquiler/Hipoteca",
+    "Transporte", "Salud", "Ocio", "Compras", "Mascotas",
+    "Fin de semana", "Otros",
 }
 
 
@@ -70,7 +77,8 @@ Hoy es {fecha_hoy}. El usuario escribe un mensaje y debes decidir qué quiere \
 hacer con sus gastos.
 
 Intenciones posibles (elige EXACTAMENTE una):
-- "apuntar_gasto": registrar un gasto nuevo (suele llevar cantidad y concepto).
+- "apuntar_gasto": registrar un gasto nuevo. Devuelve cantidad, concepto y \
+categoría sugerida si se puede inferir.
 - "resumen_mes_actual": totales AGREGADOS por categoría del mes en curso.
 - "resumen_mes_de": totales AGREGADOS por categoría de un mes concreto (devuelve "mes": 1-12).
 - "resumen_semana": totales AGREGADOS de los últimos 7 días.
@@ -79,10 +87,37 @@ Intenciones posibles (elige EXACTAMENTE una):
 - "lista_semana": cada gasto FILA A FILA de los últimos 7 días.
 - "lista_todos": todos los gastos del histórico FILA A FILA.
 - "ultimos": los N últimos gastos (sin filtro de tiempo concreto).
-- "borrar_ultimo": eliminar el último gasto.
+- "borrar_ultimo": eliminar el último gasto registrado.
+- "cambiar_categoria_ultimo": modificar la categoría del último gasto. Devuelve "categoria".
 - "ayuda": pide instrucciones generales o el mensaje no es claro.
 
-Reglas:
+Categorías VÁLIDAS (devuelve EXACTAMENTE una de estas en "categoria" cuando aplique):
+Supermercado, Restaurantes, Casa, Alquiler/Hipoteca, Transporte, Salud,
+Ocio, Compras, Mascotas, Fin de semana, Otros
+
+Pistas de mapeo:
+- Lidl, Mercadona, Aldi, BM, Costco, fruteria, panadería, carnicería, pescadería → Supermercado
+- Cena, restaurante, bar, café, kebab, pizza, sushi, hamburguesa, asador → Restaurantes
+- Luz, agua, gas, internet, alarma, jardinero, limpieza, Iberdrola, Vodafone, Lowi → Casa
+- Hipoteca, alquiler, comunidad → Alquiler/Hipoteca
+- Gasolina, parking, taxi, Uber, vuelo, ITV, taller → Transporte
+- Farmacia, médico, dentista, fisio, masaje, óptica → Salud
+- Cine, viaje, hotel, Netflix, Spotify, gimnasio, regalo → Ocio
+- Ropa, Amazon, Zara, Decathlon, Veepee, Cheerz → Compras
+- Veterinario, pienso, perro, gato → Mascotas
+- Castro (escapadas a Castro Urdiales) → Fin de semana
+- Si no encaja: Otros
+
+Reglas para extraer datos del apunte:
+- "cantidad": número (acepta coma o punto decimal). Ej "11 euros" → 11.
+- "concepto": el QUÉ del gasto, en 1-3 palabras limpias. Ej de "11 euros en el mercado" → "Mercado". \
+NO uses la frase entera. Quita muletillas como "apunta", "ahora mismo", "de hoy", etc. \
+Si el usuario nombra explícitamente una categoría ("en categoría supermercados"), NO la incluyas \
+en el concepto. Ej "Apunta 11 euros de hoy en el mercado en categoría supermercados" → concepto="Mercado".
+- "categoria": si el usuario la menciona EXPLÍCITAMENTE ("en categoría X", "como X"), úsala. \
+En caso contrario, infiérela del concepto. Si no estás seguro: "Otros".
+
+Reglas para identificar listas vs resúmenes:
 - Diferencia "resumen" (totales por categoría) de "lista" (fila a fila).
 - Frases tipo "uno a uno", "uno por uno", "detallado", "todos los gastos", \
 "qué hemos comprado", "enseñame los movimientos" piden LISTA, no resumen.
@@ -92,12 +127,19 @@ Reglas:
 - Si dice "esta semana", "última semana", "últimos 7 días": usa "_semana".
 - Si no se menciona periodo y pide ver gastos uno a uno: usa "lista_todos".
 - Si pide los últimos gastos sin filtro temporal: usa "ultimos".
-- Si no entiendes o el mensaje no encaja: usa "ayuda".
+
+Reglas para cambiar categoría del último:
+- Frases como "cámbialo a X", "ponlo en X", "el último era X", "está en categoría X, cámbialo" \
+→ "cambiar_categoria_ultimo" con la categoría que el usuario menciona.
+
+Si no entiendes o el mensaje no encaja: usa "ayuda".
 
 MENSAJE DEL USUARIO: <<<{texto}>>>
 
-RESPONDE SOLO con un JSON válido en una sola línea, SIN markdown, SIN comentarios:
-{{"intencion": "<una_de_las_anteriores>", "mes": <número 1-12 o null>}}"""
+RESPONDE SOLO con un JSON válido en una sola línea, SIN markdown, SIN comentarios.
+Estructura del JSON (omite los campos que no apliquen):
+{{"intencion": "<una>", "mes": <1-12 o null>, "cantidad": <número o null>, \
+"concepto": "<texto o null>", "categoria": "<una de las válidas o null>"}}"""
 
 
 async def _ejecutar_claude(prompt: str, timeout_s: int = 30) -> Optional[str]:
@@ -172,12 +214,17 @@ def _extraer_json_intencion(salida: str) -> Optional[dict]:
     return None
 
 
-def _mapear(d: dict) -> Optional[Tuple[str, Optional[int]]]:
-    """Mapea el JSON de Claude al formato (tipo, param) que usa bot.py.
+def _mapear(d: dict) -> Optional[dict]:
+    """Mapea el JSON de Claude a un dict normalizado para bot.py.
 
-    Devuelve None para "apuntar_gasto" para que bot.py caiga en el
-    parser de gastos. "borrar_ultimo" se mapea a "ayuda" porque borrar
-    sin confirmación es destructivo (que use /borrar)."""
+    Devuelve un dict con:
+      - tipo: una de las claves válidas usadas por bot.py
+      - param: número (mes) o None
+      - cantidad, concepto, categoria: solo en apuntar_gasto y cambiar_categoria_ultimo
+
+    Para "apuntar_gasto" devolvemos los datos extraídos de Claude. bot.py
+    decide si usarlos directamente (mejor en frases naturales) o caer al
+    parser local."""
     intencion = (d.get("intencion") or "").strip()
     if intencion not in INTENCIONES_VALIDAS:
         return None
@@ -187,36 +234,54 @@ def _mapear(d: dict) -> Optional[Tuple[str, Optional[int]]]:
     if not isinstance(mes, int) or not (1 <= mes <= 12):
         mes = None
 
+    cantidad = d.get("cantidad")
+    if isinstance(cantidad, str):
+        try:
+            cantidad = float(cantidad.replace(",", "."))
+        except ValueError:
+            cantidad = None
+    if cantidad is not None and not isinstance(cantidad, (int, float)):
+        cantidad = None
+
+    concepto = (d.get("concepto") or "").strip() or None
+
+    categoria = (d.get("categoria") or "").strip() or None
+    if categoria and categoria not in CATEGORIAS_VALIDAS:
+        # Intentar match insensible
+        cat_norm = next((c for c in CATEGORIAS_VALIDAS
+                         if c.lower() == categoria.lower()), None)
+        categoria = cat_norm
+
+    base = {"cantidad": cantidad, "concepto": concepto, "categoria": categoria}
+
     if intencion == "apuntar_gasto":
-        return None  # señal: que el parser intente apuntar
+        return {"tipo": "apuntar_gasto", "param": None, **base}
     if intencion == "resumen_mes_actual":
-        return ("resumen_mes", None)
+        return {"tipo": "resumen_mes", "param": None, **base}
     if intencion == "resumen_mes_de":
-        if mes is None:
-            return ("resumen_mes", None)
-        return ("resumen_mes_de", mes)
+        return {"tipo": "resumen_mes" if mes is None else "resumen_mes_de", "param": mes, **base}
     if intencion == "resumen_semana":
-        return ("resumen_semana", None)
+        return {"tipo": "resumen_semana", "param": None, **base}
     if intencion == "lista_mes_actual":
-        return ("lista_mes", None)
+        return {"tipo": "lista_mes", "param": None, **base}
     if intencion == "lista_mes_de":
-        if mes is None:
-            return ("lista_mes", None)
-        return ("lista_mes_de", mes)
+        return {"tipo": "lista_mes" if mes is None else "lista_mes_de", "param": mes, **base}
     if intencion == "lista_semana":
-        return ("lista_semana", None)
+        return {"tipo": "lista_semana", "param": None, **base}
     if intencion == "lista_todos":
-        return ("lista_todos", None)
+        return {"tipo": "lista_todos", "param": None, **base}
     if intencion == "ultimos":
-        return ("ultimos", None)
+        return {"tipo": "ultimos", "param": None, **base}
+    if intencion == "cambiar_categoria_ultimo":
+        return {"tipo": "cambiar_categoria_ultimo", "param": None, **base}
     if intencion == "borrar_ultimo":
-        # El bot.py mostrará ayuda explicando que use /borrar
-        return ("ayuda", None)
-    return ("ayuda", None)
+        # Sigue mapeando a ayuda por seguridad (que use /borrar manualmente)
+        return {"tipo": "ayuda", "param": None, **base}
+    return {"tipo": "ayuda", "param": None, **base}
 
 
-async def clasificar(texto: str) -> Optional[Tuple[str, Optional[int]]]:
-    """Punto de entrada. Devuelve (tipo, param) o None si no lo logra."""
+async def clasificar(texto: str) -> Optional[dict]:
+    """Punto de entrada. Devuelve dict {tipo, param, cantidad?, concepto?, categoria?}."""
     fecha_hoy = _dt.date.today().strftime("%Y-%m-%d")
     prompt = PROMPT_TEMPLATE.format(
         fecha_hoy=fecha_hoy,
