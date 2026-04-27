@@ -142,6 +142,13 @@ Estructura del JSON (omite los campos que no apliquen):
 "concepto": "<texto o null>", "categoria": "<una de las válidas o null>"}}"""
 
 
+# Modelo a usar para clasificar intenciones. Haiku 4.5 es ideal aquí:
+# - Tarea de clasificación JSON estructurada (no requiere razonamiento profundo).
+# - ~10x más barata que Opus.
+# - Latencia ~1-2s en lugar de 3-5s (mejor UX en Telegram).
+MODELO_CLASIFICADOR = "claude-haiku-4-5"
+
+
 async def _ejecutar_claude(prompt: str, timeout_s: int = 30) -> Optional[str]:
     """Llama al CLI de Claude y devuelve su salida cruda (string), o None."""
     bin_claude = find_claude_bin()
@@ -150,7 +157,9 @@ async def _ejecutar_claude(prompt: str, timeout_s: int = 30) -> Optional[str]:
         return None
     try:
         proc = await asyncio.create_subprocess_exec(
-            bin_claude, "-p", prompt, "--output-format", "json",
+            bin_claude, "-p", prompt,
+            "--model", MODELO_CLASIFICADOR,
+            "--output-format", "json",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
