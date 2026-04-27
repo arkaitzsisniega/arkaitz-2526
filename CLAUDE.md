@@ -1,5 +1,9 @@
 # Proyecto Arkaitz 25/26 — Notas para Claude
 
+> **📖 LEER PRIMERO**: `docs/estado_proyecto.md`. Es el documento maestro
+> con todo lo construido, decisiones tomadas, hilos abiertos y la rutina
+> diaria de Arkaitz. Si algo aquí discrepa, **gana ese archivo**.
+
 ## Sobre el usuario
 
 - **Arkaitz** (`@arkaitzsisniega`) — director técnico / preparador físico de Movistar Inter FS.
