@@ -32,6 +32,14 @@ warnings.filterwarnings("ignore")
 
 import gspread
 import pandas as pd
+def _col_letra(n: int) -> str:
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
 from google.oauth2.service_account import Credentials
 
 SCOPES = [
@@ -185,7 +193,7 @@ def subir(sh, hoja: str, df: pd.DataFrame):
     out = df.where(pd.notnull(df), "")
     valores = [list(out.columns)] + out.astype(str).values.tolist()
     ws.update(values=valores, range_name="A1")
-    ws.format(f"A1:{chr(64 + min(len(out.columns), 26))}1", {"textFormat": {"bold": True}})
+    ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
     print(f"✅ {hoja}: {len(out)} filas, {len(out.columns)} cols")
 
 

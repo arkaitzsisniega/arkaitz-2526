@@ -29,6 +29,14 @@ from typing import Optional
 warnings.filterwarnings("ignore")
 
 import pandas as pd
+def _col_letra(n: int) -> str:
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
 from openpyxl import load_workbook
 
 XLSX_DEFAULT = (
@@ -177,7 +185,7 @@ def subir_a_sheet(df_raw: pd.DataFrame, df_agr: pd.DataFrame) -> None:
         out = df.where(pd.notnull(df), "")
         valores = [list(out.columns)] + out.astype(str).values.tolist()
         ws.update(values=valores, range_name="A1")
-        ws.format(f"A1:{chr(64 + min(len(out.columns), 26))}1", {"textFormat": {"bold": True}})
+        ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
         print(f"✅ {hoja}: {len(out)} filas, {len(out.columns)} cols")
 
     _write("SCOUTING_RIVALES", df_raw)
