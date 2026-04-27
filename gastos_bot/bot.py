@@ -50,6 +50,7 @@ except Exception:
     _WHISPER_OK = False
 
 from categorias import CATEGORIAS, categorizar
+from clasificador_claude import clasificar as clasificar_con_claude
 from intencion import detectar_intencion
 from parser import GastoParseado, parsear
 import sheets
@@ -198,57 +199,76 @@ NOMBRES_MESES = [
 ]
 
 
+AYUDA_TXT = (
+    "Te puedo ayudar con esto:\n"
+    "  • Apuntar un gasto: «Lidl 15,85» o «cena 23 euros» (texto o voz).\n"
+    "  • Resumen agregado del mes: «resumen del mes», «resumen de abril».\n"
+    "  • Lista detallada: «todos los gastos de abril uno a uno», "
+    "«detállame los gastos de mayo».\n"
+    "  • Última semana: «resumen de la semana» o «gastos de la semana uno a uno».\n"
+    "  • Últimos gastos: «últimos gastos».\n\n"
+    "Comandos: /resumen_mes, /resumen_semana, /ultimos, /borrar, /categorias."
+)
+
+
+async def _despachar_intencion(update: Update, intencion: tuple) -> bool:
+    """Ejecuta la intención. Devuelve True si la ha manejado, False si no."""
+    if not intencion:
+        return False
+    tipo, param = intencion
+    if tipo == "resumen_semana":
+        await _enviar_resumen_semana(update); return True
+    if tipo == "resumen_mes":
+        await _enviar_resumen_mes_actual(update); return True
+    if tipo == "resumen_mes_de":
+        await _enviar_resumen_mes_de(update, param); return True
+    if tipo == "lista_semana":
+        await _enviar_lista_semana(update); return True
+    if tipo == "lista_mes":
+        await _enviar_lista_mes_actual(update); return True
+    if tipo == "lista_mes_de":
+        await _enviar_lista_mes_de(update, param); return True
+    if tipo == "lista_todos":
+        await _enviar_lista_todos(update); return True
+    if tipo == "ultimos":
+        await _enviar_ultimos(update); return True
+    if tipo == "ayuda":
+        await update.message.reply_text(AYUDA_TXT); return True
+    return False
+
+
 async def _procesar_texto_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE, texto: str):
-    # ¿El mensaje es una CONSULTA (resumen, listado) en vez de un apunte?
+    # ─── 1) Heurística rápida ────────────────────────────────────────────────
     intencion = detectar_intencion(texto)
-    if intencion is not None:
-        tipo, param = intencion
-        if tipo == "resumen_semana":
-            await _enviar_resumen_semana(update)
-            return
-        if tipo == "resumen_mes":
-            await _enviar_resumen_mes_actual(update)
-            return
-        if tipo == "resumen_mes_de":
-            await _enviar_resumen_mes_de(update, param)
-            return
-        if tipo == "lista_semana":
-            await _enviar_lista_semana(update)
-            return
-        if tipo == "lista_mes":
-            await _enviar_lista_mes_actual(update)
-            return
-        if tipo == "lista_mes_de":
-            await _enviar_lista_mes_de(update, param)
-            return
-        if tipo == "lista_todos":
-            await _enviar_lista_todos(update)
-            return
-        if tipo == "ultimos":
-            await _enviar_ultimos(update)
-            return
-        if tipo == "ayuda":
-            await update.message.reply_text(
-                "Te puedo ayudar con esto:\n"
-                "  • Apuntar un gasto: «Lidl 15,85» o «cena 23 euros».\n"
-                "  • Resumen agregado del mes: «resumen del mes», «resumen de abril».\n"
-                "  • Lista detallada: «todos los gastos de abril uno a uno».\n"
-                "  • Última semana: «resumen de la semana» o «gastos de la semana uno a uno».\n"
-                "  • Últimos gastos: «últimos gastos».\n\n"
-                "Comandos: /resumen_mes, /resumen_semana, /ultimos, /borrar, /categorias."
-            )
+    # Si la heurística da una consulta CLARA (no "ayuda"), la usamos.
+    if intencion is not None and intencion[0] != "ayuda":
+        if await _despachar_intencion(update, intencion):
             return
 
+    # ─── 2) ¿Tiene cantidad clara? → apunte ──────────────────────────────────
     g = parsear(texto)
-    if g.cantidad is None:
-        await update.message.reply_text(
-            "No he sabido si quieres apuntar un gasto o pedirme un resumen.\n\n"
-            "Para apuntar: «Lidl 15,85» o «cena 23 euros».\n"
-            "Para consultar: «resumen del mes», «resumen de abril», "
-            "«últimos gastos»."
-        )
+    if g.cantidad is not None:
+        await _procesar_apunte(update, ctx, g)
         return
 
+    # ─── 3) Sin heurística clara y sin cantidad → preguntamos a Claude ──────
+    await update.message.chat.send_action(constants.ChatAction.TYPING)
+    intent_claude = await clasificar_con_claude(texto)
+    if intent_claude is not None:
+        if await _despachar_intencion(update, intent_claude):
+            return
+
+    # ─── 4) Nada ha clasificado → ayuda ──────────────────────────────────────
+    if intencion is not None and intencion[0] == "ayuda":
+        await update.message.reply_text(AYUDA_TXT)
+        return
+    await update.message.reply_text(
+        "🤔 No he sabido si quieres apuntar un gasto o consultar algo.\n\n"
+        + AYUDA_TXT
+    )
+
+
+async def _procesar_apunte(update: Update, ctx: ContextTypes.DEFAULT_TYPE, g: GastoParseado):
     cat_sugerida = categorizar(g.concepto)
     # Guardamos el estado pendiente con un token único en chat_data
     token = _dt.datetime.now().strftime("%H%M%S%f")
