@@ -35,6 +35,8 @@ warnings.filterwarnings("ignore")
 import pandas as pd
 from openpyxl import load_workbook
 
+from acciones import normalizar_accion
+
 XLSX_DEFAULT = (
     "/Users/mac/Mi unidad/Deporte/Futbol sala/Movistar Inter/"
     "2025-26/Estadisticas/Estadisticas2526.xlsx"
@@ -174,7 +176,8 @@ class EventoGol:
     fecha: Optional[_dt.date]
     minuto: Optional[int]
     intervalo_5min: str
-    accion: str
+    accion_raw: str         # texto bruto del Excel (ej. "AF.4x4")
+    accion: str             # canónico (ej. "Ataque Posicional 4x4")
     marcador: str
     equipo_marca: str
     goleador: str
@@ -291,6 +294,7 @@ def parsear_partido(
         if EVT_COL_ASIST < len(row):
             asist = _norm_nombre(row[EVT_COL_ASIST])
 
+        accion_canon = normalizar_accion(accion, equipo_marca)
         eventos.append(EventoGol(
             partido_id=nombre_hoja,
             tipo=tipo,
@@ -299,7 +303,8 @@ def parsear_partido(
             fecha=fecha,
             minuto=minuto,
             intervalo_5min=_intervalo_5min(minuto),
-            accion=accion,
+            accion_raw=accion,
+            accion=accion_canon,
             marcador=marcador,
             equipo_marca=equipo_marca,
             goleador=goleador,

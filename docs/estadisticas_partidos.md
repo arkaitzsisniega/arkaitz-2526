@@ -128,16 +128,124 @@ Una fila por jugador con totales y por competición, lista para el dashboard.
 
 ---
 
-## 🟡 Cosas a confirmar con Arkaitz
+## ✅ Convenciones confirmadas con Arkaitz (sesión 2026-04-27)
 
-1. **Asistencias**: en cada hoja de partido, ¿solo se anotan asistencias de goles A FAVOR? ¿O también las del rival?
-2. **Goles en contra "estando en pista"**: ¿se cuenta sólo el cuarteto de campo o también el portero? La columna M (PRESENCIA) parece dedicada al portero.
-3. **Plantillas vacías** (J27, P49, CAJA NEGRA): ¿son partidos futuros aún por jugar o sobran? Mi pipeline las ignora.
-4. **Marcador final**: no es trivial extraerlo del Excel actual. ¿Lo apuntas en algún campo concreto que no he visto?
-5. **Hojas DASH_***: ¿quieres que el dashboard de Streamlit replique exactamente esas vistas o tienes en mente algo distinto?
+### Asistencias
+Solo se anotan las **nuestras** (col Z, en filas de evento de gol). De los goles
+del rival no se rellena el asistente. Cuando vacío → asistencia=ninguna.
 
-## Siguientes pasos
+### Goles a favor / en contra: a quién se atribuyen
+Cuando suena el gol, **TODOS los jugadores en pista** llevan el evento (a favor
+o en contra según corresponda):
+- Portero (col M)
+- 3, 4 o 5 jugadores de campo (cols O, Q, S, U y a veces más)
+- El número de jugadores de campo es variable (4 normal, 3 en inferioridad,
+  5 si el portero sube como portero-jugador).
 
-1. Construir `src/estadisticas_partidos.py` con extractor + validación contra HERRERO.
-2. Subir las 3 hojas al Sheet (vía service account, igual que el resto).
-3. Tab `🏆 Estadísticas` en `dashboard/app.py`.
+### Marcador final del partido
+La suma de los tramos de 5 minutos (filas 58-69, cols B y C de cada hoja
+de partido) → goles a favor + goles en contra. También en `Goles TOTAL.xlsx`
+en cols **AF** (a favor) y **EC** (en contra). Mismo dato en dos sitios.
+
+### Local / visitante
+No hay celda explícita. Heurística: si el lugar de juego = **"Jorge Garbajosa"**
+→ jugamos en casa.
+
+### Convocado vs Participa
+- Aparece en la tabla de rotaciones (filas 5-19) con minutos > 0 → **participó**.
+- Aparece en la tabla con minutos = 0 → **convocado pero no jugó**.
+- No aparece en la tabla → **no convocado**.
+
+### Plantillas vacías (J27, P49, CAJA NEGRA)
+Plantillas para futuro / borrador. **Se ignoran** (filtro: solo procesar
+hojas donde alguien tenga minutos > 0).
+
+---
+
+## 📚 Lista cerrada de tipos de acción
+
+Cada gol se anota con un tipo de acción canónico. Las hojas de partido
+suelen llevarlo prefijado con `AF.` (a favor) o `EC.` (en contra), pero
+para el modelo unificado normalizamos a un único campo `accion_canonica`
+y el equipo lo lleva la columna `equipo_marca` (INTER / RIVAL).
+
+### A FAVOR (AF) — 21 acciones
+1. Banda
+2. Córner
+3. Falta
+4. Saque de Centro
+5. 2ª jugada de ABP
+6. 10 metros
+7. Penalti
+8. Falta sin barrera
+9. Ataque Posicional 4x4
+10. 1x1 en banda
+11. Salida de presión
+12. 2ª jugada
+13. Incorporación del portero
+14. **Robo en incorporación de portero** ← solo AF
+15. 5x4
+16. 4x5
+17. 4x3
+18. 3x4
+19. Contraataque
+20. Robo en zona alta
+21. No calificado
+
+### EN CONTRA (EC) — 21 acciones (idéntica salvo #14)
+1-13: igual que AF.
+14. **Pérdida en incorporación de portero** ← solo EC
+15-21: igual que AF.
+
+> Nota: en el código las dos versiones se almacenan tal cual (con su
+> nombre canónico distinto), porque "Robo" y "Pérdida" en la
+> incorporación del portero son situaciones tácticas distintas.
+
+---
+
+## 🏆 Diccionario de rivales (temporada 25/26)
+
+3 letras → nombre completo. Para 26/27 algunos cambiarán (revisar en julio).
+
+| Código | Nombre completo |
+|---|---|
+| ALZ | Alzira FS |
+| BAR | FC Barcelona |
+| CAR | Jimbee Cartagena |
+| COR | Córdoba Patrimonio |
+| ELP | ElPozo Murcia |
+| IND | Industrias Santa Coloma |
+| JAE | Jaen Paraiso Interior |
+| MAN | Manzanares Quesos Hidalgo |
+| NOI | Noia Portus Apostoli |
+| OPA | O Parrulo |
+| PAL | Palma Futsal |
+| PEÑ | Peñiscola Rehabmedic |
+| RIB | Ribera de Navarra |
+| VAL | Valdepeñas Viña Albali |
+| XOT | Osasuna Magna |
+
+---
+
+## 🗺 Estrategia adoptada (sesión 2026-04-27)
+
+**Fase 1 — esta temporada (mayo-junio, banco de pruebas)**
+- Mantener los 3 archivos como están (no romper rutina de Arkaitz).
+- Importar todo al Sheet, deduplicando lo que se solapa.
+- Construir dashboard completo con métricas avanzadas.
+- Iterar.
+
+**Fase 2 — antes de julio**
+- Consolidar a un único archivo de datos propios (`Estadisticas2627.xlsx`).
+- `Est. Goles rivales` se queda separado (no solapa).
+- Diseñar plantilla cómoda de rellenar para la 26/27.
+
+---
+
+## Siguientes pasos (en curso)
+
+1. ✅ Extractor de `Estadisticas2526.xlsx` con eventos + rotaciones.
+2. ⏳ Importador de `Goles LIGA.xlsx` y `Goles TOTAL.xlsx` para añadir disparos.
+3. ⏳ Importador de `Est. Goles rivales.xlsx` para scouting.
+4. ⏳ Métricas avanzadas: por 40', % equipo, +/-, cuartetos.
+5. ⏳ Dashboard ampliado.
