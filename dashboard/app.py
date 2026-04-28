@@ -239,6 +239,40 @@ def num_cols(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     return df
 
 
+# ── Helpers defensivos para evitar bugs NaN ──────────────────────────────────
+def safe_int(v, default: int = 0) -> int:
+    """Convierte v a int de forma segura. Devuelve `default` si no se puede,
+    si es NaN, si es None o si es string vacío."""
+    if v is None or v == "":
+        return default
+    try:
+        n = pd.to_numeric(v, errors="coerce")
+    except Exception:
+        return default
+    if pd.isna(n):
+        return default
+    try:
+        return int(n)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def safe_float(v, default: float = 0.0) -> float:
+    """Como safe_int pero a float."""
+    if v is None or v == "":
+        return default
+    try:
+        n = pd.to_numeric(v, errors="coerce")
+    except Exception:
+        return default
+    if pd.isna(n):
+        return default
+    try:
+        return float(n)
+    except (TypeError, ValueError):
+        return default
+
+
 # ── Carga de datos ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner="Cargando datos…")
 def datos():
@@ -534,7 +568,7 @@ with tab_sem:
             jugador_nom = row["JUGADOR"]
             acwr        = row.get("ACWR")
             peso_desv   = row.get("PESO_PRE_DESV_KG")
-            alertas     = int(row.get("ALERTAS_ACTIVAS", 0))
+            alertas     = safe_int(row.get("ALERTAS_ACTIVAS", 0))
             # Wellness dinámico del período seleccionado
             _ws = _well_stats[_well_stats["JUGADOR"] == jugador_nom]
             well_med   = float(_ws["well_mean"].iloc[0])  if not _ws.empty else float("nan")
@@ -3787,11 +3821,12 @@ with tab_editar:
             gc = gspread.authorize(creds)
             return gc.open(SHEET_NAME)
 
-        def _guardar_cabecera_totales(cab):
+        def _guardar_cabecera_totales(cab, totales_disp=None):
             """Crea/actualiza la fila de EST_TOTALES_PARTIDO para este
             partido_id con los campos extra (categoria, lugar, hora,
-            local_visitante, gf, gc). No toca métricas (dt_inter, etc.)
-            cuando ya existían — solo añade/sobrescribe los de cabecera.
+            local_visitante, gf, gc). Si se pasa `totales_disp` también
+            persiste los 8 totales de disparo por parte (iter 6).
+            No toca métricas (dt_inter, etc. globales) cuando ya existían.
             """
             import gspread
             sh = _conexion_sheet()
@@ -3807,9 +3842,13 @@ with tab_editar:
                 "categoria", "lugar", "hora", "local_visitante",
                 "goles_a_favor", "goles_en_contra",
             ]
-            # Asegurar columnas extra
+            # Asegurar columnas extra (cabecera + totales por parte iter 6)
             for c in ("categoria", "lugar", "hora", "local_visitante",
-                       "goles_a_favor", "goles_en_contra"):
+                       "goles_a_favor", "goles_en_contra",
+                       "dt_inter_1t", "dt_inter_2t",
+                       "dp_inter_1t", "dp_inter_2t",
+                       "dt_rival_1t", "dt_rival_2t",
+                       "dp_rival_1t", "dp_rival_2t"):
                 if c not in cols_completas:
                     cols_completas.append(c)
 
@@ -3833,6 +3872,30 @@ with tab_editar:
                 "goles_a_favor": cab["gf"],
                 "goles_en_contra": cab["gc"],
             }
+            # Totales por parte (iter 6) — solo si se pasaron
+            if totales_disp:
+                for k in ("dt_inter_1t", "dt_inter_2t",
+                            "dp_inter_1t", "dp_inter_2t",
+                            "dt_rival_1t", "dt_rival_2t",
+                            "dp_rival_1t", "dp_rival_2t"):
+                    datos_cab[k] = safe_int(totales_disp.get(k, 0))
+                # Si DT 1T+2T están y dt_inter global no, calculamos
+                dt_i_glob = safe_int(datos_cab.get("dt_inter_1t", 0)) + \
+                              safe_int(datos_cab.get("dt_inter_2t", 0))
+                dp_i_glob = safe_int(datos_cab.get("dp_inter_1t", 0)) + \
+                              safe_int(datos_cab.get("dp_inter_2t", 0))
+                dt_r_glob = safe_int(datos_cab.get("dt_rival_1t", 0)) + \
+                              safe_int(datos_cab.get("dt_rival_2t", 0))
+                dp_r_glob = safe_int(datos_cab.get("dp_rival_1t", 0)) + \
+                              safe_int(datos_cab.get("dp_rival_2t", 0))
+                if dt_i_glob > 0:
+                    datos_cab["dt_inter"] = dt_i_glob
+                if dp_i_glob > 0:
+                    datos_cab["dp_inter"] = dp_i_glob
+                if dt_r_glob > 0:
+                    datos_cab["dt_rival"] = dt_r_glob
+                if dp_r_glob > 0:
+                    datos_cab["dp_rival"] = dp_r_glob
             mask = df_all["partido_id"].astype(str) == cab["partido_id"]
             if mask.any():
                 # Actualizar campos de cabecera, conservar el resto
@@ -4026,6 +4089,66 @@ with tab_editar:
                 "gf": int(gf),
                 "gc": int(gc),
                 "partido_id": partido_id.strip(),
+            }
+
+        def _formulario_totales_disparos(tot_pre=None, key_pref="ed"):
+            """Editor de totales de disparo del partido por parte (iter 6).
+            Devuelve dict con dt_inter_1t, dt_inter_2t, dp_inter_1t,
+            dp_inter_2t, dt_rival_1t, dt_rival_2t, dp_rival_1t, dp_rival_2t.
+            """
+            tot_pre = tot_pre or {}
+            with st.expander("📈 Totales de disparo por parte (opcional)",
+                              expanded=False):
+                st.caption(
+                    "Si los rellenas, en los KPIs y el PDF aparecerá "
+                    "'Disparos a puerta: 27 (15+12)'. Si los dejas a 0 se "
+                    "usan solo los totales del partido completo.")
+                cols = st.columns(4)
+                with cols[0]:
+                    st.markdown("**Inter — DT**")
+                    dt_i_1 = st.number_input(
+                        "1ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dt_inter_1t", 0)),
+                        key=f"{key_pref}_dt_i_1")
+                    dt_i_2 = st.number_input(
+                        "2ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dt_inter_2t", 0)),
+                        key=f"{key_pref}_dt_i_2")
+                with cols[1]:
+                    st.markdown("**Inter — DP (a puerta)**")
+                    dp_i_1 = st.number_input(
+                        "1ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dp_inter_1t", 0)),
+                        key=f"{key_pref}_dp_i_1")
+                    dp_i_2 = st.number_input(
+                        "2ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dp_inter_2t", 0)),
+                        key=f"{key_pref}_dp_i_2")
+                with cols[2]:
+                    st.markdown("**Rival — DT**")
+                    dt_r_1 = st.number_input(
+                        "1ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dt_rival_1t", 0)),
+                        key=f"{key_pref}_dt_r_1")
+                    dt_r_2 = st.number_input(
+                        "2ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dt_rival_2t", 0)),
+                        key=f"{key_pref}_dt_r_2")
+                with cols[3]:
+                    st.markdown("**Rival — DP (a puerta)**")
+                    dp_r_1 = st.number_input(
+                        "1ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dp_rival_1t", 0)),
+                        key=f"{key_pref}_dp_r_1")
+                    dp_r_2 = st.number_input(
+                        "2ª parte", 0, 99,
+                        value=safe_int(tot_pre.get("dp_rival_2t", 0)),
+                        key=f"{key_pref}_dp_r_2")
+            return {
+                "dt_inter_1t": dt_i_1, "dt_inter_2t": dt_i_2,
+                "dp_inter_1t": dp_i_1, "dp_inter_2t": dp_i_2,
+                "dt_rival_1t": dt_r_1, "dt_rival_2t": dt_r_2,
+                "dp_rival_1t": dp_r_1, "dp_rival_2t": dp_r_2,
             }
 
         def _formulario_plantilla(convocados_def=None, key_pref="ed"):
@@ -4445,6 +4568,167 @@ with tab_editar:
                 key=key, column_config=cfg, hide_index=True,
             )
 
+        # ── Rotaciones (iter 4) ─────────────────────────────────────────────
+        def _df_rotaciones_inicial(plantilla_actual, partido_id, parte: str):
+            """Construye un DataFrame con una fila por jugador convocado y
+            columnas rot_{parte}_1 .. rot_{parte}_8 con valores en MM:SS.
+            Precarga desde EST_PARTIDOS si el partido existía.
+            parte: "1t" o "2t"."""
+            if not plantilla_actual:
+                return pd.DataFrame()
+            ep_pid = pd.DataFrame()
+            if not est_partidos.empty:
+                ep_pid = est_partidos[
+                    est_partidos["partido_id"].astype(str) == partido_id
+                ].copy()
+
+            def _formato_min(v):
+                vf = safe_float(v)
+                if vf <= 0:
+                    return ""
+                m = int(vf)
+                s = int(round((vf - m) * 60))
+                if s == 60:
+                    m += 1; s = 0
+                return f"{m:02d}:{s:02d}"
+
+            filas = []
+            for p in plantilla_actual:
+                jug = p["jugador"]
+                row_pre = pd.DataFrame()
+                if not ep_pid.empty:
+                    row_pre = ep_pid[ep_pid["jugador"].astype(str).str.upper() == jug]
+                fila = {"dorsal": p.get("dorsal", ""), "jugador": jug,
+                          "posicion": p.get("posicion", "")}
+                # Min de la parte (de iter 3)
+                if not row_pre.empty:
+                    fila["min_parte"] = _formato_min(row_pre.iloc[0].get(f"min_{parte}", 0))
+                else:
+                    fila["min_parte"] = ""
+                # 8 rotaciones
+                for i in range(1, 9):
+                    if not row_pre.empty:
+                        fila[f"r{i}"] = _formato_min(row_pre.iloc[0].get(f"rot_{parte}_{i}", 0))
+                    else:
+                        fila[f"r{i}"] = ""
+                filas.append(fila)
+            cols = ["dorsal", "jugador", "min_parte"] + [f"r{i}" for i in range(1, 9)]
+            return pd.DataFrame(filas, columns=cols)
+
+        def _editor_rotaciones(df_pre, n_visibles, parte_label, key):
+            """Renderiza el editor de rotaciones de una parte. n_visibles: 1-8.
+            Las columnas r{n+1}..r8 quedan ocultas (pero se preservan)."""
+            if df_pre is None or df_pre.empty:
+                st.caption("_(Selecciona la plantilla arriba para editar rotaciones.)_")
+                return df_pre
+            cfg = {
+                "dorsal": st.column_config.NumberColumn(
+                    "Nº", disabled=True, width="small", format="%d"),
+                "jugador": st.column_config.TextColumn(
+                    "Jugador", disabled=True, width="medium"),
+                "min_parte": st.column_config.TextColumn(
+                    f"Min {parte_label}", disabled=True, width="small",
+                    help="Vine de la tabla de métricas. Si está vacío, "
+                          "rellena ahí Min 1T o Min 2T primero."),
+            }
+            for i in range(1, 9):
+                if i <= n_visibles:
+                    cfg[f"r{i}"] = st.column_config.TextColumn(
+                        f"{i}ª", width="small",
+                        help=f"Duración de la {i}ª rotación. MM:SS. Vacío = sin rotación.")
+                # Las que excedan n_visibles las marcamos con disabled=True
+                # para que el usuario no las llene por error. Pero visibles
+                # como '—' si tienen valor previo.
+            # Si quiere ocultar columnas con st.data_editor no tiene API
+            # directa: las dejo todas pero con disabled si i > n_visibles.
+            for i in range(n_visibles + 1, 9):
+                cfg[f"r{i}"] = st.column_config.TextColumn(
+                    f"{i}ª", width="small", disabled=True,
+                    help="Aumenta el número de rotaciones para activar esta columna.")
+            return st.data_editor(
+                df_pre, num_rows="fixed", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _validar_rotaciones(df_rot):
+            """Avisa si la suma de rotaciones de un jugador supera el Min Parte."""
+            warns = []
+            if df_rot is None or df_rot.empty:
+                return warns
+            for _, r in df_rot.iterrows():
+                jug = r.get("jugador", "")
+                mins_parte = _parse_mmss(r.get("min_parte", ""))[0]
+                suma_rot = 0.0
+                rotaciones_apuntadas = 0
+                for i in range(1, 9):
+                    v = r.get(f"r{i}", "")
+                    parsed = _parse_mmss(v)[0]
+                    if parsed is not None and parsed > 0:
+                        suma_rot += parsed
+                        rotaciones_apuntadas += 1
+                if mins_parte and suma_rot > mins_parte + 0.5:
+                    # +0.5 de tolerancia para errores de redondeo
+                    warns.append(
+                        f"{jug}: suma de rotaciones ({suma_rot:.0f}') "
+                        f"> Min de la parte ({mins_parte:.0f}'). "
+                        "Las rotaciones cortas no apuntadas también suman al "
+                        "Min total, ¿revisa por si has duplicado alguna?")
+            return warns
+
+        def _normalizar_rotaciones_para_guardar(df_rot_1t, df_rot_2t):
+            """Devuelve dict {jugador → {rot_1t_1..8, rot_2t_1..8}} con valores
+            en minutos float (compat extractor)."""
+            out = {}
+            for parte, df in (("1t", df_rot_1t), ("2t", df_rot_2t)):
+                if df is None or df.empty:
+                    continue
+                for _, r in df.iterrows():
+                    jug = str(r.get("jugador", "") or "").strip().upper()
+                    if not jug:
+                        continue
+                    if jug not in out:
+                        out[jug] = {}
+                    for i in range(1, 9):
+                        v = r.get(f"r{i}", "")
+                        parsed = _parse_mmss(v)[0]
+                        out[jug][f"rot_{parte}_{i}"] = round(parsed, 4) if parsed else 0
+            return out
+
+        def _guardar_rotaciones(partido_id, rotaciones_por_jug):
+            """Actualiza las columnas rot_*_* de EST_PARTIDOS para los
+            jugadores con rotaciones nuevas. PRESERVA el resto de columnas."""
+            if not rotaciones_por_jug:
+                return 0
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_PARTIDOS")
+            except gspread.exceptions.WorksheetNotFound:
+                return 0
+            df_all = pd.DataFrame(ws.get_all_records())
+            if df_all.empty:
+                return 0
+            # Asegurar que existen las columnas rot
+            cols_rot = [f"rot_{p}_{i}" for p in ("1t", "2t") for i in range(1, 9)]
+            for c in cols_rot:
+                if c not in df_all.columns:
+                    df_all[c] = 0
+            # Aplicar rotaciones
+            mask_part = df_all["partido_id"].astype(str) == partido_id
+            for jug, vals in rotaciones_por_jug.items():
+                mask = mask_part & (df_all["jugador"].astype(str).str.upper() == jug)
+                if not mask.any():
+                    continue
+                for col, val in vals.items():
+                    df_all.loc[mask, col] = val
+            # Reescribir
+            cols_orden = list(df_all.columns)
+            df_out = df_all.fillna("")
+            ws.clear()
+            ws.update(values=[cols_orden] + df_out.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(rotaciones_por_jug)
+
         def _validar_metricas_campo(df):
             """Devuelve lista de avisos sobre tarjetas/minutos."""
             warns = []
@@ -4591,6 +4875,9 @@ with tab_editar:
             st.markdown("#### 🏁 Cabecera del partido")
             cab = _formulario_cabecera(key_pref="cr")
 
+            # Totales de disparo por parte (opcional, expansible)
+            totales_disp_cr = _formulario_totales_disparos(key_pref="cr")
+
             st.markdown("---")
             plantilla = _formulario_plantilla(key_pref="cr")
 
@@ -4612,10 +4899,13 @@ with tab_editar:
             st.markdown("#### 📊 Métricas individuales (campo)")
             st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
             df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, "")
+            # Defaults vacíos (se rellenan si hay plantilla)
+            df_camp_edit = pd.DataFrame()
+            df_port_edit = pd.DataFrame()
+            df_rot_1t_edit = pd.DataFrame()
+            df_rot_2t_edit = pd.DataFrame()
             if not plantilla:
                 st.info("Primero selecciona la plantilla del partido arriba.")
-                df_camp_edit = pd.DataFrame()
-                df_port_edit = pd.DataFrame()
             else:
                 df_camp_edit = _editor_metricas_campo(df_camp_pre, key="cr_metricas_campo")
                 # Validación en vivo
@@ -4627,6 +4917,43 @@ with tab_editar:
                 st.markdown("#### 🥅 Métricas de portería")
                 st.caption("Solo aparece si hay porteros en la plantilla.")
                 df_port_edit = _editor_metricas_porteria(df_port_pre, key="cr_metricas_porteria")
+
+                # ── Rotaciones (iter 4) ────────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 🔄 Rotaciones individuales")
+                st.caption(
+                    "Una fila por convocado, con duración de cada rotación en MM:SS. "
+                    "Las rotaciones cortas no apuntadas (≤ algunos segundos) se suman "
+                    "al Min Total de la parte aunque no aparezcan aquí. La suma de "
+                    "rotaciones de la parte debe ser ≤ Min de la parte.")
+                col_rn1, col_rn2 = st.columns(2)
+                with col_rn1:
+                    n_rot_1t_cr = st.slider(
+                        "Rotaciones a mostrar 1ª parte", 1, 8, 4,
+                        key="cr_n_rot_1t",
+                        help="Sólo muestra las primeras N rotaciones. Las demás se ocultan.")
+                with col_rn2:
+                    n_rot_2t_cr = st.slider(
+                        "Rotaciones a mostrar 2ª parte", 1, 8, 4,
+                        key="cr_n_rot_2t")
+                st.markdown("**1ª parte**")
+                df_rot_1t_pre = _df_rotaciones_inicial(plantilla, "", "1t")
+                df_rot_1t_edit = _editor_rotaciones(
+                    df_rot_1t_pre, n_rot_1t_cr, "1T", key="cr_rot_1t")
+                warns_rot_1 = _validar_rotaciones(df_rot_1t_edit)
+                if warns_rot_1:
+                    st.markdown("**⚠️ Avisos rotaciones 1T:**")
+                    for w in warns_rot_1:
+                        st.warning(w)
+                st.markdown("**2ª parte**")
+                df_rot_2t_pre = _df_rotaciones_inicial(plantilla, "", "2t")
+                df_rot_2t_edit = _editor_rotaciones(
+                    df_rot_2t_pre, n_rot_2t_cr, "2T", key="cr_rot_2t")
+                warns_rot_2 = _validar_rotaciones(df_rot_2t_edit)
+                if warns_rot_2:
+                    st.markdown("**⚠️ Avisos rotaciones 2T:**")
+                    for w in warns_rot_2:
+                        st.warning(w)
 
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
@@ -4640,20 +4967,25 @@ with tab_editar:
                         df_ev_edit)
                     metricas_dict = _normalizar_metricas_para_guardar(
                         df_camp_edit, df_port_edit)
+                    rot_dict = _normalizar_rotaciones_para_guardar(
+                        df_rot_1t_edit, df_rot_2t_edit)
                     try:
                         with st.spinner("Guardando…"):
-                            _guardar_cabecera_totales(cab)
+                            _guardar_cabecera_totales(cab, totales_disp_cr)
                             n_pl = _guardar_plantilla(
                                 cab["partido_id"], plantilla, cab)
                             n_met = _guardar_metricas(
                                 cab["partido_id"], metricas_dict, cab)
+                            n_rot = _guardar_rotaciones(
+                                cab["partido_id"], rot_dict)
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
                             f"✅ Partido creado. Cabecera + {n_pl} convocados "
-                            f"+ {n_met} jugadores con métricas + {n_ev} eventos."
+                            f"+ {n_met} con métricas + {n_rot} con rotaciones "
+                            f"+ {n_ev} eventos."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
@@ -4752,6 +5084,22 @@ with tab_editar:
                 plantilla = _formulario_plantilla(
                     convocados_def=convocados_def, key_pref="ed")
 
+                # Totales de disparo por parte (precargados de
+                # EST_TOTALES_PARTIDO si existían)
+                tot_pre_disp = {}
+                if not est_tot_partido.empty:
+                    fila_t = est_tot_partido[
+                        est_tot_partido["partido_id"].astype(str) == pid_sel]
+                    if not fila_t.empty:
+                        ft = fila_t.iloc[0]
+                        for k in ("dt_inter_1t", "dt_inter_2t",
+                                   "dp_inter_1t", "dp_inter_2t",
+                                   "dt_rival_1t", "dt_rival_2t",
+                                   "dp_rival_1t", "dp_rival_2t"):
+                            tot_pre_disp[k] = safe_int(ft.get(k, 0))
+                totales_disp_ed = _formulario_totales_disparos(
+                    tot_pre=tot_pre_disp, key_pref=f"ed_{pid_sel}")
+
                 st.markdown("---")
                 st.markdown("#### ⚽ Eventos de gol")
                 st.caption("Una fila por gol. Min en formato **MM:SS**. "
@@ -4772,10 +5120,13 @@ with tab_editar:
                 st.markdown("#### 📊 Métricas individuales (campo)")
                 st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
                 df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, pid_sel)
+                # Defaults vacíos
+                df_camp_edit_e = pd.DataFrame()
+                df_port_edit_e = pd.DataFrame()
+                df_rot_1t_edit_e = pd.DataFrame()
+                df_rot_2t_edit_e = pd.DataFrame()
                 if not plantilla:
                     st.info("Selecciona la plantilla arriba para editar las métricas.")
-                    df_camp_edit_e = pd.DataFrame()
-                    df_port_edit_e = pd.DataFrame()
                 else:
                     df_camp_edit_e = _editor_metricas_campo(
                         df_camp_pre, key=f"ed_metricas_campo_{pid_sel}")
@@ -4788,26 +5139,68 @@ with tab_editar:
                     df_port_edit_e = _editor_metricas_porteria(
                         df_port_pre, key=f"ed_metricas_porteria_{pid_sel}")
 
+                    # ── Rotaciones (iter 4) ────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("#### 🔄 Rotaciones individuales")
+                    st.caption(
+                        "Una fila por convocado. La suma de rotaciones de la "
+                        "parte debe ser ≤ Min de la parte (las rotaciones "
+                        "cortas no apuntadas también suman al Min Total).")
+                    col_rn1, col_rn2 = st.columns(2)
+                    with col_rn1:
+                        n_rot_1t_ed = st.slider(
+                            "Rotaciones a mostrar 1ª parte", 1, 8, 8,
+                            key=f"ed_n_rot_1t_{pid_sel}")
+                    with col_rn2:
+                        n_rot_2t_ed = st.slider(
+                            "Rotaciones a mostrar 2ª parte", 1, 8, 8,
+                            key=f"ed_n_rot_2t_{pid_sel}")
+                    st.markdown("**1ª parte**")
+                    df_rot_1t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "1t")
+                    df_rot_1t_edit_e = _editor_rotaciones(
+                        df_rot_1t_pre, n_rot_1t_ed, "1T",
+                        key=f"ed_rot_1t_{pid_sel}")
+                    warns_rot_1 = _validar_rotaciones(df_rot_1t_edit_e)
+                    if warns_rot_1:
+                        st.markdown("**⚠️ Avisos rotaciones 1T:**")
+                        for w in warns_rot_1:
+                            st.warning(w)
+                    st.markdown("**2ª parte**")
+                    df_rot_2t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "2t")
+                    df_rot_2t_edit_e = _editor_rotaciones(
+                        df_rot_2t_pre, n_rot_2t_ed, "2T",
+                        key=f"ed_rot_2t_{pid_sel}")
+                    warns_rot_2 = _validar_rotaciones(df_rot_2t_edit_e)
+                    if warns_rot_2:
+                        st.markdown("**⚠️ Avisos rotaciones 2T:**")
+                        for w in warns_rot_2:
+                            st.warning(w)
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
                     metricas_dict_e = _normalizar_metricas_para_guardar(
                         df_camp_edit_e, df_port_edit_e)
+                    rot_dict_e = _normalizar_rotaciones_para_guardar(
+                        df_rot_1t_edit_e, df_rot_2t_edit_e)
                     try:
                         with st.spinner("Guardando…"):
-                            _guardar_cabecera_totales(cab)
+                            _guardar_cabecera_totales(cab, totales_disp_ed)
                             n_pl = _guardar_plantilla(
                                 cab["partido_id"], plantilla, cab) if plantilla else 0
                             n_met = _guardar_metricas(
                                 cab["partido_id"], metricas_dict_e, cab) \
                                     if metricas_dict_e else 0
+                            n_rot = _guardar_rotaciones(
+                                cab["partido_id"], rot_dict_e)
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
                             f"✅ Guardado: cabecera + {n_pl} convocados + "
-                            f"{n_met} jugadores con métricas + {n_ev} eventos."
+                            f"{n_met} con métricas + {n_rot} con rotaciones "
+                            f"+ {n_ev} eventos."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
