@@ -15,6 +15,7 @@ from plotly.subplots import make_subplots
 import gspread
 from google.oauth2.service_account import Credentials
 import json, os
+import datetime as _dt
 from pathlib import Path
 
 # ── Config página ─────────────────────────────────────────────────────────────
