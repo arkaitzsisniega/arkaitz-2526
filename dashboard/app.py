@@ -4273,6 +4273,288 @@ with tab_editar:
                         f"pero hay {n_pista} jugadores en pista → deberían ser 5.")
             return df, warns
 
+        # ── Métricas individuales (iter 3) ─────────────────────────────
+        # Mapeo nombre planilla → columna EST_PARTIDOS
+        # Campo:    PF→pf · PNF→pnf · ROB→robos · COR→cortes · BDG→bdg ·
+        #           BDP→bdp · DP→dp · DPos→dpalo · DB→db · DF→df · TA→ta · TR→tr
+        # Portería: P.PAR→par · P.FUE→out · P.BLO→bloq_p · P.POS→poste_p ·
+        #           P.Gol→gol_p · P.SAL→salida · P.SAL_FALL→salida_fallida
+        COLS_METRICAS_CAMPO = [
+            ("min_1t", "Min 1T"), ("min_2t", "Min 2T"), ("min_total", "Min Total"),
+            ("pf", "PF"), ("pnf", "PNF"), ("robos", "ROB"), ("cortes", "COR"),
+            ("bdg", "BDG"), ("bdp", "BDP"),
+            ("dp", "DP"), ("dpalo", "DPos"), ("db", "DB"), ("df", "DF"),
+            ("ta", "TA"), ("tr", "TR"),
+        ]
+        COLS_METRICAS_PORTERIA = [
+            ("par", "P.PAR"), ("out", "P.FUE"), ("bloq_p", "P.BLO"),
+            ("poste_p", "P.POS"), ("gol_p", "P.Gol"),
+            ("salida", "P.SAL"), ("salida_fallida", "P.SAL_FALL"),
+        ]
+        COLS_NUMERICAS = (
+            ["pf", "pnf", "robos", "cortes", "bdg", "bdp", "dp", "dpalo",
+             "db", "df", "ta", "tr"] +
+            ["par", "out", "bloq_p", "poste_p", "gol_p", "salida", "salida_fallida"]
+        )
+
+        def _df_metricas_inicial(plantilla_actual, partido_id):
+            """Construye un DataFrame con una fila por jugador convocado.
+            Si el partido ya existía en EST_PARTIDOS, precarga los valores
+            actuales (no pisa). Si no, todos los numéricos a 0 y minutos vacíos."""
+            if not plantilla_actual:
+                return pd.DataFrame(), pd.DataFrame()
+
+            # Filas precargadas del partido si existe
+            ep_pid = pd.DataFrame()
+            if not est_partidos.empty:
+                ep_pid = est_partidos[
+                    est_partidos["partido_id"].astype(str) == partido_id
+                ].copy()
+
+            def _formato_min(min_val):
+                """De minuto float a 'mm:ss'. 0 → ''."""
+                try:
+                    v = float(min_val or 0)
+                except (TypeError, ValueError):
+                    return ""
+                if v <= 0:
+                    return ""
+                m = int(v)
+                s = int(round((v - m) * 60))
+                if s == 60:
+                    m += 1; s = 0
+                return f"{m:02d}:{s:02d}"
+
+            filas_campo = []
+            filas_port = []
+            for p in plantilla_actual:
+                jug = p["jugador"]
+                row_pre = pd.DataFrame()
+                if not ep_pid.empty:
+                    row_pre = ep_pid[ep_pid["jugador"].astype(str).str.upper() == jug]
+                fila = {"dorsal": p.get("dorsal", ""), "jugador": jug}
+                # minutos
+                if not row_pre.empty:
+                    r = row_pre.iloc[0]
+                    fila["min_1t"] = _formato_min(r.get("min_1t", 0))
+                    fila["min_2t"] = _formato_min(r.get("min_2t", 0))
+                    fila["min_total"] = _formato_min(r.get("min_total", 0))
+                else:
+                    fila["min_1t"] = ""
+                    fila["min_2t"] = ""
+                    fila["min_total"] = ""
+                # numéricos
+                for c in COLS_NUMERICAS:
+                    if not row_pre.empty:
+                        v = pd.to_numeric(row_pre.iloc[0].get(c, 0), errors="coerce")
+                        fila[c] = int(v) if pd.notna(v) else 0
+                    else:
+                        fila[c] = 0
+                if p.get("posicion", "") == "PORTERO":
+                    filas_port.append(fila)
+                else:
+                    filas_campo.append(fila)
+
+            # DataFrame de campo (incluye campo + porteros, pero porteros sólo
+            # muestran lo común — métricas de portería van en otra tabla)
+            cols_camp_full = ["dorsal", "jugador"] + [c for c, _ in COLS_METRICAS_CAMPO]
+            df_campo = pd.DataFrame(filas_campo + filas_port, columns=cols_camp_full)
+            # DataFrame de portería (solo porteros)
+            cols_port_full = ["dorsal", "jugador"] + [c for c, _ in COLS_METRICAS_PORTERIA]
+            df_port = pd.DataFrame(filas_port, columns=cols_port_full)
+            return df_campo, df_port
+
+        def _editor_metricas_campo(df_pre, key):
+            """Renderiza el editor de métricas individuales (campo).
+            Aplica a TODOS los convocados (campo + porteros)."""
+            cfg = {
+                "dorsal": st.column_config.NumberColumn("Nº", disabled=True, width="small", format="%d"),
+                "jugador": st.column_config.TextColumn("Jugador", disabled=True, width="medium"),
+                "min_1t": st.column_config.TextColumn("Min 1T", width="small",
+                            help="MM:SS. Tiempo total jugado en 1ª parte (incluye rotaciones cortas no apuntadas)."),
+                "min_2t": st.column_config.TextColumn("Min 2T", width="small",
+                            help="MM:SS. Tiempo total jugado en 2ª parte."),
+                "min_total": st.column_config.TextColumn("Min Total", width="small",
+                            help="MM:SS. Si lo dejas vacío, se calcula como Min 1T + Min 2T."),
+            }
+            for k, lbl in COLS_METRICAS_CAMPO[3:]:  # saltamos los 3 de minutos (ya en cfg)
+                if k in ("ta",):
+                    cfg[k] = st.column_config.NumberColumn(lbl, min_value=0, max_value=2, format="%d", width="small",
+                                  help="Tarjetas amarillas (0-2). 2 amarillas → expulsión.")
+                elif k in ("tr",):
+                    cfg[k] = st.column_config.NumberColumn(lbl, min_value=0, max_value=1, format="%d", width="small",
+                                  help="Tarjeta roja directa (0-1).")
+                else:
+                    cfg[k] = st.column_config.NumberColumn(lbl, min_value=0, format="%d", width="small")
+            return st.data_editor(
+                df_pre, num_rows="fixed", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _editor_metricas_porteria(df_pre, key):
+            """Renderiza el editor de métricas de portería (solo porteros)."""
+            if df_pre.empty:
+                st.caption("_(Esta tabla aparece cuando hay porteros en la plantilla.)_")
+                return df_pre
+            cfg = {
+                "dorsal": st.column_config.NumberColumn("Nº", disabled=True, width="small", format="%d"),
+                "jugador": st.column_config.TextColumn("Portero", disabled=True, width="medium"),
+            }
+            for k, lbl in COLS_METRICAS_PORTERIA:
+                if k == "salida":
+                    cfg[k] = st.column_config.NumberColumn(
+                        lbl, min_value=0, format="%d", width="small",
+                        help="P.SAL: salida CORRECTA del portero a un balón.")
+                elif k == "salida_fallida":
+                    cfg[k] = st.column_config.NumberColumn(
+                        lbl, min_value=0, format="%d", width="small",
+                        help="P.SAL_FALL: salida fallida.")
+                else:
+                    cfg[k] = st.column_config.NumberColumn(
+                        lbl, min_value=0, format="%d", width="small")
+            return st.data_editor(
+                df_pre, num_rows="fixed", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _validar_metricas_campo(df):
+            """Devuelve lista de avisos sobre tarjetas/minutos."""
+            warns = []
+            if df is None or df.empty:
+                return warns
+            for _, r in df.iterrows():
+                jug = r.get("jugador", "")
+                ta = int(pd.to_numeric(r.get("ta", 0), errors="coerce") or 0)
+                tr = int(pd.to_numeric(r.get("tr", 0), errors="coerce") or 0)
+                if ta > 2:
+                    warns.append(f"{jug}: TA={ta} (máximo 2 antes de roja por doble amarilla).")
+                if tr > 1:
+                    warns.append(f"{jug}: TR={tr} (máximo 1).")
+                # Comprobar suma min_1t + min_2t = min_total (si los 3 están)
+                m1 = _parse_mmss(r.get("min_1t", ""))[0] or 0
+                m2 = _parse_mmss(r.get("min_2t", ""))[0] or 0
+                mt = _parse_mmss(r.get("min_total", ""))[0]
+                if mt is not None and abs(mt - (m1 + m2)) > 1:
+                    warns.append(
+                        f"{jug}: Min Total ({mt}') ≠ Min 1T + Min 2T ({m1+m2}'). "
+                        "Si tienes rotaciones cortas no apuntadas que sumen al "
+                        "total, ignora este aviso.")
+                if m1 > 21:
+                    warns.append(f"{jug}: Min 1T = {m1}' > 20'.")
+                if m2 > 21:
+                    warns.append(f"{jug}: Min 2T = {m2}' > 20'.")
+            return warns
+
+        def _normalizar_metricas_para_guardar(df_campo, df_port):
+            """Convierte los DataFrames del editor a un dict por jugador con
+            todas las columnas que persistir en EST_PARTIDOS."""
+            metricas_por_jug = {}
+            if df_campo is not None and not df_campo.empty:
+                for _, r in df_campo.iterrows():
+                    jug = str(r.get("jugador", "") or "").strip().upper()
+                    if not jug:
+                        continue
+                    m1 = _parse_mmss(r.get("min_1t", ""))[0] or 0
+                    m2 = _parse_mmss(r.get("min_2t", ""))[0] or 0
+                    mt_parsed = _parse_mmss(r.get("min_total", ""))[0]
+                    mt = mt_parsed if mt_parsed is not None else (m1 + m2)
+                    fila = {
+                        "dorsal": r.get("dorsal", ""),
+                        "jugador": jug,
+                        "min_1t": m1,
+                        "min_2t": m2,
+                        "min_total": mt,
+                    }
+                    for c in [k for k, _ in COLS_METRICAS_CAMPO[3:]]:
+                        v = pd.to_numeric(r.get(c, 0), errors="coerce")
+                        fila[c] = int(v) if pd.notna(v) else 0
+                    # Defaults de portería a 0 (se sobreescribe luego si es portero)
+                    for c in [k for k, _ in COLS_METRICAS_PORTERIA]:
+                        fila[c] = 0
+                    metricas_por_jug[jug] = fila
+            # Datos de portería sobre los porteros
+            if df_port is not None and not df_port.empty:
+                for _, r in df_port.iterrows():
+                    jug = str(r.get("jugador", "") or "").strip().upper()
+                    if not jug or jug not in metricas_por_jug:
+                        continue
+                    for c in [k for k, _ in COLS_METRICAS_PORTERIA]:
+                        v = pd.to_numeric(r.get(c, 0), errors="coerce")
+                        metricas_por_jug[jug][c] = int(v) if pd.notna(v) else 0
+            return metricas_por_jug
+
+        def _guardar_metricas(partido_id, metricas_por_jug, cab):
+            """Persiste las métricas en EST_PARTIDOS. Crea/actualiza una fila
+            por jugador convocado. Preserva las rotaciones (rot_1t_1..rot_2t_8)
+            si ya existían para ese (partido_id, jugador)."""
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_PARTIDOS")
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sh.add_worksheet("EST_PARTIDOS", rows=1000, cols=60)
+                ws.update(values=[["partido_id"]], range_name="A1")
+            df_all = pd.DataFrame(ws.get_all_records())
+            # Schema mínimo
+            cols_basicas = [
+                "partido_id", "tipo", "competicion", "rival", "fecha",
+                "dorsal", "jugador", "min_1t", "min_2t", "min_total",
+                "convocado", "participa",
+            ]
+            cols_rot = [f"rot_{p}_{i}" for p in ("1t", "2t") for i in range(1, 9)]
+            cols_metricas_full = [k for k, _ in COLS_METRICAS_CAMPO[3:]] + \
+                                  [k for k, _ in COLS_METRICAS_PORTERIA]
+            cols_extra = ["goles_a_favor", "asistencias"]
+            cols_completas = cols_basicas + cols_rot + cols_metricas_full + cols_extra
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols_completas)
+            else:
+                for c in cols_completas:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
+            # Filas de OTROS partidos (las preservamos)
+            df_otros = df_all[df_all["partido_id"].astype(str) != partido_id].copy()
+            # Filas existentes de ESTE partido (para preservar rotaciones)
+            df_este = df_all[df_all["partido_id"].astype(str) == partido_id].copy()
+            # Construir nuevas filas
+            filas_nuevas = []
+            for jug, fila in metricas_por_jug.items():
+                base = {
+                    "partido_id": partido_id,
+                    "tipo": cab["tipo"],
+                    "competicion": cab["competicion"],
+                    "rival": cab["rival"],
+                    "fecha": cab["fecha"],
+                    "convocado": "TRUE",
+                    "participa": "TRUE" if fila.get("min_total", 0) > 0 else "FALSE",
+                }
+                base.update(fila)
+                # Preservar rotaciones existentes para este jugador
+                if not df_este.empty:
+                    fila_prev = df_este[
+                        df_este["jugador"].astype(str).str.upper() == jug
+                    ]
+                    if not fila_prev.empty:
+                        for c in cols_rot:
+                            base[c] = fila_prev.iloc[0].get(c, 0) or 0
+                        # También preservar goles/asists si vienen del cruce de eventos
+                        for c in ("goles_a_favor", "asistencias"):
+                            if c in fila_prev.columns:
+                                base[c] = fila_prev.iloc[0].get(c, 0) or 0
+                # Asegurar columnas que falten
+                for c in cols_completas:
+                    if c not in base:
+                        base[c] = ""
+                filas_nuevas.append({c: base.get(c, "") for c in cols_completas})
+
+            df_nuevas = pd.DataFrame(filas_nuevas, columns=cols_completas)
+            df_final = pd.concat([df_otros[cols_completas], df_nuevas],
+                                   ignore_index=True).fillna("")
+            ws.clear()
+            ws.update(values=[cols_completas] + df_final.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(filas_nuevas)
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -4296,6 +4578,26 @@ with tab_editar:
                 for w in warns_live_cr:
                     st.warning(w)
 
+            st.markdown("---")
+            st.markdown("#### 📊 Métricas individuales (campo)")
+            st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
+            df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, "")
+            if not plantilla:
+                st.info("Primero selecciona la plantilla del partido arriba.")
+                df_camp_edit = pd.DataFrame()
+                df_port_edit = pd.DataFrame()
+            else:
+                df_camp_edit = _editor_metricas_campo(df_camp_pre, key="cr_metricas_campo")
+                # Validación en vivo
+                warns_met = _validar_metricas_campo(df_camp_edit)
+                if warns_met:
+                    st.markdown("**⚠️ Avisos métricas:**")
+                    for w in warns_met:
+                        st.warning(w)
+                st.markdown("#### 🥅 Métricas de portería")
+                st.caption("Solo aparece si hay porteros en la plantilla.")
+                df_port_edit = _editor_metricas_porteria(df_port_pre, key="cr_metricas_porteria")
+
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
                     st.error("Pon el nombre del rival.")
@@ -4306,18 +4608,22 @@ with tab_editar:
                 else:
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
+                    metricas_dict = _normalizar_metricas_para_guardar(
+                        df_camp_edit, df_port_edit)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab)
                             n_pl = _guardar_plantilla(
                                 cab["partido_id"], plantilla, cab)
+                            n_met = _guardar_metricas(
+                                cab["partido_id"], metricas_dict, cab)
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
-                            f"✅ Partido creado. "
-                            f"Cabecera + {n_pl} convocados + {n_ev} eventos."
+                            f"✅ Partido creado. Cabecera + {n_pl} convocados "
+                            f"+ {n_met} jugadores con métricas + {n_ev} eventos."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
@@ -4431,20 +4737,47 @@ with tab_editar:
                     for w in warns_live_ed:
                         st.warning(w)
 
+                # ── Métricas individuales (precargadas del partido) ───────
+                st.markdown("---")
+                st.markdown("#### 📊 Métricas individuales (campo)")
+                st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
+                df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, pid_sel)
+                if not plantilla:
+                    st.info("Selecciona la plantilla arriba para editar las métricas.")
+                    df_camp_edit_e = pd.DataFrame()
+                    df_port_edit_e = pd.DataFrame()
+                else:
+                    df_camp_edit_e = _editor_metricas_campo(
+                        df_camp_pre, key=f"ed_metricas_campo_{pid_sel}")
+                    warns_met_e = _validar_metricas_campo(df_camp_edit_e)
+                    if warns_met_e:
+                        st.markdown("**⚠️ Avisos métricas:**")
+                        for w in warns_met_e:
+                            st.warning(w)
+                    st.markdown("#### 🥅 Métricas de portería")
+                    df_port_edit_e = _editor_metricas_porteria(
+                        df_port_pre, key=f"ed_metricas_porteria_{pid_sel}")
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
+                    metricas_dict_e = _normalizar_metricas_para_guardar(
+                        df_camp_edit_e, df_port_edit_e)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab)
                             n_pl = _guardar_plantilla(
                                 cab["partido_id"], plantilla, cab) if plantilla else 0
+                            n_met = _guardar_metricas(
+                                cab["partido_id"], metricas_dict_e, cab) \
+                                    if metricas_dict_e else 0
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
-                            f"✅ Guardado: cabecera + {n_pl} convocados + {n_ev} eventos."
+                            f"✅ Guardado: cabecera + {n_pl} convocados + "
+                            f"{n_met} jugadores con métricas + {n_ev} eventos."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")

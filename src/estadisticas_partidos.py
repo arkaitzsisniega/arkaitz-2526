@@ -99,6 +99,7 @@ MET_COL_BLOQ = 21        # V — bloqueos del portero
 MET_COL_PAR = 22         # W — paradas
 MET_COL_GOL_PORT = 23    # X — goles encajados
 MET_COL_TA = 24          # Y — Tarjeta Amarilla
+MET_COL_TR = 25          # Z — Tarjeta Roja
 
 
 def clasificar_competicion(nombre_hoja: str) -> tuple[str, str]:
@@ -239,7 +240,10 @@ class JugadorEnPartido:
     bloq_p: int = 0       # Bloqueos del portero
     par: int = 0          # Paradas del portero
     gol_p: int = 0        # Goles encajados estando el portero en pista
+    salida: int = 0       # Salida CORRECTA del portero (nuevo iter 3)
+    salida_fallida: int = 0  # Salida fallida del portero (nuevo iter 3)
     ta: int = 0           # Tarjeta Amarilla
+    tr: int = 0           # Tarjeta Roja (nuevo iter 3)
 
 
 @dataclass
@@ -492,6 +496,7 @@ def parsear_partido(
             "par":     _to_int(row, MET_COL_PAR),
             "gol_p":   _to_int(row, MET_COL_GOL_PORT),
             "ta":      _to_int(row, MET_COL_TA),
+            "tr":      _to_int(row, MET_COL_TR),
             "_mins_met": round(mins_met, 2),  # auxiliar, no se sube al Sheet
         }
 
