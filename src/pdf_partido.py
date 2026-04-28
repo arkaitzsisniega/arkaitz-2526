@@ -31,7 +31,15 @@ from reportlab.platypus import (
 )
 from reportlab.graphics import renderPM
 from reportlab.graphics.shapes import Drawing
-from svglib.svglib import svg2rlg
+
+# svglib es opcional: si la instalación falla (p.ej. en Streamlit Cloud),
+# generamos el PDF sin los mapas SVG.
+try:
+    from svglib.svglib import svg2rlg
+    SVG_DISPONIBLE = True
+except Exception:
+    svg2rlg = None
+    SVG_DISPONIBLE = False
 
 ROOT = Path(__file__).resolve().parent.parent
 CREDS_FILE = ROOT / "google_credentials.json"
@@ -124,6 +132,8 @@ def _svg_porteria(cuadrantes, svg_porteria_fn=None):
 
 def _svg_to_image(svg_str: str, width: float, height: float) -> RLImage:
     """Convierte un string SVG en un objeto RLImage para reportlab."""
+    if not SVG_DISPONIBLE:
+        raise RuntimeError("svglib no disponible — saltando mapa")
     drawing = svg2rlg(io.BytesIO(svg_str.encode("utf-8")))
     if drawing is None:
         # Fallback: imagen vacía
@@ -414,7 +424,7 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 story.append(Spacer(1, 6))
 
     # ── Mapas de zona y portería ────────────────────────────────────────────
-    if not df_dz.empty:
+    if not df_dz.empty and SVG_DISPONIBLE:
         meta_rival = str(rival).upper()
         rival_corto = meta_rival.split()[0] if meta_rival else ""
         df_dz["rival_up"] = df_dz["rival"].astype(str).str.upper()
