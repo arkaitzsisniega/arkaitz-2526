@@ -2981,7 +2981,53 @@ with tab_partido:
             }
             st.dataframe(tabla_met, use_container_width=True, hide_index=True,
                          column_config=cc_part)
-    
+
+            # ── Tabla de portería ──────────────────────────────────────────
+            cols_port = ["par", "gol_p", "bloq_p", "poste_p"]
+            if all(c in ep_p.columns for c in cols_port):
+                ep_p["par"] = pd.to_numeric(ep_p["par"], errors="coerce").fillna(0)
+                ep_p["gol_p"] = pd.to_numeric(ep_p["gol_p"], errors="coerce").fillna(0)
+                ep_p["bloq_p"] = pd.to_numeric(ep_p["bloq_p"], errors="coerce").fillna(0)
+                ep_p["poste_p"] = pd.to_numeric(ep_p["poste_p"], errors="coerce").fillna(0)
+                porteros_p = ep_p[
+                    (ep_p["par"] + ep_p["gol_p"] +
+                     ep_p["bloq_p"] + ep_p["poste_p"]) > 0
+                ].copy()
+                if not porteros_p.empty:
+                    st.markdown("#### 🥅 Portería")
+                    porteros_p["disp_total_rival"] = (porteros_p["par"]
+                                                       + porteros_p["gol_p"]
+                                                       + porteros_p["bloq_p"]
+                                                       + porteros_p["poste_p"]).astype(int)
+                    porteros_p["pct_paradas"] = porteros_p.apply(
+                        lambda r: round(r["par"] / max(r["par"] + r["gol_p"], 1) * 100, 1)
+                                   if (r["par"] + r["gol_p"]) > 0 else 0.0,
+                        axis=1,
+                    )
+                    cols_show = ["dorsal", "jugador", "par", "gol_p",
+                                  "bloq_p", "poste_p", "disp_total_rival",
+                                  "pct_paradas"]
+                    cols_show = [c for c in cols_show if c in porteros_p.columns]
+                    porteros_p = porteros_p[cols_show].sort_values(
+                        "par", ascending=False
+                    )
+                    cc_port = {
+                        "dorsal": st.column_config.Column("Nº"),
+                        "jugador": st.column_config.Column("Portero"),
+                        "par": st.column_config.NumberColumn("Paradas", format="%d"),
+                        "gol_p": st.column_config.NumberColumn("Goles enc.", format="%d"),
+                        "bloq_p": st.column_config.NumberColumn("Bloqueos", format="%d"),
+                        "poste_p": st.column_config.NumberColumn("Postes", format="%d"),
+                        "disp_total_rival": st.column_config.NumberColumn(
+                            "Disp. rival", format="%d",
+                            help="Total de disparos del rival a portería (par + gol + bloq + palo)"),
+                        "pct_paradas": st.column_config.NumberColumn(
+                            "% Paradas", format="%.1f%%",
+                            help="Paradas / (Paradas + Goles encajados)"),
+                    }
+                    st.dataframe(porteros_p, use_container_width=True,
+                                  hide_index=True, column_config=cc_port)
+
             # ── Eventos de gol del partido (con descripción) ──────────────────
             st.markdown("#### ⚽ Goles del partido")
             if ev_p.empty:

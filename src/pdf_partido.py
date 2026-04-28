@@ -32,6 +32,15 @@ from reportlab.platypus import (
 from reportlab.graphics import renderPM
 from reportlab.graphics.shapes import Drawing
 
+# Backend de matplotlib SIEMPRE Agg (sin GUI). Importante en Streamlit
+# Cloud porque matplotlib se carga con backend interactivo por defecto.
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import Polygon as MplPolygon
+import numpy as np
+
 # svglib es opcional: si la instalación falla (p.ej. en Streamlit Cloud),
 # generamos el PDF sin los mapas SVG.
 try:
@@ -172,7 +181,6 @@ def _arco_xy(cx, cy, r, ang_ini, ang_fin, n=40):
     """Devuelve (xs, ys) de un arco de radio r centrado en (cx,cy), de
     ang_ini a ang_fin (en grados, sentido matemático estándar). Se usa
     para construir polígonos compuestos con arcos."""
-    import numpy as np
     a = np.radians(np.linspace(ang_ini, ang_fin, n))
     return cx + r * np.cos(a), cy + r * np.sin(a)
 
@@ -181,13 +189,6 @@ def _dibujar_campo_mpl(zonas: dict) -> bytes:
     """Dibuja el campo con 11 zonas + portería + áreas usando matplotlib y
     devuelve un PNG en bytes. Geometría (en "px de SVG"): 1m = 25px →
     campo 1000 × 500. Mitad atacante = 0..500 (izda)."""
-    import numpy as np
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    from matplotlib.patches import Polygon as MplPolygon
-
     z = {k: int(v) if v else 0 for k, v in (zonas or {}).items()}
     max_v = max(max(z.values()), 1) if z else 1
 
@@ -327,11 +328,6 @@ def _dibujar_campo_mpl(zonas: dict) -> bytes:
 
 def _dibujar_porteria_mpl(cuadrantes: dict) -> bytes:
     """Portería 3×2m con cuadrícula 3×3 (P1-P9) y postes con franjas."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-
     p = {k: int(v) if v else 0 for k, v in (cuadrantes or {}).items()}
     max_v = max(max(p.values()), 1) if p else 1
 
@@ -425,6 +421,66 @@ def _png_to_image(png_bytes: bytes, width: float, height: float) -> RLImage:
     img = RLImage(io.BytesIO(png_bytes), width=width, height=height)
     img.hAlign = "CENTER"
     return img
+
+
+def _dibujar_goles_5min_mpl(ev_p: pd.DataFrame) -> bytes:
+    """Genera un gráfico de barras apiladas con goles a favor (verde) y en
+    contra (rojo) por intervalos de 5 minutos. 8 bins de 5' = 40 minutos."""
+    bins = list(range(0, 41, 5))      # [0,5,10,...,40]
+    labels = [f"{bins[i]}–{bins[i+1]}'" for i in range(len(bins) - 1)]
+
+    af = [0] * (len(bins) - 1)
+    ec = [0] * (len(bins) - 1)
+    if not ev_p.empty and "minuto" in ev_p.columns:
+        for _, r in ev_p.iterrows():
+            m = pd.to_numeric(r.get("minuto"), errors="coerce")
+            if pd.isna(m) or m < 0:
+                continue
+            idx = min(int(m // 5), len(bins) - 2)
+            if r.get("equipo_marca") == "INTER":
+                af[idx] += 1
+            elif r.get("equipo_marca") == "RIVAL":
+                ec[idx] += 1
+
+    fig, ax = plt.subplots(figsize=(9, 3.0), dpi=160)
+    fig.patch.set_facecolor("#FFFFFF")
+    x = np.arange(len(labels))
+    w = 0.38
+    bars_af = ax.bar(x - w/2, af, w, color="#2E7D32", label="Inter (a favor)",
+                     edgecolor="#1B5E20", linewidth=0.6)
+    bars_ec = ax.bar(x + w/2, ec, w, color="#C62828", label="Rival (en contra)",
+                     edgecolor="#7F1010", linewidth=0.6)
+    # Etiquetas de valor encima de cada barra (solo si > 0)
+    for bar_set in (bars_af, bars_ec):
+        for b in bar_set:
+            h = b.get_height()
+            if h > 0:
+                ax.text(b.get_x() + b.get_width()/2, h + 0.05, f"{int(h)}",
+                        ha="center", va="bottom", fontsize=9, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel("Goles", fontsize=9)
+    ax.set_title("Goles cada 5'", fontsize=11, fontweight="bold",
+                 color="#1B3A6B", pad=8)
+    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
+    # Línea vertical entre 1ª y 2ª parte (entre bin 3 y 4 → x=3.5)
+    ax.axvline(x=3.5, color="#999", linestyle="--", linewidth=1, alpha=0.7)
+    ax.text(3.5, ax.get_ylim()[1] * 0.95, "Descanso",
+            ha="center", va="top", fontsize=8, color="#666",
+            bbox=dict(facecolor="white", edgecolor="#CCC",
+                       boxstyle="round,pad=0.2"))
+    max_y = max(max(af), max(ec), 1)
+    ax.set_ylim(0, max_y + 1)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="PNG", dpi=160, bbox_inches="tight",
+                pad_inches=0.1, facecolor="#FFFFFF")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
 
 
 # ── Generador principal ──────────────────────────────────────────────────────
@@ -576,8 +632,8 @@ def generar_pdf_partido(partido_id: str, sh=None,
     ]))
     story.append(t_min)
 
-    # ── Tabla de métricas individuales ──────────────────────────────────────
-    story.append(Paragraph("📊 Métricas individuales", h_seccion))
+    # ── Tabla de métricas individuales (campo) ──────────────────────────
+    story.append(Paragraph("📊 Métricas individuales (campo)", h_seccion))
     cols_met = ["dorsal", "jugador", "pf", "pnf", "robos", "cortes",
                 "bdg", "bdp", "dp", "dpalo", "db", "df",
                 "goles_a_favor", "asistencias"]
@@ -618,6 +674,50 @@ def generar_pdf_partido(partido_id: str, sh=None,
     ]))
     story.append(t_met)
 
+    # ── Tabla de portería (solo jugadores con datos de portero) ─────────
+    cols_port = ["dorsal", "jugador", "par", "gol_p", "bloq_p", "poste_p"]
+    if all(c in jp.columns for c in cols_port):
+        jpp = jp[(jp["par"] + jp["gol_p"] + jp["bloq_p"] + jp["poste_p"]) > 0] \
+                .sort_values(["par", "min_total"], ascending=[False, False])
+        if not jpp.empty:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("🥅 Portería", h_seccion))
+            rows_p = [["Nº", "Portero", "Paradas", "Goles enc.",
+                        "Bloqueos", "Postes", "Disp. total", "% Paradas"]]
+            for _, r in jpp.iterrows():
+                par_v = int(r.get("par", 0))
+                gp = int(r.get("gol_p", 0))
+                bl = int(r.get("bloq_p", 0))
+                po = int(r.get("poste_p", 0))
+                disp_total = par_v + gp + bl + po  # disparos del rival al portero
+                pct = round(par_v / max(par_v + gp, 1) * 100, 1) if (par_v + gp) > 0 else 0.0
+                rows_p.append([
+                    int(r.get("dorsal", 0)) if r.get("dorsal", 0) else "",
+                    r.get("jugador", ""),
+                    par_v or "",
+                    gp or "",
+                    bl or "",
+                    po or "",
+                    disp_total or "",
+                    f"{pct}%" if pct > 0 else "",
+                ])
+            t_port = Table(rows_p, colWidths=[1*cm, 3*cm, 2*cm, 2*cm,
+                                                 1.8*cm, 1.5*cm, 2*cm, 2*cm])
+            t_port.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRIS_MUY_CLARO]),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("ALIGN", (1, 1), (1, -1), "LEFT"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(t_port)
+
     # ── Eventos de gol ──────────────────────────────────────────────────────
     if not ep.empty:
         story.append(PageBreak())
@@ -646,8 +746,11 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 Paragraph(str(r.get("cuarteto", "")).replace("|", " · "), p_body),
                 Paragraph(str(r.get("descripcion", "")), p_body),
             ])
-        t_ev = Table(rows_ev, colWidths=[0.9*cm, 1.8*cm, 1.5*cm, 2.5*cm,
-                                           2*cm, 2*cm, 2*cm, 4.5*cm, 4*cm],
+        # Anchos: ajustados para que la tabla NO sobresalga del A4 al
+        # imprimir. A4 = 21 cm, márgenes 2.4 cm → ancho útil 18.6 cm.
+        # Total de la tabla: 0.85+1.6+1.4+2.1+1.7+1.7+1.7+3.4+3.4 = 17.9 cm
+        t_ev = Table(rows_ev, colWidths=[0.85*cm, 1.6*cm, 1.4*cm, 2.1*cm,
+                                           1.7*cm, 1.7*cm, 1.7*cm, 3.4*cm, 3.4*cm],
                       repeatRows=1)
         t_ev.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), AZUL),
@@ -663,6 +766,14 @@ def generar_pdf_partido(partido_id: str, sh=None,
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(t_ev)
+
+        # ── Gráfico: goles cada 5' ──────────────────────────────────────────
+        try:
+            png_chart = _dibujar_goles_5min_mpl(evp)
+            story.append(Spacer(1, 8))
+            story.append(_png_to_image(png_chart, 17*cm, 5.5*cm))
+        except Exception as _ec:
+            story.append(Paragraph(f"(Error gráfico goles 5': {_ec})", p_caption))
 
     # ── Rotaciones ──────────────────────────────────────────────────────────
     if all(c in jp.columns for c in [f"rot_1t_{i}" for i in range(1, 9)]):
@@ -699,7 +810,15 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 story.append(Spacer(1, 6))
 
     # ── Mapas de zona y portería (matplotlib, sin svglib) ───────────────────
-    if not df_dz.empty:
+    story.append(PageBreak())
+    story.append(Paragraph("🎯 Mapas de zona del partido", h_seccion))
+    if df_dz.empty:
+        story.append(Paragraph(
+            "<i>No hay datos en la hoja EST_DISPAROS_ZONAS. Asegúrate de "
+            "haber ejecutado <code>src/estadisticas_disparos.py --upload</code> "
+            "para que se cargue la hoja ZONA GOLES.</i>", p_caption))
+        match = pd.DataFrame()
+    else:
         meta_rival = str(rival).upper()
         rival_corto = meta_rival.split()[0] if meta_rival else ""
         df_dz["rival_up"] = df_dz["rival"].astype(str).str.upper()
@@ -707,15 +826,24 @@ def generar_pdf_partido(partido_id: str, sh=None,
             (df_dz["rival_up"].str.contains(rival_corto, na=False)) &
             (df_dz["fecha"].astype(str) == str(fecha))
         ]
-        if not match.empty:
+        if match.empty:
+            # Diagnóstico: indicar al usuario qué rivales+fechas hay y por
+            # qué no hizo match
+            disponibles = (df_dz[["rival", "fecha"]]
+                            .head(10).astype(str).agg(" · ".join, axis=1)
+                            .tolist())
+            story.append(Paragraph(
+                f"<i>No se encontró fila en EST_DISPAROS_ZONAS para "
+                f"<b>{rival}</b> · <b>{fecha}</b>. "
+                f"Buscado por '{rival_corto}' + fecha exacta. "
+                f"Primeras filas disponibles: {'; '.join(disponibles)}</i>",
+                p_caption))
+    if not match.empty:
             fz = match.iloc[0]
             af_zona = {f"A{i}": int(pd.to_numeric(fz.get(f"G_AF_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
             af_port = {f"P{i}": int(pd.to_numeric(fz.get(f"G_AF_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
             ec_zona = {f"A{i}": int(pd.to_numeric(fz.get(f"G_EC_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
             ec_port = {f"P{i}": int(pd.to_numeric(fz.get(f"G_EC_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
-
-            story.append(PageBreak())
-            story.append(Paragraph("🎯 Mapas de zona del partido", h_seccion))
 
             # A favor
             story.append(Paragraph("<b>⚽ Cómo metemos goles</b>", p_body))
