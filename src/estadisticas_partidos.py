@@ -806,12 +806,55 @@ def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFra
         except Exception:
             pass  # primera vez o no había hoja, sigue normal
 
+    # ─── Preservar partidos creados a mano desde Streamlit ──────────────────
+    # El usuario puede crear partidos vía la pestaña ✏️ Editar partido del
+    # dashboard. Esos partidos NO existen en el Excel original. Cuando se
+    # ejecuta el upload aquí, hay que conservar las filas con partido_ids
+    # que NO están en el Excel para no destruir el trabajo manual.
+    def _preservar_filas_manuales(hoja: str, df_excel: pd.DataFrame) -> pd.DataFrame:
+        """Lee la hoja existente, separa las filas con partido_ids que NO
+        están en df_excel (= datos creados manualmente) y las concatena
+        con df_excel. Devuelve el DataFrame combinado."""
+        if df_excel is None or df_excel.empty:
+            return df_excel
+        try:
+            ws_old = sh.worksheet(hoja)
+            old_rows = ws_old.get_all_records()
+            old_df = pd.DataFrame(old_rows)
+        except gspread.exceptions.WorksheetNotFound:
+            return df_excel
+        except Exception:
+            return df_excel
+        if old_df.empty or "partido_id" not in old_df.columns:
+            return df_excel
+        ids_excel = set(df_excel["partido_id"].astype(str).tolist())
+        manuales = old_df[~old_df["partido_id"].astype(str).isin(ids_excel)].copy()
+        if manuales.empty:
+            return df_excel
+        # Asegurar columnas comunes
+        for c in df_excel.columns:
+            if c not in manuales.columns:
+                manuales[c] = ""
+        for c in manuales.columns:
+            if c not in df_excel.columns:
+                df_excel[c] = ""
+        # Mismo orden de columnas
+        cols_orden = list(df_excel.columns)
+        manuales = manuales[cols_orden]
+        combinado = pd.concat([df_excel, manuales], ignore_index=True)
+        print(f"  ℹ️  {hoja}: preservados {len(manuales)} filas de partidos "
+              f"creados a mano ({manuales['partido_id'].nunique()} partidos).")
+        return combinado
+
     print("Subiendo a Google Sheet:")
-    _write("EST_PARTIDOS", df_jug)
-    _write("EST_EVENTOS", df_evt)
+    df_jug_final = _preservar_filas_manuales("EST_PARTIDOS", df_jug)
+    df_evt_final = _preservar_filas_manuales("EST_EVENTOS", df_evt)
+    _write("EST_PARTIDOS", df_jug_final)
+    _write("EST_EVENTOS", df_evt_final)
     _write("_VISTA_EST_JUGADOR", df_agr)
     if df_tot is not None and not df_tot.empty:
-        _write("EST_TOTALES_PARTIDO", df_tot)
+        df_tot_final = _preservar_filas_manuales("EST_TOTALES_PARTIDO", df_tot)
+        _write("EST_TOTALES_PARTIDO", df_tot_final)
 
 
 def main():
