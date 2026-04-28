@@ -1713,7 +1713,9 @@ def _fmt_minutos(v) -> str:
         v = float(v)
     except (TypeError, ValueError):
         return "—"
-    if v <= 0:
+    # `float(NaN)` no revienta pero deja NaN, que luego rompe int(v).
+    # Comparaciones con NaN devuelven False, así que `v <= 0` no filtra NaN.
+    if pd.isna(v) or v <= 0:
         return "—"
     m = int(v)
     s = int(round((v - m) * 60))
