@@ -1683,7 +1683,9 @@ _EST_METRICAS_NUM = [
     "min_total", "min_1t", "min_2t", "dorsal",
     "pf", "pnf", "robos", "cortes", "bdg", "bdp",
     "dp", "dpalo", "db", "df", "out",
-    "poste_p", "bloq_p", "par", "gol_p", "ta",
+    "poste_p", "bloq_p", "par", "gol_p",
+    "ta", "tr",                   # tarjetas (TR añadido iter3)
+    "salida", "salida_fallida",   # portería (iter3)
     "goles_a_favor", "asistencias",
 ]
 
@@ -2973,8 +2975,13 @@ with tab_partido:
                         "pf", "pnf", "robos", "cortes",
                         "bdg", "bdp",
                         "dp", "dpalo", "db", "df",
+                        "ta", "tr",
                         "goles_a_favor", "asistencias"]
             cols_met = [c for c in cols_met if c in ep_p.columns]
+            # Asegurar que las columnas numéricas no tienen NaN antes de operar
+            for c in ("dp", "dpalo", "db", "df", "ta", "tr"):
+                if c in ep_p.columns:
+                    ep_p[c] = pd.to_numeric(ep_p[c], errors="coerce").fillna(0).astype(int)
             tabla_met = ep_p[cols_met].copy()
             tabla_met["dt"] = (ep_p["dp"] + ep_p["dpalo"] + ep_p["db"] + ep_p["df"]).astype(int)
             # Ordenar por minutos jugados
@@ -2996,6 +3003,8 @@ with tab_partido:
                 "db": st.column_config.NumberColumn("DB", help=TOOLTIPS_COLS["db"], format="%d"),
                 "df": st.column_config.NumberColumn("DF", help=TOOLTIPS_COLS["df"], format="%d"),
                 "dt": st.column_config.NumberColumn("DT", help=TOOLTIPS_COLS["dt"], format="%d"),
+                "ta": st.column_config.NumberColumn("TA", help="Tarjeta amarilla", format="%d"),
+                "tr": st.column_config.NumberColumn("TR", help="Tarjeta roja", format="%d"),
                 "goles_a_favor": st.column_config.NumberColumn("Goles", help="Goles marcados", format="%d"),
                 "asistencias": st.column_config.NumberColumn("Asists", help="Asistencias", format="%d"),
             }
@@ -3004,11 +3013,10 @@ with tab_partido:
 
             # ── Tabla de portería ──────────────────────────────────────────
             cols_port = ["par", "gol_p", "bloq_p", "poste_p"]
+            cols_port_extra = ["salida", "salida_fallida"]
             if all(c in ep_p.columns for c in cols_port):
-                ep_p["par"] = pd.to_numeric(ep_p["par"], errors="coerce").fillna(0)
-                ep_p["gol_p"] = pd.to_numeric(ep_p["gol_p"], errors="coerce").fillna(0)
-                ep_p["bloq_p"] = pd.to_numeric(ep_p["bloq_p"], errors="coerce").fillna(0)
-                ep_p["poste_p"] = pd.to_numeric(ep_p["poste_p"], errors="coerce").fillna(0)
+                for c in cols_port + [x for x in cols_port_extra if x in ep_p.columns]:
+                    ep_p[c] = pd.to_numeric(ep_p[c], errors="coerce").fillna(0).astype(int)
                 porteros_p = ep_p[
                     (ep_p["par"] + ep_p["gol_p"] +
                      ep_p["bloq_p"] + ep_p["poste_p"]) > 0
@@ -3025,8 +3033,12 @@ with tab_partido:
                         axis=1,
                     )
                     cols_show = ["dorsal", "jugador", "par", "gol_p",
-                                  "bloq_p", "poste_p", "disp_total_rival",
-                                  "pct_paradas"]
+                                  "bloq_p", "poste_p"]
+                    if "salida" in porteros_p.columns:
+                        cols_show.append("salida")
+                    if "salida_fallida" in porteros_p.columns:
+                        cols_show.append("salida_fallida")
+                    cols_show += ["disp_total_rival", "pct_paradas"]
                     cols_show = [c for c in cols_show if c in porteros_p.columns]
                     porteros_p = porteros_p[cols_show].sort_values(
                         "par", ascending=False
@@ -3038,6 +3050,12 @@ with tab_partido:
                         "gol_p": st.column_config.NumberColumn("Goles enc.", format="%d"),
                         "bloq_p": st.column_config.NumberColumn("Bloqueos", format="%d"),
                         "poste_p": st.column_config.NumberColumn("Postes", format="%d"),
+                        "salida": st.column_config.NumberColumn(
+                            "Salidas", format="%d",
+                            help="Salidas correctas del portero a balones"),
+                        "salida_fallida": st.column_config.NumberColumn(
+                            "Sal. fall.", format="%d",
+                            help="Salidas fallidas del portero"),
                         "disp_total_rival": st.column_config.NumberColumn(
                             "Disp. rival", format="%d",
                             help="Total de disparos del rival a portería (par + gol + bloq + palo)"),
