@@ -3886,13 +3886,19 @@ with tab_editar:
             # Leer todo lo existente
             all_records = ws.get_all_records()
             df_all = pd.DataFrame(all_records)
+            cols_orden = ["partido_id", "tipo", "competicion", "rival", "fecha",
+                          "minuto", "minuto_mmss", "intervalo_5min",
+                          "accion_raw", "accion",
+                          "marcador", "equipo_marca", "goleador", "asistente",
+                          "portero", "cuarteto", "descripcion"]
             if df_all.empty:
-                df_all = pd.DataFrame(columns=[
-                    "partido_id", "tipo", "competicion", "rival", "fecha",
-                    "minuto", "intervalo_5min", "accion_raw", "accion",
-                    "marcador", "equipo_marca", "goleador", "asistente",
-                    "portero", "cuarteto", "descripcion",
-                ])
+                df_all = pd.DataFrame(columns=cols_orden)
+            else:
+                # Asegurar que df_all tiene todas las columnas (para que el
+                # concat con df_nuevos no añada filas vacías)
+                for c in cols_orden:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
             # Filtrar fuera los eventos del partido_id (los reescribimos)
             df_otros = df_all[df_all["partido_id"] != partido_id]
             # Construir nuevos eventos
@@ -3914,10 +3920,6 @@ with tab_editar:
                     return ""
             df_nuevos["intervalo_5min"] = df_nuevos["minuto"].apply(_intervalo)
             df_nuevos["accion_raw"] = df_nuevos["accion"]
-            cols_orden = ["partido_id", "tipo", "competicion", "rival", "fecha",
-                          "minuto", "intervalo_5min", "accion_raw", "accion",
-                          "marcador", "equipo_marca", "goleador", "asistente",
-                          "portero", "cuarteto", "descripcion"]
             for c in cols_orden:
                 if c not in df_nuevos.columns:
                     df_nuevos[c] = ""
@@ -4055,6 +4057,204 @@ with tab_editar:
                 })
             return plantilla
 
+        # Helper: parsear "MM:SS" o "M:SS" → (minuto_int, "mm:ss")
+        def _parse_mmss(txt):
+            """Devuelve (minuto_entero, 'MM:SS'). Acepta '12:37', '5', '5:00'.
+            Si no parseable, (None, '')."""
+            s = str(txt or "").strip().replace(",", ":").replace(" ", "")
+            if not s:
+                return None, ""
+            if ":" in s:
+                try:
+                    mm, ss = s.split(":", 1)
+                    mm_i = int(mm)
+                    ss_i = int(ss) if ss else 0
+                    if 0 <= mm_i <= 50 and 0 <= ss_i < 60:
+                        return mm_i if ss_i < 30 else mm_i + 1, f"{mm_i:02d}:{ss_i:02d}"
+                except ValueError:
+                    return None, ""
+            else:
+                try:
+                    mm_i = int(s)
+                    if 0 <= mm_i <= 50:
+                        return mm_i, f"{mm_i:02d}:00"
+                except ValueError:
+                    return None, ""
+            return None, ""
+
+        def _ev_dataframe_inicial():
+            """DataFrame vacío con las columnas del editor de eventos."""
+            return pd.DataFrame({
+                "min_mmss": pd.Series(dtype="str"),
+                "marcador": pd.Series(dtype="str"),
+                "accion": pd.Series(dtype="str"),
+                "equipo_marca": pd.Series(dtype="str"),
+                "goleador": pd.Series(dtype="str"),
+                "asistente": pd.Series(dtype="str"),
+                "portero": pd.Series(dtype="str"),
+                "p1": pd.Series(dtype="str"),
+                "p2": pd.Series(dtype="str"),
+                "p3": pd.Series(dtype="str"),
+                "p4": pd.Series(dtype="str"),
+                "p5": pd.Series(dtype="str"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+
+        def _ev_desde_df_existente(df_ev):
+            """Convierte EST_EVENTOS (con cuarteto string) a las columnas
+            del editor (min_mmss, p1..p5)."""
+            if df_ev is None or df_ev.empty:
+                return _ev_dataframe_inicial()
+            out = df_ev.copy()
+            # Min: usar minuto_mmss si existe, si no derivar de minuto entero
+            if "minuto_mmss" in out.columns:
+                out["min_mmss"] = out["minuto_mmss"].fillna("").astype(str)
+            else:
+                out["min_mmss"] = ""
+            # Si min_mmss vacía pero minuto numérico → "MM:00"
+            mask_vacio = out["min_mmss"].astype(str).str.strip() == ""
+            if mask_vacio.any():
+                m_int = pd.to_numeric(out["minuto"], errors="coerce").fillna(0).astype(int)
+                out.loc[mask_vacio, "min_mmss"] = m_int[mask_vacio].apply(
+                    lambda v: f"{v:02d}:00" if v > 0 else "")
+            # Cuarteto string → p1..p5
+            for i in range(1, 6):
+                out[f"p{i}"] = ""
+            cu = out.get("cuarteto", pd.Series([""] * len(out))).astype(str)
+            for idx, txt in cu.items():
+                partes = [p.strip() for p in txt.split("|") if p.strip()]
+                for i, n in enumerate(partes[:5], start=1):
+                    out.at[idx, f"p{i}"] = n
+            cols_show = ["min_mmss", "marcador", "accion", "equipo_marca",
+                          "goleador", "asistente", "portero",
+                          "p1", "p2", "p3", "p4", "p5", "descripcion"]
+            for c in cols_show:
+                if c not in out.columns:
+                    out[c] = ""
+            return out[cols_show].reset_index(drop=True)
+
+        def _editor_eventos(plantilla_actual, df_pre, key):
+            """Render del data_editor con selectores filtrados a la
+            plantilla del partido. Devuelve el DataFrame editado."""
+            # Lista de jugadores convocados (preferida) o fallback al roster
+            if plantilla_actual:
+                nombres_pl = [p["jugador"] for p in plantilla_actual]
+                porteros_pl = [p["jugador"] for p in plantilla_actual
+                               if p.get("posicion", "") == "PORTERO"]
+                campo_pl = [p["jugador"] for p in plantilla_actual
+                            if p.get("posicion", "") == "CAMPO"]
+            else:
+                nombres_pl = jug_conocidos
+                porteros_pl = jug_porteros
+                campo_pl = jug_campo
+
+            opciones_jug = sorted(set(nombres_pl))
+            opciones_pista = [""] + opciones_jug
+            opciones_porteros = [""] + sorted(set(porteros_pl))
+            opciones_goleador = opciones_jug + ["RIVAL"]
+            opciones_asist = [""] + opciones_jug
+
+            # Pequeña leyenda con dorsales de los convocados
+            if plantilla_actual:
+                leyenda_partes = []
+                for p in plantilla_actual:
+                    d = p.get("dorsal", "")
+                    try:
+                        d_int = int(float(d)) if d not in ("", None) else None
+                    except (TypeError, ValueError):
+                        d_int = None
+                    leyenda_partes.append(
+                        f"#{d_int}·{p['jugador']}" if d_int is not None
+                        else p["jugador"])
+                with st.expander("💡 Dorsales de los convocados", expanded=False):
+                    st.caption(" · ".join(leyenda_partes))
+
+            cfg = {
+                "min_mmss": st.column_config.TextColumn(
+                    "Min", help="Formato MM:SS (ej. 12:37). También vale '12'.",
+                    max_chars=6, width="small"),
+                "marcador": st.column_config.TextColumn(
+                    "Marcador", help="Ej: 1-0", max_chars=8, width="small"),
+                "accion": st.column_config.SelectboxColumn(
+                    "Acción", options=[""] + ACCIONES),
+                "equipo_marca": st.column_config.SelectboxColumn(
+                    "Equipo", options=["", "INTER", "RIVAL"]),
+                "goleador": st.column_config.SelectboxColumn(
+                    "Goleador", options=opciones_goleador),
+                "asistente": st.column_config.SelectboxColumn(
+                    "Asistente", options=opciones_asist),
+                "portero": st.column_config.SelectboxColumn(
+                    "Portero", options=opciones_porteros,
+                    help="Vacío si juega portero-jugador (5 de campo)."),
+                "p1": st.column_config.SelectboxColumn(
+                    "Pista 1", options=opciones_pista),
+                "p2": st.column_config.SelectboxColumn(
+                    "Pista 2", options=opciones_pista),
+                "p3": st.column_config.SelectboxColumn(
+                    "Pista 3", options=opciones_pista),
+                "p4": st.column_config.SelectboxColumn(
+                    "Pista 4", options=opciones_pista),
+                "p5": st.column_config.SelectboxColumn(
+                    "Pista 5", options=opciones_pista,
+                    help="Solo si juega portero-jugador (5 de campo, sin portero)."),
+                "descripcion": st.column_config.TextColumn(
+                    "Descripción", width="medium"),
+            }
+            return st.data_editor(
+                df_pre, num_rows="dynamic", use_container_width=True,
+                key=key, column_config=cfg,
+            )
+
+        def _normalizar_eventos_para_guardar(df_edit):
+            """Convierte el DataFrame del editor (min_mmss + p1..p5) al
+            esquema de EST_EVENTOS (minuto + minuto_mmss + cuarteto).
+            Filtra filas vacías. Devuelve (df, list_warnings)."""
+            warns = []
+            if df_edit is None or df_edit.empty:
+                return _ev_dataframe_inicial().assign(minuto=0, minuto_mmss="",
+                                                       cuarteto=""), warns
+            df = df_edit.copy().fillna("")
+            # Filtrar filas vacías (sin min_mmss, sin equipo, sin goleador)
+            mask = (df["min_mmss"].astype(str).str.strip() != "") | \
+                    (df["equipo_marca"].astype(str).str.strip() != "") | \
+                    (df["goleador"].astype(str).str.strip() != "")
+            df = df[mask].reset_index(drop=True)
+            if df.empty:
+                return _ev_dataframe_inicial().assign(minuto=0, minuto_mmss="",
+                                                       cuarteto=""), warns
+            # Parsear minuto
+            minutos_int = []
+            mmss = []
+            for i, txt in enumerate(df["min_mmss"].astype(str)):
+                m_int, m_mmss = _parse_mmss(txt)
+                minutos_int.append(m_int if m_int is not None else 0)
+                mmss.append(m_mmss)
+                if m_int is None and txt.strip():
+                    warns.append(f"Fila {i + 1}: minuto '{txt}' no se pudo parsear (formato MM:SS).")
+            df["minuto"] = minutos_int
+            df["minuto_mmss"] = mmss
+            # Construir cuarteto = p1..p5 join "|"
+            cuartetos = []
+            for _, r in df.iterrows():
+                pl = [str(r.get(f"p{i}", "") or "").strip() for i in range(1, 6)]
+                pl = [p for p in pl if p]
+                cuartetos.append("|".join(pl))
+            df["cuarteto"] = cuartetos
+            # Validación: número de jugadores en pista coherente con portero
+            for idx, r in df.iterrows():
+                portero = str(r.get("portero", "") or "").strip()
+                n_pista = len([p for p in str(r.get("cuarteto", "")).split("|") if p])
+                if portero and n_pista not in (0, 4):
+                    warns.append(
+                        f"Fila {idx + 1}: hay {n_pista} jugadores en pista pero "
+                        f"se especificó portero ({portero}) → debería haber 4 "
+                        f"jugadores de campo en pista.")
+                if not portero and n_pista not in (0, 5):
+                    warns.append(
+                        f"Fila {idx + 1}: portero vacío (modo portero-jugador) "
+                        f"pero hay {n_pista} jugadores en pista → deberían ser 5.")
+            return df, warns
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -4066,41 +4266,11 @@ with tab_editar:
 
             st.markdown("---")
             st.markdown("#### ⚽ Eventos de gol")
-            # Tabla editable de eventos vacía
-            df_ev_init = pd.DataFrame({
-                "minuto": pd.Series(dtype="int"),
-                "marcador": pd.Series(dtype="str"),
-                "accion": pd.Series(dtype="str"),
-                "equipo_marca": pd.Series(dtype="str"),
-                "goleador": pd.Series(dtype="str"),
-                "asistente": pd.Series(dtype="str"),
-                "portero": pd.Series(dtype="str"),
-                "cuarteto": pd.Series(dtype="str"),
-                "descripcion": pd.Series(dtype="str"),
-            })
-            df_ev_edit = st.data_editor(
-                df_ev_init,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="cr_eventos",
-                column_config={
-                    "minuto": st.column_config.NumberColumn("Min", min_value=1, max_value=40, format="%d"),
-                    "marcador": st.column_config.TextColumn("Marcador", help="Ej: 1-0"),
-                    "accion": st.column_config.SelectboxColumn("Acción", options=ACCIONES),
-                    "equipo_marca": st.column_config.SelectboxColumn(
-                        "Equipo", options=["INTER", "RIVAL"], required=True),
-                    "goleador": st.column_config.SelectboxColumn(
-                        "Goleador", options=jug_conocidos + ["RIVAL"]),
-                    "asistente": st.column_config.SelectboxColumn(
-                        "Asistente", options=[""] + jug_conocidos),
-                    "portero": st.column_config.SelectboxColumn(
-                        "Portero", options=["", "J.HERRERO", "J.GARCIA", "OSCAR"]),
-                    "cuarteto": st.column_config.TextColumn(
-                        "Cuarteto", help="Jugadores en pista separados por |. Ej: JAVI|PANI|RAUL|HARRISON"),
-                    "descripcion": st.column_config.TextColumn(
-                        "Descripción", help="Texto libre del gol", width="medium"),
-                },
-            )
+            st.caption("Una fila por gol. Min en formato **MM:SS**. "
+                        "Pistas 1-4 + portero (modo normal), o pistas 1-5 sin "
+                        "portero (modo portero-jugador).")
+            df_ev_edit = _editor_eventos(plantilla, _ev_dataframe_inicial(),
+                                          key="cr_eventos")
 
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
@@ -4110,6 +4280,8 @@ with tab_editar:
                 elif not plantilla:
                     st.error("Selecciona al menos un convocado.")
                 else:
+                    df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
+                        df_ev_edit)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab)
@@ -4117,12 +4289,14 @@ with tab_editar:
                                 cab["partido_id"], plantilla, cab)
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
-                                cab["rival"], cab["fecha"], df_ev_edit
+                                cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
                             f"✅ Partido creado. "
                             f"Cabecera + {n_pl} convocados + {n_ev} eventos."
                         )
+                        for w in warns_ev:
+                            st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
                     except Exception as e:
@@ -4220,51 +4394,16 @@ with tab_editar:
 
                 st.markdown("---")
                 st.markdown("#### ⚽ Eventos de gol")
-                # Cargar eventos existentes
-                if not ev_actual.empty:
-                    df_ev_edit_cols = ["minuto", "marcador", "accion", "equipo_marca",
-                                        "goleador", "asistente", "portero",
-                                        "cuarteto", "descripcion"]
-                    df_ev_pre = ev_actual[df_ev_edit_cols].copy()
-                    df_ev_pre["minuto"] = pd.to_numeric(df_ev_pre["minuto"], errors="coerce").fillna(0).astype(int)
-                else:
-                    df_ev_pre = pd.DataFrame({
-                        "minuto": pd.Series(dtype="int"),
-                        "marcador": pd.Series(dtype="str"),
-                        "accion": pd.Series(dtype="str"),
-                        "equipo_marca": pd.Series(dtype="str"),
-                        "goleador": pd.Series(dtype="str"),
-                        "asistente": pd.Series(dtype="str"),
-                        "portero": pd.Series(dtype="str"),
-                        "cuarteto": pd.Series(dtype="str"),
-                        "descripcion": pd.Series(dtype="str"),
-                    })
-
-                df_ev_edit = st.data_editor(
-                    df_ev_pre,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key=f"ed_eventos_{pid_sel}",
-                    column_config={
-                        "minuto": st.column_config.NumberColumn("Min", min_value=1, max_value=40, format="%d"),
-                        "marcador": st.column_config.TextColumn("Marcador", help="Ej: 1-0"),
-                        "accion": st.column_config.SelectboxColumn("Acción", options=ACCIONES),
-                        "equipo_marca": st.column_config.SelectboxColumn(
-                            "Equipo", options=["INTER", "RIVAL"], required=True),
-                        "goleador": st.column_config.SelectboxColumn(
-                            "Goleador", options=jug_conocidos + ["RIVAL"]),
-                        "asistente": st.column_config.SelectboxColumn(
-                            "Asistente", options=[""] + jug_conocidos),
-                        "portero": st.column_config.SelectboxColumn(
-                            "Portero", options=["", "J.HERRERO", "J.GARCIA", "OSCAR"]),
-                        "cuarteto": st.column_config.TextColumn(
-                            "Cuarteto", help="Jugadores en pista separados por |"),
-                        "descripcion": st.column_config.TextColumn(
-                            "Descripción", help="Texto libre del gol", width="medium"),
-                    },
-                )
+                st.caption("Una fila por gol. Min en formato **MM:SS**. "
+                            "Pistas 1-4 + portero (modo normal), o pistas 1-5 "
+                            "sin portero (modo portero-jugador).")
+                df_ev_pre_norm = _ev_desde_df_existente(ev_actual)
+                df_ev_edit = _editor_eventos(plantilla, df_ev_pre_norm,
+                                              key=f"ed_eventos_{pid_sel}")
 
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
+                    df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
+                        df_ev_edit)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab)
@@ -4272,11 +4411,13 @@ with tab_editar:
                                 cab["partido_id"], plantilla, cab) if plantilla else 0
                             n_ev = _guardar_eventos(
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
-                                cab["rival"], cab["fecha"], df_ev_edit
+                                cab["rival"], cab["fecha"], df_ev_norm
                             )
                         st.success(
                             f"✅ Guardado: cabecera + {n_pl} convocados + {n_ev} eventos."
                         )
+                        for w in warns_ev:
+                            st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca para ver los cambios en otras pestañas.")
                     except Exception as e:
