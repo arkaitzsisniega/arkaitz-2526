@@ -434,7 +434,8 @@ def color_jug(jugadores):
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
 (tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver,
- tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp, tab_scout) = st.tabs([
+ tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp, tab_scout,
+ tab_editar) = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
@@ -449,6 +450,7 @@ st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
     "🥅 Goles",
     "🏅 Competición",
     "🔍 Scouting",
+    "✏️ Editar partido",
 ])
 
 
@@ -1957,20 +1959,11 @@ def _texto_zona(zona: str, valor: int, x: float, y: float) -> str:
 def generar_svg_campo(zonas: dict, titulo: str = "") -> str:
     """Genera un SVG del campo de futsal con las 11 zonas coloreadas.
 
-    `zonas` es un dict {"A1": int, "A2": int, ..., "A11": int}.
+    Mejoras: líneas externas marcadas (banda + fondo + medio), círculo
+    central, área grande + área pequeña visibles, líneas internas de
+    zonas en discontinuas, portería de 3m con franjas rojas/blancas.
 
-    Geometría (en píxeles, 1m = 25px → 40m × 20m = 1000 × 500):
-    - Línea fondo en x=0, mediocampo en x=500, otro fondo en x=1000.
-    - Banda superior y=0, banda inferior y=500.
-    - Portería en y=212.5 a y=287.5 (3m centrados).
-    - Área grande: desde la línea de fondo, cuarto de círculo de 6m de radio
-      desde cada poste, cerrado por una línea paralela a 6m de profundidad.
-    - A6/A3: rectángulos 10m×2.5m en las esquinas (banda × fondo→10m).
-    - A4/A5: zonas centrales fuera del área entre fondo y los 10m.
-    - A1/A2: el área grande dividida horizontalmente.
-    - A7/A10: rectángulos 10m×2.5m a continuación de A3/A6 (10m→medio).
-    - A8/A9: zonas centrales 10m×7.5m (entre A7/A10 y mediocampo).
-    - A11: toda la mitad rival.
+    Geometría (1m = 25px → 40m × 20m = 1000 × 500). Mitad atacante 0-500.
     """
     z = {k: int(v) if v else 0 for k, v in (zonas or {}).items()}
     max_v = max(z.values()) if z else 1
@@ -1979,116 +1972,216 @@ def generar_svg_campo(zonas: dict, titulo: str = "") -> str:
     def col(zk):
         return _color_zona(z.get(zk, 0), max_v)
 
+    BORDE = "#1B5E20"   # verde oscuro (línea perimetral)
+    SUBLINEA = "#1B5E20"  # también para áreas
+    DASH = "4 4"         # patrón de líneas discontinuas (zonas)
+
     parts = [
-        '<svg width="100%" viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg" '
-        'style="background:#e8f5e9; border:2px solid #2E7D32; border-radius:8px;">',
+        '<svg width="100%" viewBox="-40 -10 1080 530" xmlns="http://www.w3.org/2000/svg" '
+        'style="background:#A5D6A7; border-radius:8px;">',
     ]
 
+    # ── Zonas con relleno (capa de color) ─────────────────────────────────
     # A11 (mitad rival)
-    parts.append(f'<rect x="500" y="0" width="500" height="500" fill="{col("A11")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="500" y="0" width="500" height="500" fill="{col("A11")}"/>')
     parts.append(_texto_zona("A11", z.get("A11", 0), 750, 250))
 
-    # A6 (banda superior, fondo→10m, 2.5m de alto = 62.5px)
-    parts.append(f'<rect x="0" y="0" width="250" height="62.5" fill="{col("A6")}" stroke="#bbb"/>')
+    # A6, A10, A7, A3, A9, A8 (rectangulares)
+    parts.append(f'<rect x="0" y="0" width="250" height="62.5" fill="{col("A6")}"/>')
     parts.append(_texto_zona("A6", z.get("A6", 0), 125, 31))
-
-    # A3 (banda inferior, fondo→10m)
-    parts.append(f'<rect x="0" y="437.5" width="250" height="62.5" fill="{col("A3")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="0" y="437.5" width="250" height="62.5" fill="{col("A3")}"/>')
     parts.append(_texto_zona("A3", z.get("A3", 0), 125, 469))
-
-    # A10 (banda superior, 10m→medio)
-    parts.append(f'<rect x="250" y="0" width="250" height="62.5" fill="{col("A10")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="250" y="0" width="250" height="62.5" fill="{col("A10")}"/>')
     parts.append(_texto_zona("A10", z.get("A10", 0), 375, 31))
-
-    # A7 (banda inferior, 10m→medio)
-    parts.append(f'<rect x="250" y="437.5" width="250" height="62.5" fill="{col("A7")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="250" y="437.5" width="250" height="62.5" fill="{col("A7")}"/>')
     parts.append(_texto_zona("A7", z.get("A7", 0), 375, 469))
-
-    # A9 (centro superior, 10m→medio, ancho 7.5m=187.5px)
-    parts.append(f'<rect x="250" y="62.5" width="250" height="187.5" fill="{col("A9")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="250" y="62.5" width="250" height="187.5" fill="{col("A9")}"/>')
     parts.append(_texto_zona("A9", z.get("A9", 0), 375, 156))
-
-    # A8 (centro inferior, 10m→medio)
-    parts.append(f'<rect x="250" y="250" width="250" height="187.5" fill="{col("A8")}" stroke="#bbb"/>')
+    parts.append(f'<rect x="250" y="250" width="250" height="187.5" fill="{col("A8")}"/>')
     parts.append(_texto_zona("A8", z.get("A8", 0), 375, 343))
 
-    # A5 (mitad superior fuera del área, fondo→10m).
-    # Polígono con arco "negativo" del cuarto de círculo del área:
-    # contorno: (0,62.5)→(250,62.5)→(250,250)→(150,250)→(150,212.5)→arco→(0,62.5)
+    # A5 / A4 (lado externo del área grande)
     parts.append(
         f'<path d="M 0,62.5 L 250,62.5 L 250,250 L 150,250 L 150,212.5 '
-        f'A 150,150 0 0,0 0,62.5 Z" fill="{col("A5")}" stroke="#bbb"/>'
+        f'A 150,150 0 0,0 0,62.5 Z" fill="{col("A5")}"/>'
     )
     parts.append(_texto_zona("A5", z.get("A5", 0), 200, 156))
-
-    # A4 (mitad inferior fuera del área, simétrica)
     parts.append(
         f'<path d="M 0,437.5 L 250,437.5 L 250,250 L 150,250 L 150,287.5 '
-        f'A 150,150 0 0,0 0,437.5 Z" fill="{col("A4")}" stroke="#bbb"/>'
+        f'A 150,150 0 0,0 0,437.5 Z" fill="{col("A4")}"/>'
     )
     parts.append(_texto_zona("A4", z.get("A4", 0), 200, 343))
 
-    # A2 (mitad superior del área grande, dentro del cuarto de círculo)
+    # A2 / A1 (mitades del área grande)
     parts.append(
         f'<path d="M 0,62.5 A 150,150 0 0,1 150,212.5 L 150,250 L 0,250 Z" '
-        f'fill="{col("A2")}" stroke="#bbb"/>'
+        f'fill="{col("A2")}"/>'
     )
     parts.append(_texto_zona("A2", z.get("A2", 0), 60, 175))
-
-    # A1 (mitad inferior del área)
     parts.append(
         f'<path d="M 0,250 L 150,250 L 150,287.5 A 150,150 0 0,1 0,437.5 Z" '
-        f'fill="{col("A1")}" stroke="#bbb"/>'
+        f'fill="{col("A1")}"/>'
     )
     parts.append(_texto_zona("A1", z.get("A1", 0), 60, 325))
 
-    # Línea media (vertical en x=500)
-    parts.append('<line x1="500" y1="0" x2="500" y2="500" stroke="white" stroke-width="3"/>')
-    # Círculo central
-    parts.append('<circle cx="500" cy="250" r="60" fill="none" stroke="white" stroke-width="2"/>')
-    # Portería (3m, líneas verticales en x=0)
-    parts.append('<rect x="-8" y="212.5" width="8" height="75" fill="#1565C0" stroke="#0D47A1" stroke-width="2"/>')
+    # ── Líneas de zona (discontinuas, encima del relleno) ─────────────────
+    # Verticales: x=250 (10m) y entre A11 y mitad atacante
+    parts.append(f'<line x1="250" y1="0" x2="250" y2="500" stroke="{SUBLINEA}" '
+                 f'stroke-width="1.5" stroke-dasharray="{DASH}"/>')
+    # Horizontales: y=62.5 (banda sup zona), y=437.5 (banda inf zona)
+    parts.append(f'<line x1="0" y1="62.5" x2="500" y2="62.5" stroke="{SUBLINEA}" '
+                 f'stroke-width="1.5" stroke-dasharray="{DASH}"/>')
+    parts.append(f'<line x1="0" y1="437.5" x2="500" y2="437.5" stroke="{SUBLINEA}" '
+                 f'stroke-width="1.5" stroke-dasharray="{DASH}"/>')
+    # Línea horizontal del medio del área (y=250) entre x=150 y x=500
+    parts.append(f'<line x1="0" y1="250" x2="500" y2="250" stroke="{SUBLINEA}" '
+                 f'stroke-width="1.5" stroke-dasharray="{DASH}"/>')
+
+    # ── Líneas oficiales del campo (continuas, marcadas) ──────────────────
+    # Perímetro
+    parts.append(f'<rect x="0" y="0" width="1000" height="500" fill="none" '
+                 f'stroke="{BORDE}" stroke-width="3"/>')
+    # Línea media (vertical x=500)
+    parts.append(f'<line x1="500" y1="0" x2="500" y2="500" stroke="{BORDE}" stroke-width="3"/>')
+    # Círculo central (radio 3m = 75px)
+    parts.append(f'<circle cx="500" cy="250" r="75" fill="none" stroke="{BORDE}" stroke-width="2"/>')
+    parts.append(f'<circle cx="500" cy="250" r="3" fill="{BORDE}"/>')
+    # Círculo central simétrico (la otra mitad lo tiene también, no lo dibujo extra)
+
+    # Área GRANDE: cuarto de círculo de 6m=150px desde cada poste + línea paralela
+    # Postes en (0, 212.5) y (0, 287.5). Cuarto sup: (0,62.5) → arco → (150,212.5)
+    # → línea hasta (150, 287.5) → arco → (0, 437.5)
+    parts.append(
+        f'<path d="M 0,62.5 A 150,150 0 0,1 150,212.5 L 150,287.5 '
+        f'A 150,150 0 0,1 0,437.5" fill="none" stroke="{BORDE}" stroke-width="2"/>'
+    )
+    # Área PEQUEÑA: rectángulo desde (0, 237.5) a (60, 262.5)? — En futsal NO hay
+    # área pequeña, solo el área grande y el punto de penalti. Dibujo el punto:
+    # 6m punto penalti desde la línea de fondo, en el centro de la portería
+    parts.append(f'<circle cx="150" cy="250" r="3" fill="{BORDE}"/>')
+    # Punto de doble penalti (10m)
+    parts.append(f'<circle cx="250" cy="250" r="3" fill="{BORDE}"/>')
+
+    # ── Portería: 3m × 2m. Postes con franjas rojas y blancas ────────────
+    # En el SVG: la portería se dibuja "fuera" del campo (x<0) para que no
+    # tape A1/A2. Lateral del poste apunta al campo. Tres elementos:
+    # poste izquierdo (vertical), poste derecho (vertical), larguero (horizontal).
+    # Pero como vemos el campo desde arriba, los dos "postes" son los extremos
+    # del segmento de portería y el "larguero" no se ve (es la unión visual).
+    # Para que se vean como en la realidad (3 postes), dibujo:
+    #   - Poste superior (extremo arriba): segmento corto desde fuera
+    #   - Poste inferior: segmento corto desde fuera
+    #   - Larguero virtual: la barra que une los dos postes, sale fuera del campo
+    # Color: alternancia roja y blanca.
+    # Coordenadas: poste sup en (0, 212.5), poste inf en (0, 287.5)
+    POSTE_LARGO = 32   # px que sobresale "hacia fuera" del campo
+    GROSOR = 8
+    # Larguero (vertical line conectando ambos postes), ahí dibujamos franjas
+    # alternadas como una bandera de portería.
+    n_franjas = 5
+    franja_h = 75 / n_franjas
+    for i in range(n_franjas):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        parts.append(f'<rect x="-{GROSOR}" y="{212.5 + i * franja_h}" '
+                     f'width="{GROSOR}" height="{franja_h}" '
+                     f'fill="{c}" stroke="#7F1010" stroke-width="0.5"/>')
+    # Poste superior (saliendo hacia "atrás" izquierda)
+    parts.append(f'<rect x="-{POSTE_LARGO}" y="{212.5 - GROSOR/2}" '
+                 f'width="{POSTE_LARGO}" height="{GROSOR}" '
+                 f'fill="#B71C1C" stroke="#7F1010" stroke-width="0.5"/>')
+    # Poste inferior
+    parts.append(f'<rect x="-{POSTE_LARGO}" y="{287.5 - GROSOR/2}" '
+                 f'width="{POSTE_LARGO}" height="{GROSOR}" '
+                 f'fill="#B71C1C" stroke="#7F1010" stroke-width="0.5"/>')
+    # Cierre trasero (línea de fondo de la portería)
+    parts.append(f'<rect x="-{POSTE_LARGO}" y="{212.5}" width="{GROSOR/2}" '
+                 f'height="75" fill="#FFFFFF" stroke="#999" stroke-width="0.5"/>')
 
     if titulo:
-        parts.append(f'<text x="500" y="20" text-anchor="middle" font-size="13" font-weight="600" fill="#1B3A6B">{titulo}</text>')
+        parts.append(f'<text x="500" y="-15" text-anchor="middle" font-size="13" '
+                     f'font-weight="600" fill="#1B3A6B">{titulo}</text>')
 
     parts.append('</svg>')
     return "".join(parts)
 
 
 def generar_svg_porteria(cuadrantes: dict, titulo: str = "") -> str:
-    """SVG de la portería con cuadrícula 3×3 (P1-P9) coloreada."""
+    """SVG de la portería 3m×2m con cuadrícula 3×3 (P1-P9) coloreada.
+    Postes y larguero con franjas rojas y blancas estilo portería real."""
     p = {k: int(v) if v else 0 for k, v in (cuadrantes or {}).items()}
     max_v = max(p.values()) if p else 1
     max_v = max(max_v, 1)
 
-    # Proporciones reales: portería 3m × 2m. Escala 1m = 100px → 300×200.
+    # Escala 1m = 100px. Portería 3×2m → 300×200px. Postes con grosor.
+    POSTE = 14         # grosor de los postes (px)
+    SVG_W, SVG_H = 360, 250
+    POSX = 30          # margen izquierdo donde empieza el poste izq
+    POSY = 18          # margen superior donde empieza el larguero
+    PORT_W = 300       # ancho útil del campo de la portería
+    PORT_H = 200       # alto útil
     parts = [
-        '<svg width="100%" viewBox="0 0 360 230" xmlns="http://www.w3.org/2000/svg" '
-        'style="border-radius:8px;">',
-        # Marco de la portería (palos en rojo)
-        '<rect x="20" y="15" width="320" height="200" fill="none" '
-        'stroke="#B71C1C" stroke-width="6"/>',
+        f'<svg width="100%" viewBox="0 0 {SVG_W} {SVG_H}" xmlns="http://www.w3.org/2000/svg" '
+        'style="background:#FFFFFF; border-radius:8px;">',
     ]
-    # 9 cuadrantes
-    cuad_w = 320 / 3
-    cuad_h = 200 / 3
+    # Fondo de la portería (rejilla simulada)
+    parts.append(f'<rect x="{POSX}" y="{POSY}" width="{PORT_W}" height="{PORT_H}" '
+                 f'fill="#FAFAFA"/>')
+    # Líneas finas de red (decorativas)
+    for i in range(1, 6):
+        x = POSX + i * (PORT_W / 6)
+        parts.append(f'<line x1="{x}" y1="{POSY}" x2="{x}" y2="{POSY + PORT_H}" '
+                     f'stroke="#E0E0E0" stroke-width="0.5"/>')
+    for i in range(1, 4):
+        y = POSY + i * (PORT_H / 4)
+        parts.append(f'<line x1="{POSX}" y1="{y}" x2="{POSX + PORT_W}" y2="{y}" '
+                     f'stroke="#E0E0E0" stroke-width="0.5"/>')
+
+    # 9 cuadrantes (con valores y color)
+    cuad_w = PORT_W / 3
+    cuad_h = PORT_H / 3
     for i in range(9):
         col_idx = i % 3
         row_idx = i // 3
-        x = 20 + col_idx * cuad_w
-        y = 15 + row_idx * cuad_h
+        x = POSX + col_idx * cuad_w
+        y = POSY + row_idx * cuad_h
         zona = f"P{i+1}"
         v = p.get(zona, 0)
         color = _color_zona(v, max_v)
         parts.append(
             f'<rect x="{x}" y="{y}" width="{cuad_w}" height="{cuad_h}" '
-            f'fill="{color}" stroke="#666" stroke-width="1"/>'
+            f'fill="{color}" fill-opacity="0.85" stroke="#888" '
+            f'stroke-width="0.8" stroke-dasharray="3 2"/>'
         )
         parts.append(_texto_zona(zona, v, x + cuad_w/2, y + cuad_h/2))
+
+    # Postes con franjas rojas y blancas alternas
+    n_v = 6  # franjas verticales (en postes)
+    fv_h = PORT_H / n_v
+    for i in range(n_v):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        # Poste izquierdo
+        parts.append(f'<rect x="{POSX - POSTE}" y="{POSY + i * fv_h}" '
+                     f'width="{POSTE}" height="{fv_h}" fill="{c}" stroke="#7F1010" stroke-width="0.5"/>')
+        # Poste derecho
+        parts.append(f'<rect x="{POSX + PORT_W}" y="{POSY + i * fv_h}" '
+                     f'width="{POSTE}" height="{fv_h}" fill="{c}" stroke="#7F1010" stroke-width="0.5"/>')
+
+    # Larguero (franjas horizontales)
+    n_h = 8
+    fh_w = PORT_W / n_h
+    for i in range(n_h):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        parts.append(f'<rect x="{POSX + i * fh_w}" y="{POSY - POSTE}" '
+                     f'width="{fh_w}" height="{POSTE}" fill="{c}" stroke="#7F1010" stroke-width="0.5"/>')
+
+    # Línea de campo bajo la portería
+    parts.append(f'<line x1="{POSX - POSTE - 10}" y1="{POSY + PORT_H + 4}" '
+                 f'x2="{POSX + PORT_W + POSTE + 10}" y2="{POSY + PORT_H + 4}" '
+                 f'stroke="#1B5E20" stroke-width="2"/>')
+
     if titulo:
-        parts.append(f'<text x="180" y="225" text-anchor="middle" font-size="12" '
-                     f'font-weight="600" fill="#1B3A6B">{titulo}</text>')
+        parts.append(f'<text x="{SVG_W/2}" y="{SVG_H - 8}" text-anchor="middle" '
+                     f'font-size="12" font-weight="600" fill="#1B3A6B">{titulo}</text>')
     parts.append('</svg>')
     return "".join(parts)
 
@@ -2659,6 +2752,44 @@ with tab_partido:
             if meta["fecha"]:
                 cap_partes.append(str(meta["fecha"]))
             st.caption(" · ".join(cap_partes) if cap_partes else "")
+
+            # ── Descargar PDF del partido ─────────────────────────────────
+            col_pdf_a, col_pdf_b, _ = st.columns([1.2, 1.5, 4])
+            with col_pdf_a:
+                gen_pdf = st.button("📄 Generar PDF",
+                                     key=f"genpdf_btn_{sel_id}",
+                                     help="Crea un PDF del partido con cabecera, KPIs, "
+                                          "minutos, métricas individuales, eventos, "
+                                          "rotaciones y mapas de zona.")
+            if gen_pdf:
+                try:
+                    import sys as _sys
+                    from pathlib import Path as _Path
+                    _root = _Path(__file__).resolve().parent.parent
+                    if str(_root) not in _sys.path:
+                        _sys.path.insert(0, str(_root))
+                    from src.pdf_partido import generar_pdf_partido as _gen_pdf
+                    with st.spinner("Generando PDF…"):
+                        _sh = get_client().open(SHEET_NAME)
+                        _pdf_bytes = _gen_pdf(
+                            sel_id,
+                            sh=_sh,
+                            svg_campo_fn=generar_svg_campo,
+                            svg_porteria_fn=generar_svg_porteria,
+                        )
+                    st.session_state[f"pdf_data_{sel_id}"] = _pdf_bytes
+                except Exception as _e_pdf:
+                    st.error(f"❌ No pude generar el PDF: {_e_pdf}")
+            with col_pdf_b:
+                if st.session_state.get(f"pdf_data_{sel_id}"):
+                    _fname = f"{sel_id.replace('.', '_').replace(' ', '_')}.pdf"
+                    st.download_button(
+                        "⬇️ Descargar PDF",
+                        data=st.session_state[f"pdf_data_{sel_id}"],
+                        file_name=_fname,
+                        mime="application/pdf",
+                        key=f"dlpdf_{sel_id}",
+                    )
     
             # ── KPIs ampliados (10) ────────────────────────────────────────────
             # Calcular totales (preferir EST_TOTALES_PARTIDO; fallback a sumar de EP)
@@ -3426,5 +3557,334 @@ with tab_comp:
     
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña 🏅 Competición: {_e_tab}')
+        import traceback as _tb
+        st.expander('Detalles técnicos').code(_tb.format_exc())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 15 — ✏️ EDITAR PARTIDO (crear nuevo o editar existente)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_editar:
+    try:
+        st.markdown("### ✏️ Editar partido")
+        st.caption(
+            "Crea un partido nuevo o edita uno existente. Los cambios se "
+            "guardan directo en el Sheet (hojas EST_PARTIDOS y EST_EVENTOS) "
+            "y se reflejan en el resto del dashboard tras refrescar."
+        )
+
+        if est_partidos.empty:
+            st.info("Aún no hay partidos. Vamos a crear el primero.")
+
+        modo = st.radio(
+            "Modo",
+            ["📝 Editar partido existente", "🆕 Crear partido nuevo"],
+            horizontal=True, key="ed_modo",
+        )
+
+        # Helpers comunes
+        TIPOS_OPCIONES = ["LIGA", "COPA_REY", "COPA_ESPANA", "COPA_MUNDO",
+                          "AMISTOSO", "PLAYOFF", "SUPERCOPA", "OTRO"]
+        TIPO_LABEL = {
+            "LIGA": "Liga 25/26", "COPA_REY": "Copa del Rey",
+            "COPA_ESPANA": "Copa de España", "COPA_MUNDO": "Copa del Mundo",
+            "AMISTOSO": "Amistoso", "PLAYOFF": "Playoff Liga",
+            "SUPERCOPA": "Supercopa", "OTRO": "Otro",
+        }
+        # Lista de jugadores conocidos (de EST_PARTIDOS)
+        if not est_partidos.empty:
+            jug_conocidos = sorted(est_partidos["jugador"].dropna().unique().tolist())
+        else:
+            jug_conocidos = []
+
+        # Lista de acciones canónicas
+        ACCIONES = [
+            "Banda", "Córner", "Saque de Centro", "Falta", "2ª jugada de ABP",
+            "10 metros", "Penalti", "Falta sin barrera", "Ataque Posicional 4x4",
+            "1x1 en banda", "Salida de presión", "2ª jugada",
+            "Incorporación del portero", "Robo en incorporación de portero",
+            "Pérdida en incorporación de portero", "5x4", "4x5", "4x3", "3x4",
+            "Contraataque", "Robo en zona alta", "No calificado",
+        ]
+
+        def _guardar_eventos(partido_id, tipo, competicion, rival, fecha, df_eventos):
+            """Reescribe en EST_EVENTOS los eventos de este partido."""
+            import gspread
+            from google.oauth2.service_account import Credentials
+            SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+                       "https://www.googleapis.com/auth/drive"]
+            creds_path = Path(__file__).parent.parent / "google_credentials.json"
+            if creds_path.exists():
+                creds = Credentials.from_service_account_file(str(creds_path), scopes=SCOPES)
+            else:
+                info = dict(st.secrets["gcp_service_account"])
+                creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+            gc = gspread.authorize(creds)
+            sh = gc.open(SHEET_NAME)
+            ws = sh.worksheet("EST_EVENTOS")
+            # Leer todo lo existente
+            all_records = ws.get_all_records()
+            df_all = pd.DataFrame(all_records)
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=[
+                    "partido_id", "tipo", "competicion", "rival", "fecha",
+                    "minuto", "intervalo_5min", "accion_raw", "accion",
+                    "marcador", "equipo_marca", "goleador", "asistente",
+                    "portero", "cuarteto", "descripcion",
+                ])
+            # Filtrar fuera los eventos del partido_id (los reescribimos)
+            df_otros = df_all[df_all["partido_id"] != partido_id]
+            # Construir nuevos eventos
+            df_nuevos = df_eventos.copy()
+            df_nuevos["partido_id"] = partido_id
+            df_nuevos["tipo"] = tipo
+            df_nuevos["competicion"] = competicion
+            df_nuevos["rival"] = rival
+            df_nuevos["fecha"] = fecha
+            # Calcular intervalo_5min
+            def _intervalo(m):
+                try:
+                    m = int(m)
+                    if m < 1:
+                        return ""
+                    base = ((m - 1) // 5) * 5
+                    return f"{base}-{base + 5}"
+                except (TypeError, ValueError):
+                    return ""
+            df_nuevos["intervalo_5min"] = df_nuevos["minuto"].apply(_intervalo)
+            df_nuevos["accion_raw"] = df_nuevos["accion"]
+            cols_orden = ["partido_id", "tipo", "competicion", "rival", "fecha",
+                          "minuto", "intervalo_5min", "accion_raw", "accion",
+                          "marcador", "equipo_marca", "goleador", "asistente",
+                          "portero", "cuarteto", "descripcion"]
+            for c in cols_orden:
+                if c not in df_nuevos.columns:
+                    df_nuevos[c] = ""
+            df_nuevos = df_nuevos[cols_orden]
+            # Concatenar
+            df_final = pd.concat([df_otros[cols_orden], df_nuevos], ignore_index=True)
+            df_final = df_final.where(pd.notnull(df_final), "")
+            # Reescribir
+            ws.clear()
+            ws.update(values=[cols_orden] + df_final.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(df_nuevos)
+
+        def _formulario_cabecera(rival_def="", fecha_def=None, comp_def="LIGA",
+                                  hora_def="", lugar_def="", gf_def=0, gc_def=0,
+                                  partido_id_def="", key_pref="ed"):
+            """Devuelve (rival, fecha, tipo, competicion_legible, hora, lugar, local,
+            gf, gc, partido_id) tras un form de cabecera."""
+            colA, colB = st.columns(2)
+            with colA:
+                rival = st.text_input("Rival", value=rival_def, key=f"{key_pref}_rival",
+                                       placeholder="Ej: BARCELONA, ELPOZO")
+                tipo = st.selectbox("Competición", TIPOS_OPCIONES,
+                                     index=TIPOS_OPCIONES.index(comp_def) if comp_def in TIPOS_OPCIONES else 0,
+                                     format_func=lambda x: TIPO_LABEL.get(x, x),
+                                     key=f"{key_pref}_tipo")
+                fecha = st.date_input("Fecha", value=fecha_def or _dt.date.today(),
+                                       key=f"{key_pref}_fecha")
+                hora = st.text_input("Hora", value=hora_def,
+                                      placeholder="Ej: 18:00", key=f"{key_pref}_hora")
+            with colB:
+                lugar = st.text_input(
+                    "Lugar", value=lugar_def,
+                    placeholder="Ej: Jorge Garbajosa, Pabellón Mahón…",
+                    key=f"{key_pref}_lugar",
+                )
+                local = "Jorge Garbajosa" in lugar
+                if lugar:
+                    st.caption("🏠 **LOCAL**" if local else "✈️ Visitante")
+                colG1, colG2 = st.columns(2)
+                gf = colG1.number_input("⚽ Goles a favor", min_value=0, max_value=99,
+                                          value=int(gf_def), key=f"{key_pref}_gf")
+                gc = colG2.number_input("🥅 Goles en contra", min_value=0, max_value=99,
+                                          value=int(gc_def), key=f"{key_pref}_gc")
+                partido_id = st.text_input(
+                    "ID del partido", value=partido_id_def,
+                    placeholder="Ej: J27.PEÑISCOLA", key=f"{key_pref}_id",
+                    help="Identificador único. Suele ser J<n>.RIVAL para liga.",
+                )
+
+            return {
+                "rival": rival.strip().upper(),
+                "fecha": fecha.isoformat() if isinstance(fecha, _dt.date) else "",
+                "tipo": tipo,
+                "competicion": TIPO_LABEL.get(tipo, tipo),
+                "hora": hora.strip(),
+                "lugar": lugar.strip(),
+                "local": local,
+                "gf": int(gf),
+                "gc": int(gc),
+                "partido_id": partido_id.strip(),
+            }
+
+        # ────────────────────────────────────────────────────────────────────
+        if modo == "🆕 Crear partido nuevo":
+            st.markdown("---")
+            st.markdown("#### Crear partido")
+            cab = _formulario_cabecera(key_pref="cr")
+
+            st.markdown("---")
+            st.markdown("#### Eventos de gol")
+            # Tabla editable de eventos vacía
+            df_ev_init = pd.DataFrame({
+                "minuto": pd.Series(dtype="int"),
+                "marcador": pd.Series(dtype="str"),
+                "accion": pd.Series(dtype="str"),
+                "equipo_marca": pd.Series(dtype="str"),
+                "goleador": pd.Series(dtype="str"),
+                "asistente": pd.Series(dtype="str"),
+                "portero": pd.Series(dtype="str"),
+                "cuarteto": pd.Series(dtype="str"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+            df_ev_edit = st.data_editor(
+                df_ev_init,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="cr_eventos",
+                column_config={
+                    "minuto": st.column_config.NumberColumn("Min", min_value=1, max_value=40, format="%d"),
+                    "marcador": st.column_config.TextColumn("Marcador", help="Ej: 1-0"),
+                    "accion": st.column_config.SelectboxColumn("Acción", options=ACCIONES),
+                    "equipo_marca": st.column_config.SelectboxColumn(
+                        "Equipo", options=["INTER", "RIVAL"], required=True),
+                    "goleador": st.column_config.SelectboxColumn(
+                        "Goleador", options=jug_conocidos + ["RIVAL"]),
+                    "asistente": st.column_config.SelectboxColumn(
+                        "Asistente", options=[""] + jug_conocidos),
+                    "portero": st.column_config.SelectboxColumn(
+                        "Portero", options=["", "J.HERRERO", "J.GARCIA", "OSCAR"]),
+                    "cuarteto": st.column_config.TextColumn(
+                        "Cuarteto", help="Jugadores en pista separados por |. Ej: JAVI|PANI|RAUL|HARRISON"),
+                    "descripcion": st.column_config.TextColumn(
+                        "Descripción", help="Texto libre del gol", width="medium"),
+                },
+            )
+
+            if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
+                if not cab["rival"]:
+                    st.error("Pon el nombre del rival.")
+                elif not cab["partido_id"]:
+                    st.error("Pon el ID del partido (ej: J27.PEÑISCOLA).")
+                else:
+                    try:
+                        n = _guardar_eventos(
+                            cab["partido_id"], cab["tipo"], cab["competicion"],
+                            cab["rival"], cab["fecha"], df_ev_edit
+                        )
+                        st.success(f"✅ Partido creado. {n} eventos guardados.")
+                        st.cache_data.clear()
+                        st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+
+        # ────────────────────────────────────────────────────────────────────
+        else:
+            # Modo editar
+            if est_partidos.empty:
+                st.warning("No hay partidos para editar.")
+            else:
+                st.markdown("---")
+                ep_e = est_partidos.copy()
+                ep_e["_fdate"] = pd.to_datetime(ep_e["fecha"], errors="coerce")
+                meta_e = (ep_e.groupby("partido_id", as_index=False)
+                           .agg(tipo=("tipo", "first"),
+                                competicion=("competicion", "first"),
+                                rival=("rival", "first"),
+                                fecha=("fecha", "first"),
+                                _fkey=("_fdate", "first")))
+                meta_e = meta_e.sort_values("_fkey", ascending=False, na_position="last")
+                meta_e["label"] = meta_e.apply(
+                    lambda r: f"{r['fecha'] or '—'} · {r['partido_id']} — {r['rival']}",
+                    axis=1,
+                )
+                sel_label = st.selectbox(
+                    "Selecciona partido a editar",
+                    meta_e["label"].tolist(),
+                    key="ed_sel",
+                )
+                pid_sel = meta_e[meta_e["label"] == sel_label]["partido_id"].iloc[0]
+                m = meta_e[meta_e["partido_id"] == pid_sel].iloc[0]
+
+                # Cabecera precargada
+                fecha_default = pd.to_datetime(m["fecha"], errors="coerce")
+                fecha_default = fecha_default.date() if pd.notna(fecha_default) else _dt.date.today()
+                # Goles actuales del partido (de eventos)
+                ev_actual = est_eventos[est_eventos["partido_id"] == pid_sel] if not est_eventos.empty else pd.DataFrame()
+                gf_act = int((ev_actual["equipo_marca"] == "INTER").sum()) if not ev_actual.empty else 0
+                gc_act = int((ev_actual["equipo_marca"] == "RIVAL").sum()) if not ev_actual.empty else 0
+
+                cab = _formulario_cabecera(
+                    rival_def=m["rival"],
+                    fecha_def=fecha_default,
+                    comp_def=m["tipo"],
+                    gf_def=gf_act, gc_def=gc_act,
+                    partido_id_def=pid_sel,
+                    key_pref="ed",
+                )
+
+                st.markdown("---")
+                st.markdown("#### Eventos de gol")
+                # Cargar eventos existentes
+                if not ev_actual.empty:
+                    df_ev_edit_cols = ["minuto", "marcador", "accion", "equipo_marca",
+                                        "goleador", "asistente", "portero",
+                                        "cuarteto", "descripcion"]
+                    df_ev_pre = ev_actual[df_ev_edit_cols].copy()
+                    df_ev_pre["minuto"] = pd.to_numeric(df_ev_pre["minuto"], errors="coerce").fillna(0).astype(int)
+                else:
+                    df_ev_pre = pd.DataFrame({
+                        "minuto": pd.Series(dtype="int"),
+                        "marcador": pd.Series(dtype="str"),
+                        "accion": pd.Series(dtype="str"),
+                        "equipo_marca": pd.Series(dtype="str"),
+                        "goleador": pd.Series(dtype="str"),
+                        "asistente": pd.Series(dtype="str"),
+                        "portero": pd.Series(dtype="str"),
+                        "cuarteto": pd.Series(dtype="str"),
+                        "descripcion": pd.Series(dtype="str"),
+                    })
+
+                df_ev_edit = st.data_editor(
+                    df_ev_pre,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key=f"ed_eventos_{pid_sel}",
+                    column_config={
+                        "minuto": st.column_config.NumberColumn("Min", min_value=1, max_value=40, format="%d"),
+                        "marcador": st.column_config.TextColumn("Marcador", help="Ej: 1-0"),
+                        "accion": st.column_config.SelectboxColumn("Acción", options=ACCIONES),
+                        "equipo_marca": st.column_config.SelectboxColumn(
+                            "Equipo", options=["INTER", "RIVAL"], required=True),
+                        "goleador": st.column_config.SelectboxColumn(
+                            "Goleador", options=jug_conocidos + ["RIVAL"]),
+                        "asistente": st.column_config.SelectboxColumn(
+                            "Asistente", options=[""] + jug_conocidos),
+                        "portero": st.column_config.SelectboxColumn(
+                            "Portero", options=["", "J.HERRERO", "J.GARCIA", "OSCAR"]),
+                        "cuarteto": st.column_config.TextColumn(
+                            "Cuarteto", help="Jugadores en pista separados por |"),
+                        "descripcion": st.column_config.TextColumn(
+                            "Descripción", help="Texto libre del gol", width="medium"),
+                    },
+                )
+
+                if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
+                    try:
+                        n = _guardar_eventos(
+                            cab["partido_id"], cab["tipo"], cab["competicion"],
+                            cab["rival"], cab["fecha"], df_ev_edit
+                        )
+                        st.success(f"✅ {n} eventos guardados.")
+                        st.cache_data.clear()
+                        st.info("Refresca para ver los cambios en otras pestañas.")
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+
+    except Exception as _e_tab:
+        st.error(f'❌ Error en pestaña ✏️ Editar partido: {_e_tab}')
         import traceback as _tb
         st.expander('Detalles técnicos').code(_tb.format_exc())
