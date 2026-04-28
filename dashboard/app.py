@@ -4008,9 +4008,27 @@ with tab_editar:
             convocados_def = list(convocados_def or [])
             st.markdown("##### 👥 Plantilla del partido")
             if roster_activo.empty:
-                st.warning("La hoja `JUGADORES_ROSTER` está vacía. "
-                            "Ejecuta `/usr/bin/python3 src/setup_roster.py` "
-                            "para crearla.")
+                # Si jugadores_roster sí tenía filas pero ninguna está activa
+                # (raro), o si la hoja no existe / no tenemos permisos.
+                if not jugadores_roster.empty:
+                    st.warning(
+                        f"La hoja `JUGADORES_ROSTER` tiene "
+                        f"{len(jugadores_roster)} filas pero ninguna está "
+                        "marcada como `activo=TRUE`. Revisa la columna "
+                        "`activo` en el Sheet."
+                    )
+                else:
+                    cA, cB = st.columns([3, 1])
+                    cA.warning(
+                        "No se pudo cargar la hoja `JUGADORES_ROSTER`. "
+                        "Si acabas de crearla, puede ser caché de Streamlit "
+                        "(5 min). Pulsa el botón → o **🔄 Actualizar datos** "
+                        "en el sidebar."
+                    )
+                    if cB.button("🔄 Recargar roster",
+                                  key=f"{key_pref}_refresh_roster"):
+                        st.cache_data.clear()
+                        st.rerun()
                 return []
 
             # Default: si no hay convocados_def, sugerir todos los del primer
