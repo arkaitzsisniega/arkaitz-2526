@@ -441,6 +441,13 @@ def parsear_partido(
         nombre = _norm_nombre(row[MET_COL_JUGADOR])
         if not nombre or nombre in ("EQUIPO", "TOTALES", "JUGADOR"):
             continue
+        # Minutos totales del bloque MET (col G, timedelta normalmente).
+        # Lo usamos como FALLBACK si las rotaciones (filas 5-19) están vacías,
+        # y para añadir partidos donde Arkaitz no rellena las rotaciones detalladas.
+        mins_met = 0.0
+        if MET_COL_MINS < len(row):
+            mins_met = _to_minutes(row[MET_COL_MINS])
+
         metricas_por_jugador[nombre] = {
             "pf":      _to_int(row, MET_COL_PF),
             "pnf":     _to_int(row, MET_COL_PNF),
@@ -458,14 +465,42 @@ def parsear_partido(
             "par":     _to_int(row, MET_COL_PAR),
             "gol_p":   _to_int(row, MET_COL_GOL_PORT),
             "ta":      _to_int(row, MET_COL_TA),
+            "_mins_met": round(mins_met, 2),  # auxiliar, no se sube al Sheet
         }
 
     # Inyectar en los JugadorEnPartido ya creados
     for j in jugadores:
         m = metricas_por_jugador.get(j.jugador)
         if m:
+            mins_met = m.pop("_mins_met", 0.0)
             for k, v in m.items():
                 setattr(j, k, v)
+            # Si la sección de rotaciones está vacía pero el bloque MET tiene
+            # minutos, usar éstos como fuente principal. Las rotaciones
+            # individuales quedarán a 0 (no es un error, simplemente Arkaitz
+            # no las rellenó este partido).
+            if j.min_total == 0 and mins_met > 0:
+                j.min_total = mins_met
+                j.participa = True
+
+    # Añadir jugadores que están SOLO en el bloque de métricas pero no en la
+    # tabla de rotaciones (pasa cuando Arkaitz no rellenó las rotaciones).
+    nombres_existentes = {j.jugador for j in jugadores}
+    for nombre, m in metricas_por_jugador.items():
+        if nombre in nombres_existentes:
+            continue
+        mins_met = m.pop("_mins_met", 0.0)
+        if mins_met <= 0:
+            continue
+        jp = JugadorEnPartido(
+            partido_id=nombre_hoja, tipo=tipo, competicion=competicion,
+            rival=rival, fecha=fecha, dorsal=None, jugador=nombre,
+            min_1t=0.0, min_2t=0.0, min_total=mins_met,
+            convocado=True, participa=True,
+        )
+        for k, v in m.items():
+            setattr(jp, k, v)
+        jugadores.append(jp)
 
     # ─── Totales del partido (fila 149-150) ─────────────────────────────────
     totales = TotalesPartido(
