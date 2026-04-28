@@ -294,6 +294,11 @@ def datos():
         est_tot_partido = cargar("EST_TOTALES_PARTIDO")
     except Exception:
         est_tot_partido = pd.DataFrame()
+    # Roster maestro de jugadores (creado por src/setup_roster.py)
+    try:
+        jugadores_roster = cargar("JUGADORES_ROSTER")
+    except Exception:
+        jugadores_roster = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -317,7 +322,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -332,7 +337,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -342,7 +347,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -3669,11 +3674,64 @@ with tab_editar:
             "AMISTOSO": "Amistoso", "PLAYOFF": "Playoff Liga",
             "SUPERCOPA": "Supercopa", "OTRO": "Otro",
         }
-        # Lista de jugadores conocidos (de EST_PARTIDOS)
-        if not est_partidos.empty:
+        # ── Roster maestro (JUGADORES_ROSTER, fuente preferida) ─────────
+        # Si la hoja existe se usa; si no, fallback a los nombres
+        # extraídos de EST_PARTIDOS (compat antigua).
+        if not jugadores_roster.empty:
+            roster = jugadores_roster.copy()
+            for c in ("nombre", "posicion", "equipo"):
+                if c in roster.columns:
+                    roster[c] = roster[c].astype(str).str.strip().str.upper()
+            if "activo" in roster.columns:
+                roster["activo"] = roster["activo"].astype(str).str.upper().isin(
+                    ("TRUE", "VERDADERO", "SI", "SÍ", "1", "YES"))
+            else:
+                roster["activo"] = True
+            # Solo activos para los selectores
+            roster_activo = roster[roster["activo"]].copy()
+            jug_porteros = sorted(roster_activo[
+                roster_activo.get("posicion", "") == "PORTERO"
+            ]["nombre"].tolist())
+            jug_campo = sorted(roster_activo[
+                roster_activo.get("posicion", "") == "CAMPO"
+            ]["nombre"].tolist())
+            jug_conocidos = jug_porteros + jug_campo
+        elif not est_partidos.empty:
             jug_conocidos = sorted(est_partidos["jugador"].dropna().unique().tolist())
+            jug_porteros = ["J.HERRERO", "J.GARCIA", "OSCAR"]
+            jug_campo = [j for j in jug_conocidos if j not in jug_porteros]
+            roster_activo = pd.DataFrame()
         else:
             jug_conocidos = []
+            jug_porteros = []
+            jug_campo = []
+            roster_activo = pd.DataFrame()
+
+        def _info_jugador(nombre: str) -> dict:
+            """Devuelve dict con dorsal/posicion/equipo del roster, o {} si no existe."""
+            if roster_activo.empty:
+                return {}
+            row = roster_activo[roster_activo["nombre"] == nombre]
+            if row.empty:
+                return {}
+            r = row.iloc[0]
+            return {
+                "dorsal": r.get("dorsal", ""),
+                "posicion": r.get("posicion", ""),
+                "equipo": r.get("equipo", ""),
+            }
+
+        def _label_jugador(nombre: str) -> str:
+            """Etiqueta tipo '#10 · JAVI' para los selectboxes."""
+            info = _info_jugador(nombre)
+            d = info.get("dorsal", "")
+            try:
+                d_int = int(float(d)) if d not in ("", None) else None
+            except (TypeError, ValueError):
+                d_int = None
+            if d_int is not None:
+                return f"#{d_int} · {nombre}"
+            return nombre
 
         # Lista de acciones canónicas
         ACCIONES = [
@@ -3684,6 +3742,131 @@ with tab_editar:
             "Pérdida en incorporación de portero", "5x4", "4x5", "4x3", "3x4",
             "Contraataque", "Robo en zona alta", "No calificado",
         ]
+
+        def _conexion_sheet():
+            """Devuelve un objeto Spreadsheet ya abierto. Reusable por los
+            helpers de guardado de la pestaña Editar partido."""
+            import gspread
+            from google.oauth2.service_account import Credentials
+            SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+                       "https://www.googleapis.com/auth/drive"]
+            creds_path = Path(__file__).parent.parent / "google_credentials.json"
+            if creds_path.exists():
+                creds = Credentials.from_service_account_file(str(creds_path), scopes=SCOPES)
+            else:
+                info = dict(st.secrets["gcp_service_account"])
+                creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+            gc = gspread.authorize(creds)
+            return gc.open(SHEET_NAME)
+
+        def _guardar_cabecera_totales(cab):
+            """Crea/actualiza la fila de EST_TOTALES_PARTIDO para este
+            partido_id con los campos extra (categoria, lugar, hora,
+            local_visitante, gf, gc). No toca métricas (dt_inter, etc.)
+            cuando ya existían — solo añade/sobrescribe los de cabecera.
+            """
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_TOTALES_PARTIDO")
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sh.add_worksheet("EST_TOTALES_PARTIDO", rows=200, cols=30)
+                ws.update(values=[["partido_id"]], range_name="A1")
+
+            df_all = pd.DataFrame(ws.get_all_records())
+            cols_completas = list(df_all.columns) if not df_all.empty else [
+                "partido_id", "tipo", "competicion", "rival", "fecha",
+                "categoria", "lugar", "hora", "local_visitante",
+                "goles_a_favor", "goles_en_contra",
+            ]
+            # Asegurar columnas extra
+            for c in ("categoria", "lugar", "hora", "local_visitante",
+                       "goles_a_favor", "goles_en_contra"):
+                if c not in cols_completas:
+                    cols_completas.append(c)
+
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols_completas)
+            else:
+                for c in cols_completas:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
+
+            datos_cab = {
+                "partido_id": cab["partido_id"],
+                "tipo": cab["tipo"],
+                "competicion": cab["competicion"],
+                "rival": cab["rival"],
+                "fecha": cab["fecha"],
+                "categoria": cab["competicion"],
+                "lugar": cab["lugar"],
+                "hora": cab["hora"],
+                "local_visitante": cab["local_visitante"],
+                "goles_a_favor": cab["gf"],
+                "goles_en_contra": cab["gc"],
+            }
+            mask = df_all["partido_id"].astype(str) == cab["partido_id"]
+            if mask.any():
+                # Actualizar campos de cabecera, conservar el resto
+                for k, v in datos_cab.items():
+                    df_all.loc[mask, k] = v
+            else:
+                # Nueva fila — rellenar con vacío en columnas que no toco
+                fila = {c: "" for c in cols_completas}
+                fila.update(datos_cab)
+                df_all = pd.concat([df_all, pd.DataFrame([fila])],
+                                     ignore_index=True)
+            df_out = df_all[cols_completas].fillna("")
+            ws.clear()
+            ws.update(values=[cols_completas] + df_out.astype(str).values.tolist(),
+                       range_name="A1")
+            return True
+
+        def _guardar_plantilla(partido_id, plantilla, cab):
+            """Guarda la plantilla del partido en la hoja EST_PLANTILLAS.
+            Una fila por jugador convocado. Si ya existían filas para este
+            partido_id se reescriben.
+            """
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_PLANTILLAS")
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sh.add_worksheet("EST_PLANTILLAS", rows=400, cols=10)
+                ws.update(values=[["partido_id", "tipo", "competicion", "rival",
+                                     "fecha", "dorsal", "jugador", "posicion",
+                                     "equipo", "convocado"]],
+                          range_name="A1")
+
+            df_all = pd.DataFrame(ws.get_all_records())
+            cols = ["partido_id", "tipo", "competicion", "rival", "fecha",
+                     "dorsal", "jugador", "posicion", "equipo", "convocado"]
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols)
+            else:
+                for c in cols:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
+            df_otros = df_all[df_all["partido_id"].astype(str) != partido_id]
+            filas = [{
+                "partido_id": partido_id,
+                "tipo": cab["tipo"],
+                "competicion": cab["competicion"],
+                "rival": cab["rival"],
+                "fecha": cab["fecha"],
+                "dorsal": p["dorsal"],
+                "jugador": p["jugador"],
+                "posicion": p["posicion"],
+                "equipo": p["equipo"],
+                "convocado": "TRUE",
+            } for p in plantilla]
+            df_nuevos = pd.DataFrame(filas, columns=cols)
+            df_final = pd.concat([df_otros[cols], df_nuevos], ignore_index=True)
+            df_final = df_final.fillna("")
+            ws.clear()
+            ws.update(values=[cols] + df_final.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(filas)
 
         def _guardar_eventos(partido_id, tipo, competicion, rival, fecha, df_eventos):
             """Reescribe en EST_EVENTOS los eventos de este partido."""
@@ -3750,34 +3933,50 @@ with tab_editar:
 
         def _formulario_cabecera(rival_def="", fecha_def=None, comp_def="LIGA",
                                   hora_def="", lugar_def="", gf_def=0, gc_def=0,
-                                  partido_id_def="", key_pref="ed"):
+                                  partido_id_def="", local_def=None,
+                                  key_pref="ed"):
             """Devuelve (rival, fecha, tipo, competicion_legible, hora, lugar, local,
-            gf, gc, partido_id) tras un form de cabecera."""
-            colA, colB = st.columns(2)
+            gf, gc, partido_id) tras un form de cabecera.
+
+            local_def: True/False/None. Si None se intenta autodetectar
+            por el lugar (Garbajosa/Madrid → LOCAL).
+            """
+            colA, colB, colC = st.columns([1.1, 1.1, 1])
             with colA:
-                rival = st.text_input("Rival", value=rival_def, key=f"{key_pref}_rival",
-                                       placeholder="Ej: BARCELONA, ELPOZO")
                 tipo = st.selectbox("Competición", TIPOS_OPCIONES,
                                      index=TIPOS_OPCIONES.index(comp_def) if comp_def in TIPOS_OPCIONES else 0,
                                      format_func=lambda x: TIPO_LABEL.get(x, x),
                                      key=f"{key_pref}_tipo")
+                rival = st.text_input("Rival", value=rival_def, key=f"{key_pref}_rival",
+                                       placeholder="Ej: BARCELONA, ELPOZO")
                 fecha = st.date_input("Fecha", value=fecha_def or _dt.date.today(),
                                        key=f"{key_pref}_fecha")
+            with colB:
                 hora = st.text_input("Hora", value=hora_def,
                                       placeholder="Ej: 18:00", key=f"{key_pref}_hora")
-            with colB:
                 lugar = st.text_input(
                     "Lugar", value=lugar_def,
                     placeholder="Ej: Jorge Garbajosa, Pabellón Mahón…",
                     key=f"{key_pref}_lugar",
                 )
-                local = "Jorge Garbajosa" in lugar
-                if lugar:
-                    st.caption("🏠 **LOCAL**" if local else "✈️ Visitante")
+                # Local/Visitante: opciones AUTO/LOCAL/VISITANTE
+                lugar_up = lugar.upper()
+                auto_local = any(k in lugar_up for k in
+                                  ("MADRID", "MAGARI", "GARBAJOSA", "TORREJON",
+                                   "ALCALA", "ALCOBENDAS"))
+                if local_def is None:
+                    auto_index = 0 if auto_local else 1
+                else:
+                    auto_index = 0 if local_def else 1
+                lv = st.radio("Condición", ["🏠 LOCAL", "✈️ Visitante"],
+                                index=auto_index, horizontal=True,
+                                key=f"{key_pref}_lv")
+                local = "LOCAL" in lv
+            with colC:
                 colG1, colG2 = st.columns(2)
-                gf = colG1.number_input("⚽ Goles a favor", min_value=0, max_value=99,
+                gf = colG1.number_input("⚽ GF", min_value=0, max_value=99,
                                           value=int(gf_def), key=f"{key_pref}_gf")
-                gc = colG2.number_input("🥅 Goles en contra", min_value=0, max_value=99,
+                gc = colG2.number_input("🥅 GC", min_value=0, max_value=99,
                                           value=int(gc_def), key=f"{key_pref}_gc")
                 partido_id = st.text_input(
                     "ID del partido", value=partido_id_def,
@@ -3793,19 +3992,80 @@ with tab_editar:
                 "hora": hora.strip(),
                 "lugar": lugar.strip(),
                 "local": local,
+                "local_visitante": "LOCAL" if local else "VISITANTE",
                 "gf": int(gf),
                 "gc": int(gc),
                 "partido_id": partido_id.strip(),
             }
 
+        def _formulario_plantilla(convocados_def=None, key_pref="ed"):
+            """Multiselect de jugadores convocados al partido. Devuelve
+            lista de dicts {dorsal, jugador, posicion, equipo}.
+            Permite añadir un jugador nuevo "ad-hoc" si no está en el roster.
+            """
+            convocados_def = list(convocados_def or [])
+            st.markdown("##### 👥 Plantilla del partido")
+            if roster_activo.empty:
+                st.warning("La hoja `JUGADORES_ROSTER` está vacía. "
+                            "Ejecuta `/usr/bin/python3 src/setup_roster.py` "
+                            "para crearla.")
+                return []
+
+            # Default: si no hay convocados_def, sugerir todos los del primer
+            # equipo + portero filial
+            if not convocados_def:
+                convocados_def = roster_activo[
+                    (roster_activo.get("equipo", "") == "PRIMER")
+                ]["nombre"].tolist()
+
+            opciones = roster_activo["nombre"].tolist()
+            elegidos = st.multiselect(
+                "Convocados (12-16 habitual; varía por competición)",
+                options=opciones,
+                default=[n for n in convocados_def if n in opciones],
+                format_func=_label_jugador,
+                key=f"{key_pref}_convocados",
+                help="Solo aparecen los activos. Para añadir uno nuevo, "
+                      "edita la hoja `JUGADORES_ROSTER` con su dorsal y posición.",
+            )
+            if elegidos:
+                porteros_n = sum(
+                    1 for n in elegidos
+                    if _info_jugador(n).get("posicion", "") == "PORTERO"
+                )
+                campo_n = len(elegidos) - porteros_n
+                badge_color = "#2E7D32" if 12 <= len(elegidos) <= 16 else "#B71C1C"
+                st.markdown(
+                    f"<small><b>{len(elegidos)} convocados</b> "
+                    f"(<span style='color:{badge_color}'>"
+                    f"{'OK' if 12 <= len(elegidos) <= 16 else 'fuera de rango habitual'}"
+                    f"</span>) — {porteros_n} portero(s) + {campo_n} de campo</small>",
+                    unsafe_allow_html=True,
+                )
+
+            # Devolver con metadata
+            plantilla = []
+            for n in elegidos:
+                info = _info_jugador(n)
+                plantilla.append({
+                    "jugador": n,
+                    "dorsal": info.get("dorsal", ""),
+                    "posicion": info.get("posicion", ""),
+                    "equipo": info.get("equipo", ""),
+                })
+            return plantilla
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
-            st.markdown("#### Crear partido")
+            st.markdown("#### 🏁 Cabecera del partido")
             cab = _formulario_cabecera(key_pref="cr")
 
             st.markdown("---")
-            st.markdown("#### Eventos de gol")
+            plantilla = _formulario_plantilla(key_pref="cr")
+
+            st.markdown("---")
+            st.markdown("#### ⚽ Eventos de gol")
             # Tabla editable de eventos vacía
             df_ev_init = pd.DataFrame({
                 "minuto": pd.Series(dtype="int"),
@@ -3847,13 +4107,22 @@ with tab_editar:
                     st.error("Pon el nombre del rival.")
                 elif not cab["partido_id"]:
                     st.error("Pon el ID del partido (ej: J27.PEÑISCOLA).")
+                elif not plantilla:
+                    st.error("Selecciona al menos un convocado.")
                 else:
                     try:
-                        n = _guardar_eventos(
-                            cab["partido_id"], cab["tipo"], cab["competicion"],
-                            cab["rival"], cab["fecha"], df_ev_edit
+                        with st.spinner("Guardando…"):
+                            _guardar_cabecera_totales(cab)
+                            n_pl = _guardar_plantilla(
+                                cab["partido_id"], plantilla, cab)
+                            n_ev = _guardar_eventos(
+                                cab["partido_id"], cab["tipo"], cab["competicion"],
+                                cab["rival"], cab["fecha"], df_ev_edit
+                            )
+                        st.success(
+                            f"✅ Partido creado. "
+                            f"Cabecera + {n_pl} convocados + {n_ev} eventos."
                         )
-                        st.success(f"✅ Partido creado. {n} eventos guardados.")
                         st.cache_data.clear()
                         st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
                     except Exception as e:
@@ -3895,17 +4164,62 @@ with tab_editar:
                 gf_act = int((ev_actual["equipo_marca"] == "INTER").sum()) if not ev_actual.empty else 0
                 gc_act = int((ev_actual["equipo_marca"] == "RIVAL").sum()) if not ev_actual.empty else 0
 
+                # Defaults extra desde EST_TOTALES_PARTIDO si los hay
+                hora_def = lugar_def = ""
+                local_def = None
+                if not est_tot_partido.empty:
+                    fila_t = est_tot_partido[
+                        est_tot_partido["partido_id"].astype(str) == pid_sel]
+                    if not fila_t.empty:
+                        ft = fila_t.iloc[0]
+                        hora_def = str(ft.get("hora", "") or "")
+                        lugar_def = str(ft.get("lugar", "") or "")
+                        lv = str(ft.get("local_visitante", "") or "").upper()
+                        if lv == "LOCAL":
+                            local_def = True
+                        elif lv == "VISITANTE":
+                            local_def = False
+
+                st.markdown("#### 🏁 Cabecera del partido")
                 cab = _formulario_cabecera(
                     rival_def=m["rival"],
                     fecha_def=fecha_default,
                     comp_def=m["tipo"],
+                    hora_def=hora_def, lugar_def=lugar_def,
                     gf_def=gf_act, gc_def=gc_act,
                     partido_id_def=pid_sel,
+                    local_def=local_def,
                     key_pref="ed",
                 )
 
+                # Plantilla precargada (de EST_PLANTILLAS si existe)
                 st.markdown("---")
-                st.markdown("#### Eventos de gol")
+                convocados_def = []
+                try:
+                    sh_pl = _conexion_sheet()
+                    ws_pl = sh_pl.worksheet("EST_PLANTILLAS")
+                    df_pl = pd.DataFrame(ws_pl.get_all_records())
+                    if not df_pl.empty:
+                        convocados_def = (
+                            df_pl[df_pl["partido_id"].astype(str) == pid_sel]
+                            ["jugador"].astype(str).str.upper().tolist()
+                        )
+                except Exception:
+                    pass
+                # Si no hay plantilla guardada, usar los jugadores con minutos
+                # del partido (convocados implícitamente)
+                if not convocados_def and not est_partidos.empty:
+                    ep_pid = est_partidos[est_partidos["partido_id"] == pid_sel]
+                    convocados_def = (
+                        ep_pid[pd.to_numeric(ep_pid.get("min_total", 0),
+                                                errors="coerce").fillna(0) > 0]
+                        ["jugador"].astype(str).str.upper().tolist()
+                    )
+                plantilla = _formulario_plantilla(
+                    convocados_def=convocados_def, key_pref="ed")
+
+                st.markdown("---")
+                st.markdown("#### ⚽ Eventos de gol")
                 # Cargar eventos existentes
                 if not ev_actual.empty:
                     df_ev_edit_cols = ["minuto", "marcador", "accion", "equipo_marca",
@@ -3952,11 +4266,17 @@ with tab_editar:
 
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     try:
-                        n = _guardar_eventos(
-                            cab["partido_id"], cab["tipo"], cab["competicion"],
-                            cab["rival"], cab["fecha"], df_ev_edit
+                        with st.spinner("Guardando…"):
+                            _guardar_cabecera_totales(cab)
+                            n_pl = _guardar_plantilla(
+                                cab["partido_id"], plantilla, cab) if plantilla else 0
+                            n_ev = _guardar_eventos(
+                                cab["partido_id"], cab["tipo"], cab["competicion"],
+                                cab["rival"], cab["fecha"], df_ev_edit
+                            )
+                        st.success(
+                            f"✅ Guardado: cabecera + {n_pl} convocados + {n_ev} eventos."
                         )
-                        st.success(f"✅ {n} eventos guardados.")
                         st.cache_data.clear()
                         st.info("Refresca para ver los cambios en otras pestañas.")
                     except Exception as e:
