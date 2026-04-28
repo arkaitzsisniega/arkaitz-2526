@@ -2024,7 +2024,15 @@ with tab_efic:
                 )
     
                 # Generar TODAS las combinaciones de tamaño N para cada evento.
+                # Lógica:
+                # - "Incluir portero = Sí": solo eventos con portero canónico
+                #   (J.GARCIA / J.HERRERO / OSCAR), y cada combinación generada
+                #   debe contener al portero (filtrado al final).
+                # - "Incluir portero = No": solo jugadores de campo, ignoramos
+                #   el portero. Sirve también para situaciones de portero-jugador
+                #   donde no hay portero (5 de campo).
                 from itertools import combinations as _combos_e
+                _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
                 ev_q = est_eventos.copy()
                 ev_q["portero"] = ev_q["portero"].fillna("").astype(str)
                 ev_q["cuarteto"] = ev_q["cuarteto"].fillna("").astype(str)
@@ -2032,14 +2040,25 @@ with tab_efic:
 
                 regs_e = []
                 for _, r in ev_q.iterrows():
-                    miembros = list(filter(None, r["cuarteto"].split("|")))
-                    if incl and r["portero"]:
-                        miembros.append(r["portero"])
-                    miembros = sorted(set(miembros))
+                    cuart = list(filter(None, r["cuarteto"].split("|")))
+                    portero_ev = r["portero"].strip().upper() if r["portero"] else ""
+                    portero_valido = portero_ev in _PORTEROS_CANON
+
+                    if incl:
+                        # Solo eventos con portero canónico
+                        if not portero_valido:
+                            continue
+                        pool = sorted(set(cuart + [portero_ev]))
+                    else:
+                        pool = sorted(set(cuart))
                     em = r["equipo_marca"]
                     for n in tamanos_e or [3, 4, 5]:
-                        if n <= len(miembros):
-                            for combo in _combos_e(miembros, n):
+                        if n <= len(pool):
+                            for combo in _combos_e(pool, n):
+                                # Si "incluir portero", la combinación DEBE
+                                # contener al portero (sino es solo de campo).
+                                if incl and portero_ev not in combo:
+                                    continue
                                 regs_e.append({
                                     "formacion": " | ".join(combo),
                                     "tamano": n,
@@ -2956,27 +2975,37 @@ with tab_goles:
             )
     
             # Generar TODAS las combinaciones de tamaño N a partir de los
-            # jugadores en pista en cada evento. Ej: si en pista están
-            # [A,B,C,D] y N=3, se cuentan los 4 tríos C(4,3): (A,B,C),
-            # (A,B,D), (A,C,D), (B,C,D). Cada uno suma 1 evento.
+            # jugadores en pista en cada evento.
+            # Lógica:
+            # - "Incluir portero = Sí": solo eventos con portero canónico, y
+            #   las combinaciones generadas DEBEN incluir al portero.
+            # - "Incluir portero = No": solo jugadores de campo.
             from itertools import combinations as _combos
+            _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
 
             ev_for_q = ev.copy()
             ev_for_q["portero"] = ev_for_q["portero"].fillna("").astype(str)
             ev_for_q["cuarteto"] = ev_for_q["cuarteto"].fillna("").astype(str)
             incl = (incluir_portero == "Sí")
 
-            registros = []  # (combinacion, equipo_marca)
+            registros = []
             for _, r in ev_for_q.iterrows():
-                miembros = list(filter(None, r["cuarteto"].split("|")))
-                if incl and r["portero"]:
-                    miembros.append(r["portero"])
-                miembros = sorted(set(miembros))
+                cuart = list(filter(None, r["cuarteto"].split("|")))
+                portero_ev = r["portero"].strip().upper() if r["portero"] else ""
+                portero_valido = portero_ev in _PORTEROS_CANON
+
+                if incl:
+                    if not portero_valido:
+                        continue
+                    pool = sorted(set(cuart + [portero_ev]))
+                else:
+                    pool = sorted(set(cuart))
                 em = r["equipo_marca"]
-                # Generar todas las combinaciones de los tamaños solicitados
                 for n in tamanos or [3, 4, 5]:
-                    if n <= len(miembros):
-                        for combo in _combos(miembros, n):
+                    if n <= len(pool):
+                        for combo in _combos(pool, n):
+                            if incl and portero_ev not in combo:
+                                continue
                             registros.append({
                                 "formacion": " | ".join(combo),
                                 "tamano": n,
