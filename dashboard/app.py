@@ -2581,9 +2581,12 @@ with tab_scout:
                     rival_corto = (rival_sel.split()[0] if rival_sel else "").upper()
     
                     if agr_r is not None:
-                        partidos = int(pd.to_numeric(agr_r.get("partidos", 0), errors="coerce") or 0)
-                        gf = int(pd.to_numeric(agr_r.get("total_a_favor", 0), errors="coerce") or 0)
-                        gc = int(pd.to_numeric(agr_r.get("total_en_contra", 0), errors="coerce") or 0)
+                        def _n(v):
+                            v = pd.to_numeric(v, errors="coerce")
+                            return int(v) if pd.notna(v) else 0
+                        partidos = _n(agr_r.get("partidos", 0))
+                        gf = _n(agr_r.get("total_a_favor", 0))
+                        gc = _n(agr_r.get("total_en_contra", 0))
 
                         k1, k2, k3, k4 = st.columns(4)
                         k1.metric("Partidos", partidos)
@@ -2816,14 +2819,19 @@ with tab_partido:
             # ── KPIs ampliados (10) ────────────────────────────────────────────
             # Calcular totales (preferir EST_TOTALES_PARTIDO; fallback a sumar de EP)
             if tot_p is not None:
-                dt_inter = int(pd.to_numeric(tot_p.get("dt_inter", 0), errors="coerce") or 0)
-                dp_inter = int(pd.to_numeric(tot_p.get("dp_inter", 0), errors="coerce") or 0)
-                dt_rival = int(pd.to_numeric(tot_p.get("dt_rival", 0), errors="coerce") or 0)
-                dp_rival = int(pd.to_numeric(tot_p.get("dp_rival", 0), errors="coerce") or 0)
-                pf_total = int(pd.to_numeric(tot_p.get("pf_inter", 0), errors="coerce") or 0)
-                pnf_total = int(pd.to_numeric(tot_p.get("pnf_inter", 0), errors="coerce") or 0)
-                robos_total = int(pd.to_numeric(tot_p.get("robos_inter", 0), errors="coerce") or 0)
-                cortes_total = int(pd.to_numeric(tot_p.get("cortes_inter", 0), errors="coerce") or 0)
+                # `pd.to_numeric(...).fillna(0)` para evitar NaN (que con
+                # `or 0` no se convierte porque NaN es "truthy" en Python).
+                def _kpi(col):
+                    v = pd.to_numeric(tot_p.get(col, 0), errors="coerce")
+                    return int(v) if pd.notna(v) else 0
+                dt_inter = _kpi("dt_inter")
+                dp_inter = _kpi("dp_inter")
+                dt_rival = _kpi("dt_rival")
+                dp_rival = _kpi("dp_rival")
+                pf_total = _kpi("pf_inter")
+                pnf_total = _kpi("pnf_inter")
+                robos_total = _kpi("robos_inter")
+                cortes_total = _kpi("cortes_inter")
             else:
                 dt_inter = int((ep_p["dp"] + ep_p["dpalo"] + ep_p["db"] + ep_p["df"]).sum())
                 dp_inter = int(ep_p["dp"].sum())
@@ -3154,10 +3162,10 @@ with tab_partido:
 
                     # Construir dicts para los SVG. Para portería usamos
                     # los GOLES (G_AF_P1..) y para campo también goles.
-                    af_port = {f"P{i}": int(pd.to_numeric(fila_z.get(f"G_AF_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
-                    af_zona = {f"A{i}": int(pd.to_numeric(fila_z.get(f"G_AF_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
-                    ec_port = {f"P{i}": int(pd.to_numeric(fila_z.get(f"G_EC_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
-                    ec_zona = {f"A{i}": int(pd.to_numeric(fila_z.get(f"G_EC_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
+                    af_port = {f"P{i}": (lambda _v: int(_v) if pd.notna(_v) else 0)(pd.to_numeric(fila_z.get(f"G_AF_P{i}", 0), errors="coerce")) for i in range(1, 10)}
+                    af_zona = {f"A{i}": (lambda _v: int(_v) if pd.notna(_v) else 0)(pd.to_numeric(fila_z.get(f"G_AF_Z{i}", 0), errors="coerce")) for i in range(1, 12)}
+                    ec_port = {f"P{i}": (lambda _v: int(_v) if pd.notna(_v) else 0)(pd.to_numeric(fila_z.get(f"G_EC_P{i}", 0), errors="coerce")) for i in range(1, 10)}
+                    ec_zona = {f"A{i}": (lambda _v: int(_v) if pd.notna(_v) else 0)(pd.to_numeric(fila_z.get(f"G_EC_Z{i}", 0), errors="coerce")) for i in range(1, 12)}
 
                     sub_af_p, sub_ec_p = st.tabs([
                         "⚽ Goles a Favor",
@@ -4442,8 +4450,10 @@ with tab_editar:
                 return warns
             for _, r in df.iterrows():
                 jug = r.get("jugador", "")
-                ta = int(pd.to_numeric(r.get("ta", 0), errors="coerce") or 0)
-                tr = int(pd.to_numeric(r.get("tr", 0), errors="coerce") or 0)
+                _ta = pd.to_numeric(r.get("ta", 0), errors="coerce")
+                _tr = pd.to_numeric(r.get("tr", 0), errors="coerce")
+                ta = int(_ta) if pd.notna(_ta) else 0
+                tr = int(_tr) if pd.notna(_tr) else 0
                 if ta > 2:
                     warns.append(f"{jug}: TA={ta} (máximo 2 antes de roja por doble amarilla).")
                 if tr > 1:
