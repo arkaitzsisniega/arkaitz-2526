@@ -211,6 +211,25 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
 
 ## 🔜 Hilos abiertos (orden sugerido)
 
+### Próxima sesión — pendientes inmediatos
+1. ⚠️ **J25.INDUSTRIAS no se está extrayendo**: tras el sync sigue sin
+   aparecer en EST_PARTIDOS. Investigar por qué (¿hoja vacía? ¿filtro
+   descarta? ¿nombre con espacios o tilde?). Listar partidos en
+   `Estadisticas2526.xlsx` y comparar con los que llegan al Sheet.
+2. ✏️ **Fecha J17.ELPOZO**: Arkaitz la corrigió en Excel; ahora aparece
+   2026-10-10 en EST_PARTIDOS. Confirmar con él si esa es la fecha
+   correcta tras su edición.
+3. 📋 **Planilla web para meter datos del partido**: principal trabajo.
+   Pestaña en el dashboard con form para crear/editar partido, con
+   marcador final, local/visitante (heurística "Jorge Garbajosa"),
+   descripciones de gol, posibles correcciones manuales.
+4. 🏥 **Planilla fisios**: form para lesiones + tratamientos. Sólo
+   accesible para fisios + Arkaitz (auth aparte del bot).
+5. 👀 **Cómo ve la info el cuerpo técnico**: web pública? login? tablet?
+   Decisión después de #3 y #4.
+6. 🖥️ **Mac viejo como servidor 24/7**: documentar setup launchd para
+   que arranque bots + dashboard al encender.
+
 ### En curso
 - **Bot de gastos personales** ✅ funcionando. Carpeta `gastos_bot/`.
   Sheet propio (independiente del de Inter) con 80 gastos históricos
