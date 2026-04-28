@@ -195,7 +195,7 @@ def _dibujar_campo_mpl(zonas: dict) -> bytes:
     fig, ax = plt.subplots(figsize=(10.8, 5.3), dpi=180)
     fig.patch.set_facecolor("#A5D6A7")
     ax.set_facecolor("#A5D6A7")
-    ax.set_xlim(-50, 1010)
+    ax.set_xlim(-15, 1015)
     ax.set_ylim(510, -10)  # invertido para que (0,0) esté arriba a la izda
     ax.set_aspect("equal")
     ax.axis("off")
@@ -206,11 +206,11 @@ def _dibujar_campo_mpl(zonas: dict) -> bytes:
         return _mpl_color_zona(z.get(zk, 0), max_v)
 
     def texto(zk, x, y):
+        # Solo el valor (sin la etiqueta de la zona). Más grande.
         v = z.get(zk, 0)
-        ax.text(x, y - 7, zk, ha="center", va="center",
-                fontsize=8, fontweight="bold", color="#222")
-        ax.text(x, y + 13, str(v), ha="center", va="center",
-                fontsize=11, fontweight="bold", color="#000")
+        ax.text(x, y, str(v), ha="center", va="center",
+                fontsize=22, fontweight="bold", color="#000",
+                zorder=4)
 
     # ── Zonas rectangulares ───────────────────────────────────────────────
     rects_z = [
@@ -298,24 +298,16 @@ def _dibujar_campo_mpl(zonas: dict) -> bytes:
     ax.add_patch(mpatches.Circle((150, 250), 4, color=BORDE, zorder=4))
     ax.add_patch(mpatches.Circle((250, 250), 4, color=BORDE, zorder=4))
 
-    # ── Portería: 3m, postes con franjas rojo/blanco ─────────────────────
-    POSTE_LARGO = 32
-    GROSOR = 8
-    n_franjas = 5
-    franja_h = 75 / n_franjas
-    # Larguero (vertical, conectando ambos postes en x=-GROSOR..0)
-    for i in range(n_franjas):
-        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+    # ── Portería: solo los DOS PALOS pegados a la línea de fondo (x=0) ─
+    # Ya no hay red detrás. Cada palo es un cuadrado rojo pequeño centrado
+    # en x=0, en (0, 212.5) y (0, 287.5).
+    PALO_W = 10  # ancho del palo (atravesando la línea de fondo)
+    PALO_H = 10  # alto del palo
+    for cy in (212.5, 287.5):
         ax.add_patch(mpatches.Rectangle(
-            (-GROSOR, 212.5 + i * franja_h), GROSOR, franja_h,
-            facecolor=c, edgecolor="#7F1010", linewidth=0.4, zorder=5))
-    # Poste superior e inferior (saliendo hacia x negativo)
-    ax.add_patch(mpatches.Rectangle(
-        (-POSTE_LARGO, 212.5 - GROSOR/2), POSTE_LARGO, GROSOR,
-        facecolor="#B71C1C", edgecolor="#7F1010", linewidth=0.4, zorder=5))
-    ax.add_patch(mpatches.Rectangle(
-        (-POSTE_LARGO, 287.5 - GROSOR/2), POSTE_LARGO, GROSOR,
-        facecolor="#B71C1C", edgecolor="#7F1010", linewidth=0.4, zorder=5))
+            (-PALO_W/2, cy - PALO_H/2), PALO_W, PALO_H,
+            facecolor="#B71C1C", edgecolor="#5D0D0D", linewidth=0.6,
+            zorder=6))
 
     # Guardar a PNG en memoria
     buf = io.BytesIO()
@@ -358,7 +350,7 @@ def _dibujar_porteria_mpl(cuadrantes: dict) -> bytes:
         ax.plot([POSX, POSX + PORT_W], [y, y], color="#E0E0E0",
                 linewidth=0.5, zorder=2)
 
-    # 9 cuadrantes
+    # 9 cuadrantes — solo el VALOR (sin etiqueta P1..P9), más grande
     cuad_w = PORT_W / 3
     cuad_h = PORT_H / 3
     for i in range(9):
@@ -370,14 +362,11 @@ def _dibujar_porteria_mpl(cuadrantes: dict) -> bytes:
         v = p.get(zona, 0)
         color = _mpl_color_zona(v, max_v)
         ax.add_patch(mpatches.Rectangle((x, y), cuad_w, cuad_h,
-                                          facecolor=color, alpha=0.85,
+                                          facecolor=color, alpha=0.9,
                                           edgecolor="#888", linewidth=0.6,
                                           linestyle=(0, (3, 2)), zorder=3))
-        ax.text(x + cuad_w/2, y + cuad_h/2 - 7, zona,
-                ha="center", va="center", fontsize=9,
-                fontweight="bold", color="#222", zorder=4)
-        ax.text(x + cuad_w/2, y + cuad_h/2 + 12, str(v),
-                ha="center", va="center", fontsize=12,
+        ax.text(x + cuad_w/2, y + cuad_h/2, str(v),
+                ha="center", va="center", fontsize=24,
                 fontweight="bold", color="#000", zorder=4)
 
     # Postes verticales con franjas
@@ -576,6 +565,8 @@ def generar_pdf_partido(partido_id: str, sh=None,
     h_seccion = ParagraphStyle("seccion", parent=styles["Heading2"],
                                 fontSize=12, textColor=AZUL, spaceBefore=10, spaceAfter=4)
     p_body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=9)
+    p_cell = ParagraphStyle("cell", parent=styles["BodyText"], fontSize=8,
+                              leading=10)
     p_caption = ParagraphStyle("caption", parent=styles["BodyText"],
                                 fontSize=8, textColor=GRIS, alignment=1)
 
@@ -781,11 +772,11 @@ def generar_pdf_partido(partido_id: str, sh=None,
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRIS_MUY_CLARO]),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("ALIGN", (1, 1), (1, -1), "LEFT"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
         ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     story.append(t_met)
 
@@ -843,29 +834,34 @@ def generar_pdf_partido(partido_id: str, sh=None,
         for _, r in evp.iterrows():
             em = r.get("equipo_marca", "")
             em_disp = "INTER" if em == "INTER" else "RIVAL"
+            # Minuto en formato mm:ss (preferir minuto_mmss; si no, mm:00)
             min_val = ""
-            try:
-                m = int(float(r.get("minuto") or 0))
-                if m > 0:
-                    min_val = str(m)
-            except (TypeError, ValueError):
-                pass
+            mmss = str(r.get("minuto_mmss", "") or "").strip()
+            if mmss:
+                min_val = mmss
+            else:
+                try:
+                    m = int(float(r.get("minuto") or 0))
+                    if m > 0:
+                        min_val = f"{m:02d}:00"
+                except (TypeError, ValueError):
+                    pass
             rows_ev.append([
                 min_val,
                 r.get("marcador", ""),
                 em_disp,
-                Paragraph(str(r.get("accion", "")), p_body),
+                Paragraph(str(r.get("accion", "")), p_cell),
                 r.get("goleador", ""),
                 r.get("asistente", ""),
                 r.get("portero", ""),
-                Paragraph(str(r.get("cuarteto", "")).replace("|", " · "), p_body),
-                Paragraph(str(r.get("descripcion", "")), p_body),
+                Paragraph(str(r.get("cuarteto", "")).replace("|", " · "), p_cell),
+                Paragraph(str(r.get("descripcion", "")), p_cell),
             ])
         # Anchos: ajustados para que la tabla NO sobresalga del A4 al
         # imprimir. A4 = 21 cm, márgenes 2.4 cm → ancho útil 18.6 cm.
-        # Total de la tabla: 0.85+1.6+1.4+2.1+1.7+1.7+1.7+3.4+3.4 = 17.9 cm
-        t_ev = Table(rows_ev, colWidths=[0.85*cm, 1.6*cm, 1.4*cm, 2.1*cm,
-                                           1.7*cm, 1.7*cm, 1.7*cm, 3.4*cm, 3.4*cm],
+        # Min más ancho para mm:ss: 1.2 cm.
+        t_ev = Table(rows_ev, colWidths=[1.2*cm, 1.5*cm, 1.4*cm, 2.0*cm,
+                                           1.7*cm, 1.7*cm, 1.7*cm, 3.3*cm, 3.3*cm],
                       repeatRows=1)
         t_ev.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), AZUL),
@@ -874,7 +870,7 @@ def generar_pdf_partido(partido_id: str, sh=None,
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRIS_MUY_CLARO]),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
             ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
             ("TOPPADDING", (0, 0), (-1, -1), 3),
@@ -893,8 +889,10 @@ def generar_pdf_partido(partido_id: str, sh=None,
     # ── Rotaciones ──────────────────────────────────────────────────────────
     # Colores según minutos en una rotación (criterio del usuario):
     #   0 min → blanco · 0-1 → azul · 1-2 → verde · 2-3 → amarillo · >3 → rojo
-    def _color_rotacion(mins: float):
-        if mins <= 0:
+    # Los porteros NO se colorean (juegan partido entero, no compite con
+    # el resto de jugadores en duración de rotación).
+    def _color_rotacion(mins: float, es_portero: bool = False):
+        if es_portero or mins <= 0:
             return colors.white
         if mins < 1:
             return colors.HexColor("#BBDEFB")   # azul claro
@@ -923,10 +921,20 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 story.append(Paragraph(f"<b>{parte_label}</b>", p_body))
                 rows_rot = [["Nº", "Jugador", "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª"]]
                 jp_rot = jp[jp["min_total"] > 0].sort_values("min_total", ascending=False)
-                # Recoger valores numéricos para colorear celdas después
+                # Recoger valores numéricos y marcar si es portero
                 valores_rot = []
+                porteros_set = set(("J.GARCIA", "J.HERRERO", "OSCAR"))
+                es_portero_rows = []
                 for _, r in jp_rot.iterrows():
                     fila_vals = [float(r.get(c, 0) or 0) for c in cols]
+                    nombre = str(r.get("jugador", "")).upper().strip()
+                    # Portero canónico O cualquier jugador con datos de portero
+                    es_p = (nombre in porteros_set or
+                            float(r.get("par", 0) or 0) > 0 or
+                            float(r.get("gol_p", 0) or 0) > 0 or
+                            float(r.get("bloq_p", 0) or 0) > 0 or
+                            float(r.get("poste_p", 0) or 0) > 0)
+                    es_portero_rows.append(es_p)
                     valores_rot.append(fila_vals)
                     rows_rot.append([
                         int(r.get("dorsal", 0)) if r.get("dorsal", 0) else "",
@@ -939,19 +947,20 @@ def generar_pdf_partido(partido_id: str, sh=None,
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("ALIGN", (1, 1), (1, -1), "LEFT"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
                     ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
                     ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
                     ("TOPPADDING", (0, 0), (-1, -1), 3),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                 ]
                 # Pintar cada celda de rotación según su valor
-                for i_row, vals in enumerate(valores_rot, start=1):  # +1 por header
+                for i_row, (vals, es_p) in enumerate(
+                        zip(valores_rot, es_portero_rows), start=1):
                     for i_col, v in enumerate(vals):
                         c_idx = 2 + i_col  # 0=Nº, 1=Jugador, 2..9=rotaciones
                         style_cmds.append(
                             ("BACKGROUND", (c_idx, i_row), (c_idx, i_row),
-                             _color_rotacion(v)))
+                             _color_rotacion(v, es_p)))
                 t_rot = Table(rows_rot, colWidths=[0.9*cm, 2.8*cm] + [1.6*cm]*8)
                 t_rot.setStyle(TableStyle(style_cmds))
                 story.append(t_rot)
@@ -1024,7 +1033,7 @@ def generar_pdf_partido(partido_id: str, sh=None,
             ec_port = {f"P{i}": int(pd.to_numeric(fz.get(f"G_EC_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
 
             # A favor
-            story.append(Paragraph("<b>⚽ Cómo metemos goles</b>", p_body))
+            story.append(Paragraph("<b>⚽ Goles a Favor</b>", p_body))
             try:
                 img_campo_af = _png_to_image(_dibujar_campo_mpl(af_zona), 12*cm, 6*cm)
                 img_port_af = _png_to_image(_dibujar_porteria_mpl(af_port), 6.5*cm, 4.5*cm)
@@ -1037,7 +1046,7 @@ def generar_pdf_partido(partido_id: str, sh=None,
             story.append(Spacer(1, 6))
 
             # En contra
-            story.append(Paragraph("<b>🥅 Cómo recibimos goles</b>", p_body))
+            story.append(Paragraph("<b>🥅 Goles en Contra</b>", p_body))
             try:
                 img_campo_ec = _png_to_image(_dibujar_campo_mpl(ec_zona), 12*cm, 6*cm)
                 img_port_ec = _png_to_image(_dibujar_porteria_mpl(ec_port), 6.5*cm, 4.5*cm)

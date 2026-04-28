@@ -175,6 +175,15 @@ def _to_minute_int(v) -> Optional[int]:
     return int(round(m))
 
 
+def _to_minute_float(v) -> Optional[float]:
+    """Convierte el campo MIN del evento a minutos como float (mm.ss/60),
+    p.ej. 12:37 -> 12.6166. Permite formato mm:ss en el PDF."""
+    m = _to_minutes(v)
+    if m <= 0:
+        return None
+    return round(m, 4)
+
+
 def _norm_nombre(s) -> str:
     if s is None:
         return ""
@@ -287,6 +296,8 @@ class EventoGol:
     cuarteto: list[str]
     descripcion: str = ""   # texto libre que Arkaitz escribe a mano en el Sheet
                             # (se preserva entre re-extracciones)
+    minuto_mmss: str = ""   # minuto en formato mm:ss (ej. "12:37"). Si no
+                            # disponible, fallback a {minuto:02d}:00 al render.
 
 
 def _intervalo_5min(minuto: Optional[int]) -> str:
@@ -385,6 +396,16 @@ def parsear_partido(
         goleador = _norm_nombre(row[EVT_COL_GOLEADOR])
         accion = _norm_nombre(row[EVT_COL_ACCION]) if EVT_COL_ACCION < len(row) else ""
         minuto = _to_minute_int(row[EVT_COL_MIN]) if EVT_COL_MIN < len(row) else None
+        # Versión float (para mm:ss). Lo guardamos como string "MM:SS".
+        minuto_f = _to_minute_float(row[EVT_COL_MIN]) if EVT_COL_MIN < len(row) else None
+        if minuto_f is not None and minuto_f > 0:
+            mm = int(minuto_f)
+            ss = int(round((minuto_f - mm) * 60))
+            if ss == 60:
+                mm += 1; ss = 0
+            minuto_mmss = f"{mm:02d}:{ss:02d}"
+        else:
+            minuto_mmss = ""
         if not goleador and not accion and not minuto:
             continue
         if goleador in ("GOLEADOR", "RIVAL/JUGADOR"):  # cabeceras residuales
@@ -434,6 +455,7 @@ def parsear_partido(
             portero=portero,
             cuarteto=cuarteto,
             descripcion="",
+            minuto_mmss=minuto_mmss,
         ))
 
     # ─── Métricas individuales (filas 134-147) ──────────────────────────────

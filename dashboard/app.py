@@ -3085,20 +3085,29 @@ with tab_partido:
 
             # ── Mapas SVG del partido (zonas + portería) ────────────────────
             if not est_disparos_zonas.empty:
-                # Match por (rival + fecha) — la hoja Goles TOTAL no usa
-                # partido_id, así que cruzamos por las dos columnas que
-                # tenemos: rival y fecha.
-                meta_rival = str(meta.get("rival", "")).upper()
-                meta_fecha = str(meta.get("fecha", ""))
+                # Match robusto rival+fecha. Estrategias:
+                #  1) primer token (>=4 letras) + fecha
+                #  2) cualquier token + fecha
+                #  3) solo fecha (último recurso)
+                meta_rival = str(meta.get("rival", "")).upper().strip()
+                meta_fecha = str(meta.get("fecha", "")).strip()
                 edz = est_disparos_zonas.copy()
-                # Normalizar
-                edz["rival_up"] = edz["rival"].astype(str).str.upper()
-                # Match aproximado: rival contiene la palabra del meta
-                rival_corto = meta_rival.split()[0] if meta_rival else ""
-                edz_match = edz[
-                    (edz["rival_up"].str.contains(rival_corto, na=False)) &
-                    (edz["fecha"].astype(str) == meta_fecha)
-                ]
+                edz["rival_up"] = edz["rival"].astype(str).str.upper().str.strip()
+                edz["fecha_str"] = edz["fecha"].astype(str).str.strip()
+                rival_tokens = [t for t in meta_rival.replace("-", " ").split()
+                                  if len(t) >= 4]
+                edz_match = pd.DataFrame()
+                # Estrategia 1+2: token + fecha
+                for t in rival_tokens:
+                    edz_match = edz[
+                        (edz["rival_up"].str.contains(t, na=False, regex=False)) &
+                        (edz["fecha_str"] == meta_fecha)
+                    ]
+                    if not edz_match.empty:
+                        break
+                # Estrategia 3: solo fecha
+                if edz_match.empty and meta_fecha:
+                    edz_match = edz[edz["fecha_str"] == meta_fecha]
                 if not edz_match.empty:
                     fila_z = edz_match.iloc[0]
                     st.markdown("---")
@@ -3113,8 +3122,8 @@ with tab_partido:
                     ec_zona = {f"A{i}": int(pd.to_numeric(fila_z.get(f"G_EC_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
 
                     sub_af_p, sub_ec_p = st.tabs([
-                        "⚽ Cómo metemos goles",
-                        "🥅 Cómo recibimos goles",
+                        "⚽ Goles a Favor",
+                        "🥅 Goles en Contra",
                     ])
                     with sub_af_p:
                         cA, cB = st.columns([3, 2])
@@ -3132,6 +3141,14 @@ with tab_partido:
                         with cB:
                             st.markdown("**Portería · cuadrantes por donde nos meten goles**")
                             st.markdown(generar_svg_porteria(ec_port), unsafe_allow_html=True)
+                else:
+                    st.markdown("---")
+                    st.warning(
+                        f"🎯 **No se encontró fila en EST_DISPAROS_ZONAS** "
+                        f"para `{meta.get('rival', '')}` · `{meta_fecha}`. "
+                        f"Si el partido es reciente, reejecuta "
+                        f"`/usr/bin/python3 src/estadisticas_disparos.py --upload`."
+                    )
 
 
     except Exception as _e_tab:
