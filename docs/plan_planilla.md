@@ -190,6 +190,94 @@ Para meter datos **EN DIRECTO** durante el partido desde la banda.
 > **Arkaitz, escribe aquí lo que quieras añadir a la lista.**
 > Cuando quieras que algo se haga, lo movemos a la iteración que toque.
 
+### 🖨 Planilla imprimible para apuntar con papel y boli durante el partido
+
+**Idea:** generar un PDF imprimible con casillas vacías que Arkaitz se
+lleva al partido para apuntar con boli. Refleja las mismas secciones
+que la planilla digital de Streamlit, así luego transcribir es mecánico.
+
+**Páginas propuestas (A4 horizontal, una por bloque):**
+
+1. **Cabecera + plantilla**:
+   - Cabecera con `PARTIDO · CATEGORÍA · LUGAR · HORA · FECHA` vacíos.
+   - Tabla de plantilla con dorsales pre-rellenados de los convocados
+     que él marque antes de imprimir (12-16 jugadores) + columna NJ/T/S.
+
+2. **Rotaciones**:
+   - Tabla con jugadores como filas y 8 columnas para 1ª parte y 8
+     para 2ª parte. Casillas grandes para escribir `mm:ss`.
+
+3. **Métricas individuales**:
+   - Tabla con jugadores como filas y columnas: Min, PF, PNF, ROB,
+     COR, BDG, BDP, DP, DPos, DB, DF, TA, TR. Tabla aparte para
+     porteros: P.PAR, P.FUE, P.BLO, P.POS, P.Gol, P.SAL, P.SAL_FALL.
+   - Casillas grandes (al menos 8mm) para apuntar.
+
+4. **Eventos de gol**:
+   - 12-15 filas vacías con columnas: Min · Marcador · Equipo (I/R) ·
+     Acción · Goleador · Asistente · Portero · Pista 1-5 · Descripción.
+
+5. **Zonas de gol**:
+   - Mapa SVG del campo (11 zonas) y portería (3×3) en grande, dos
+     copias (una para a favor, otra para en contra). Arkaitz marca
+     con palitos las zonas.
+
+6. **Faltas**:
+   - Tabla a favor (1ª parte / 2ª parte) y en contra. Suma de faltas
+     visible para chequear cuándo se llega a la 6ª.
+
+7. **Penaltis y 10m**:
+   - Tabla con filas vacías: tipo · condición · parte · min · lanzador
+     · portero · gol · cuadrante · descripción.
+
+**Implementación:** script `src/pdf_planilla_blank.py` que genera el PDF
+con reportlab a partir del roster y la cabecera del partido (que se
+elige antes de imprimir). Botón "🖨 Imprimir planilla en blanco" en
+la pestaña ✏️ Editar partido del dashboard.
+
+---
+
+### 📋 Pestaña de scouting — meter datos de rivales
+
+**Contexto:** cuando Arkaitz ve un partido de dos equipos rivales (no
+el Inter), apunta los goles que meten y reciben, y la **zona del campo
+y portería** por donde entra cada gol. Lo guarda en su documento
+"Estadísticas rivales".
+
+**Hoja propuesta nueva `EST_SCOUTING_GOLES`:**
+
+| col | descripción |
+|-----|-------------|
+| equipo | nombre del equipo del que se hace scouting |
+| fecha_partido | fecha del partido visto |
+| rival_de_ese_partido | el otro equipo del partido |
+| competicion | LIGA, COPA, etc. |
+| evento_idx | nº del gol (1, 2, 3...) dentro del partido |
+| condicion | A_FAVOR / EN_CONTRA *(siempre desde el punto de vista del equipo en scouting)* |
+| minuto_mmss | mm:ss |
+| accion | tipo de jugada (BANDA, CORNER, 4x4, ...) |
+| zona_campo | A1..A11 desde donde se origina el gol |
+| zona_porteria | P1..P9 a qué cuadrante entra |
+| descripcion | texto libre |
+
+**UI propuesta — pestaña 🕵 Scouting goles (nueva):**
+
+1. Selector de **equipo** (de una lista de equipos rivales que ya tengamos en EST_PARTIDOS o nueva hoja `EQUIPOS_RIVALES`).
+2. Selector de partido (fecha + rival), o botón "➕ Nuevo partido visto".
+3. **Editor de goles** (data_editor) con: condición · min · acción · zona_campo · zona_porteria · descripción.
+4. **Mapas SVG agregados** del equipo en scouting: cómo meten goles (zonas + portería) y cómo los reciben.
+5. **Tabla** de patrones: top zonas usadas, top tipos de jugada.
+
+**Por hacer:**
+- [ ] Crear hoja `EST_SCOUTING_GOLES` con `src/setup_scouting_goles.py`.
+- [ ] Pestaña nueva 🕵 Scouting goles en dashboard (form + visualización).
+- [ ] Integrar en la pestaña 📊 Scouting que ya existe (ahora es agregada por jornada).
+- [ ] Cuando juguemos contra un equipo del que tenemos scouting, mostrar sus mapas en la pestaña 🎮 Partido como "alerta táctica".
+
+---
+
+### Otras ideas (sin definir)
+
 - [ ] (ej.) Permitir adjuntar foto/video del gol al evento
 - [ ]
 - [ ]
