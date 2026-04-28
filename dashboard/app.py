@@ -89,6 +89,25 @@ h2, h3 { color: #1B3A6B; }
     background: rgba(255,255,255,0.85);
 }
 div[data-testid="stTab"] button { font-weight: 600; }
+
+/* Zebra striping en tablas de st.dataframe */
+[data-testid="stDataFrame"] [data-testid="stVerticalBlock"] div[role="row"]:nth-child(odd):not([role="columnheader"]) {
+    background: rgba(0, 0, 0, 0.02);
+}
+[data-testid="stDataFrame"] table tbody tr:nth-child(odd) {
+    background: #f8fafc !important;
+}
+[data-testid="stDataFrame"] table tbody tr:nth-child(even) {
+    background: #ffffff !important;
+}
+[data-testid="stDataFrame"] table tbody tr:hover {
+    background: #e3f2fd !important;
+}
+
+/* KPI metric cards con color personalizado */
+.kpi-positivo [data-testid="stMetricValue"] { color: #2E7D32 !important; }
+.kpi-negativo [data-testid="stMetricValue"] { color: #B71C1C !important; }
+.kpi-neutro   [data-testid="stMetricValue"] { color: #1B3A6B !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -229,6 +248,10 @@ def datos():
     except Exception:
         scout_raw = pd.DataFrame()
         scout_agr = pd.DataFrame()
+    try:
+        est_tot_partido = cargar("EST_TOTALES_PARTIDO")
+    except Exception:
+        est_tot_partido = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -252,7 +275,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -267,7 +290,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -277,7 +300,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -1570,6 +1593,173 @@ def _fmt_minutos(v) -> str:
     return f"{m}:{s:02d}"
 
 
+# ── Tooltips por columna (st.column_config) ───────────────────────────────────
+TOOLTIPS_COLS = {
+    # Identificación
+    "jugador": "Jugador (nombre canónico)",
+    "dorsal": "Número de dorsal",
+    "Nº": "Número de dorsal",
+    "Jugador": "Jugador",
+    "partido_id": "Identificador del partido (pestaña del Excel original)",
+    "rival": "Equipo rival",
+    "fecha": "Fecha del partido (YYYY-MM-DD)",
+    "tipo": "Tipo de competición",
+    "competicion": "Competición legible",
+    # Minutos
+    "min_total": "Minutos totales jugados (1ª + 2ª parte)",
+    "min_1t": "Minutos jugados en la 1ª parte",
+    "min_2t": "Minutos jugados en la 2ª parte",
+    "min_partido": "Media de minutos por partido jugado",
+    "min_por_partido": "Media de minutos por partido jugado",
+    "1ª parte": "Minutos jugados en la 1ª parte (mm:ss)",
+    "2ª parte": "Minutos jugados en la 2ª parte (mm:ss)",
+    "Total": "Total minutos jugados (mm:ss)",
+    "partidos": "Partidos jugados",
+    "partidos_conv": "Partidos convocado (apareció en la lista del partido)",
+    "partidos_jug": "Partidos jugados (con minutos > 0)",
+    "partidos_convocado": "Partidos convocado",
+    "partidos_jugados": "Partidos jugados",
+    "convocatorias": "Veces convocado para partido",
+    "participa": "Veces que participó (jugó al menos 1 minuto)",
+    # Métricas individuales
+    "pf": "Pérdidas Forzadas (el rival te roba la pelota presionando)",
+    "pnf": "Pérdidas No Forzadas (la pelota se pierde por error propio)",
+    "PF": "Pérdidas Forzadas",
+    "PNF": "Pérdidas No Forzadas",
+    "robos": "Robos de balón al rival",
+    "Robos": "Robos de balón al rival",
+    "cortes": "Cortes (interceptación de pase rival)",
+    "Cortes": "Cortes (interceptación de pase rival)",
+    "bdg": "Balón Dividido Ganado (50-50 que ganas)",
+    "bdp": "Balón Dividido Perdido",
+    "BDG": "Balón Dividido Ganado",
+    "BDP": "Balón Dividido Perdido",
+    "dif_rec_per": "Diferencia recuperaciones - pérdidas (robos+cortes - PF-PNF)",
+    "dif_bd": "Diferencia balones divididos (BDG - BDP)",
+    # Disparos
+    "dp": "Disparos a Puerta",
+    "dpalo": "Disparos al Palo",
+    "db": "Disparos Bloqueados (defensa rival los corta)",
+    "df": "Disparos Fuera",
+    "dt": "Disparos Totales (DP + DPalo + DB + DF)",
+    "DP": "Disparos a Puerta",
+    "DPalo": "Disparos al Palo",
+    "DB": "Disparos Bloqueados",
+    "DF": "Disparos Fuera",
+    "DT": "Disparos Totales",
+    "pct_dp_total": "% disparos que van a puerta (DP / DT)",
+    "pct_a_puerta": "% disparos que van a puerta (DP / DT)",
+    "pct_conversion": "% conversión (goles / disparos a puerta)",
+    "dp_por_40": "Disparos a puerta por cada 40 minutos jugados (un partido completo)",
+    "dt_por_40": "Disparos totales por 40 minutos",
+    # Goles
+    "goles": "Goles a favor marcados",
+    "Goles": "Goles a favor",
+    "asists": "Asistencias",
+    "asistencias": "Asistencias",
+    "Asists": "Asistencias",
+    "g+a": "Goles + Asistencias",
+    "G+A": "Goles + Asistencias",
+    "goles_a_favor": "Goles a favor",
+    "goles_en_contra": "Goles en contra",
+    "gf_pista": "Goles a favor cuando este jugador estaba en pista",
+    "gc_pista": "Goles en contra cuando este jugador estaba en pista",
+    "gf_en_pista": "Goles a favor cuando este jugador estaba en pista",
+    "gc_en_pista": "Goles en contra cuando este jugador estaba en pista",
+    "plus_minus": "Plus/Minus: GF en pista − GC en pista (cuanto mejor le va al equipo con él)",
+    "plus_minus_por_40": "Plus/Minus por cada 40 minutos jugados",
+    # Por minuto
+    "robos/min": "Robos por minuto jugado",
+    "cortes/min": "Cortes por minuto jugado",
+    "pf/min": "Pérdidas forzadas por minuto",
+    "pnf/min": "Pérdidas no forzadas por minuto",
+    "dp/min": "Disparos a puerta por minuto",
+    "goles/min": "Goles por minuto jugado",
+    # Por 40 minutos
+    "goles/40": "Goles por cada 40 minutos jugados (un partido completo)",
+    "asists/40": "Asistencias por 40 minutos",
+    "g+a/40": "Goles + Asistencias por 40 minutos",
+    "goles_por_40": "Goles por 40 minutos",
+    "asists_por_40": "Asistencias por 40 minutos",
+    "g+a_por_40": "G+A por 40 minutos",
+    # % vs equipo
+    "%_min_eq": "% de los minutos del equipo jugados por este jugador",
+    "%_goles_eq": "% de los goles del equipo metidos por este jugador",
+    "%_asists_eq": "% de las asistencias del equipo dadas por este jugador",
+    "%_robos_eq": "% de los robos del equipo hechos por este jugador",
+    "%_dp_eq": "% de los disparos a puerta del equipo hechos por este jugador",
+    "pct_minutos_equipo": "% minutos del equipo",
+    "pct_goles_equipo": "% goles del equipo",
+    "pct_asists_equipo": "% asistencias del equipo",
+    # Eventos / cuartetos / goles
+    "minuto": "Minuto del partido en que sucedió el evento (1-40)",
+    "marcador": "Marcador acumulado tras el gol",
+    "accion": "Tipo de acción de gol (Banda, Córner, 4x4, Contraataque, etc.)",
+    "Acción": "Tipo de acción de gol",
+    "goleador": "Jugador que marcó",
+    "Goleador": "Jugador que marcó",
+    "asistente": "Jugador que dio la asistencia",
+    "Asistente": "Jugador que dio la asistencia",
+    "portero": "Portero que estaba en pista en ese momento",
+    "Portero": "Portero en pista",
+    "cuarteto": "Jugadores de campo en pista (3-5 separados por |)",
+    "Cuarteto": "Jugadores de campo en pista",
+    "equipo_marca": "Equipo que marcó (INTER o RIVAL)",
+    "Equipo": "Equipo que marcó",
+    "intervalo_5min": "Intervalo de 5 minutos donde cae el gol (0-5, 5-10, ...)",
+    "Min": "Minuto del partido",
+    "Marcador": "Marcador acumulado",
+    "descripcion": "Descripción libre del gol (la rellenas tú a mano en el Sheet)",
+    "Descripción": "Descripción libre del gol",
+    # Cuartetos
+    "formacion": "Combinación de jugadores en pista",
+    "n_eventos": "Veces que esta combinación estuvo en pista cuando se marcó un gol (a favor o en contra)",
+    # Disparos por partido
+    "disparos_a_favor": "Disparos a favor del Inter en el partido",
+    "disparos_en_contra": "Disparos en contra del Inter (del rival)",
+    "ratio_a_favor": "Disparos por gol a favor (cuanto menor, más eficiente)",
+    "ratio_en_contra": "Disparos por gol en contra (del rival, cuanto mayor, mejor defensa)",
+    "minutos_jugados": "Minutos del partido (40 normalmente)",
+}
+
+
+def _coltype_help(col_name: str, df: pd.DataFrame):
+    """Devuelve un dict {col: column_config} con el tooltip y formato auto-detectado."""
+    cfg = {}
+    for c in df.columns:
+        help_txt = TOOLTIPS_COLS.get(c) or TOOLTIPS_COLS.get(c.lower())
+        if help_txt:
+            cfg[c] = st.column_config.Column(help=help_txt)
+    return cfg
+
+
+def _gradiente_sutil(styler, columnas, df_subset=None):
+    """Aplica gradiente sutil RdYlGn por columna independiente.
+    `df_subset` permite calcular el gradiente solo sobre un subconjunto
+    (p. ej. excluyendo porteros para el ranking de minutos)."""
+    cmap_suave = "RdYlGn"  # rojo-amarillo-verde, suave es más subjetivo, ajustamos vmin/vmax
+    for c in columnas:
+        if c not in styler.data.columns:
+            continue
+        try:
+            base = pd.to_numeric(
+                (df_subset[c] if df_subset is not None else styler.data[c]),
+                errors="coerce"
+            )
+            if base.dropna().empty:
+                continue
+            vmin = base.min()
+            vmax = base.max()
+            if vmin == vmax:
+                continue
+            styler = styler.background_gradient(
+                subset=[c], cmap=cmap_suave, vmin=vmin, vmax=vmax,
+            )
+        except Exception:
+            continue
+    return styler
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 10 — 📈 EFICIENCIA (disparos, ratios, métricas avanzadas)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1658,21 +1848,58 @@ with tab_efic:
 
         st.markdown("---")
 
-        # ── Cuartetos más efectivos ──
-        if not est_cuart.empty:
-            st.markdown("#### Cuartetos más efectivos (+/- por eventos en pista)")
-            c = est_cuart.copy()
-            for col in ("n_eventos", "goles_a_favor", "goles_en_contra", "plus_minus"):
-                if col in c.columns:
-                    c[col] = pd.to_numeric(c[col], errors="coerce").fillna(0).astype(int)
-            st.dataframe(
-                c.head(15).style.background_gradient(subset=["plus_minus"], cmap="RdYlGn"),
-                use_container_width=True, hide_index=True,
+        # ── Combinaciones efectivas (tríos / cuartetos / quintetos) ─────────
+        if not est_eventos.empty:
+            st.markdown("#### 🏅 Combinaciones más efectivas")
+            st.caption("Filtra por tamaño y elige incluir o no al portero.")
+
+            ce1, ce2 = st.columns([2, 2])
+            tamanos_e = ce1.multiselect(
+                "Tamaño combinación", [3, 4, 5], default=[4, 5], key="efic_cuart_tam",
+                help="3 = trío, 4 = cuarteto, 5 = quinteto."
             )
+            inc_p_e = ce2.radio(
+                "Incluir portero", ["Sí", "No"], horizontal=True, key="efic_cuart_port"
+            )
+
+            ev_q = est_eventos.copy()
+            ev_q["portero"] = ev_q["portero"].fillna("").astype(str)
+            ev_q["cuarteto"] = ev_q["cuarteto"].fillna("").astype(str)
+            incl = (inc_p_e == "Sí")
+
+            def _form_e(r):
+                miembros = list(filter(None, r["cuarteto"].split("|")))
+                if incl and r["portero"]:
+                    miembros.append(r["portero"])
+                return " | ".join(sorted(set(miembros)))
+            ev_q["formacion"] = ev_q.apply(_form_e, axis=1)
+            ev_q["tam"] = ev_q["formacion"].str.split(" | ").str.len()
+            if tamanos_e:
+                ev_q = ev_q[ev_q["tam"].isin(tamanos_e)]
+
+            if ev_q.empty:
+                st.warning("Sin combinaciones para los filtros aplicados.")
+            else:
+                agr_q_e = ev_q.groupby("formacion", as_index=False).agg(
+                    tamano=("tam", "first"),
+                    n_eventos=("formacion", "count"),
+                    goles_a_favor=("equipo_marca", lambda s: (s == "INTER").sum()),
+                    goles_en_contra=("equipo_marca", lambda s: (s == "RIVAL").sum()),
+                )
+                agr_q_e["plus_minus"] = agr_q_e["goles_a_favor"] - agr_q_e["goles_en_contra"]
+                agr_q_e = agr_q_e.sort_values(["plus_minus", "n_eventos"],
+                                              ascending=[False, False]).head(15)
+                sty_qe = agr_q_e.style.format({
+                    "tamano": "{:.0f}", "n_eventos": "{:.0f}",
+                    "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
+                    "plus_minus": "{:+.0f}",
+                })
+                sty_qe = _gradiente_sutil(sty_qe, ["plus_minus"])
+                st.dataframe(sty_qe, use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
-        # ── Tabla de disparos por partido ──
+        # ── Tabla de disparos por partido (2 decimales) ──
         if not est_disparos.empty:
             st.markdown("#### Disparos por partido")
             comp_op = ["TODAS"] + sorted(est_disparos["competicion"].dropna().unique().tolist())
@@ -1680,11 +1907,17 @@ with tab_efic:
             df_show = est_disparos.copy()
             if sel_c != "TODAS":
                 df_show = df_show[df_show["competicion"] == sel_c]
-            st.dataframe(
-                df_show[["competicion","rival","fecha","disparos_a_favor","disparos_en_contra",
-                         "goles_a_favor","goles_en_contra","ratio_a_favor","ratio_en_contra"]],
-                use_container_width=True, hide_index=True,
-            )
+            cols_dis = ["competicion","rival","fecha","disparos_a_favor","disparos_en_contra",
+                        "goles_a_favor","goles_en_contra","ratio_a_favor","ratio_en_contra"]
+            cols_dis = [c for c in cols_dis if c in df_show.columns]
+            sty_dis = df_show[cols_dis].style.format({
+                "disparos_a_favor": "{:.0f}", "disparos_en_contra": "{:.0f}",
+                "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
+                "ratio_a_favor": "{:.2f}", "ratio_en_contra": "{:.2f}",
+            }, na_rep="—")
+            st.dataframe(sty_dis, use_container_width=True, hide_index=True,
+                         column_config={c: st.column_config.Column(help=TOOLTIPS_COLS.get(c, ""))
+                                        for c in cols_dis if TOOLTIPS_COLS.get(c)})
 
         st.markdown("---")
 
@@ -1748,6 +1981,21 @@ with tab_scout:
 
         sub_global, sub_rival = st.tabs(["📊 Global (todos los rivales)", "🎯 Foco en un rival"])
 
+        # Abreviaturas para el heatmap (cabeceras cortas, mismo ancho)
+        ABREV_ACCION = {
+            "Banda": "BAN", "Córner": "COR", "Saque de Centro": "SQC",
+            "Falta": "FAL", "2ª jugada de ABP": "2ªA", "10 metros": "10M",
+            "Penalti": "PEN", "Falta sin barrera": "FSB",
+            "Ataque Posicional 4x4": "4x4", "1x1 en banda": "1x1",
+            "Salida de presión": "SAL", "2ª jugada": "2ª",
+            "Incorporación del portero": "IPO",
+            "Robo en incorporación de portero": "RIP",
+            "Pérdida en incorporación de portero": "PIP",
+            "5x4": "5x4", "4x5": "4x5", "4x3": "4x3", "3x4": "3x4",
+            "Contraataque": "CTR", "Robo en zona alta": "RZA",
+            "No calificado": "N/C",
+        }
+
         with sub_global:
             st.markdown("#### Comparativa entre rivales")
             agr = scout_agr.copy()
@@ -1766,19 +2014,34 @@ with tab_scout:
                 use_container_width=True, hide_index=True,
             )
 
-            # Heatmap de % por origen × rival
+            # Heatmap de % por origen × rival CON CABECERAS CORTAS
             cols_pct = [c for c in agr.columns if c.startswith("%")]
             if cols_pct:
                 st.markdown("#### Heatmap: % goles por origen × rival")
+                st.caption("Pasa el ratón por una cabecera para ver el nombre completo del origen.")
                 heat = agr[["rival_codigo"] + cols_pct].set_index("rival_codigo")
-                # Renombrar quitar "%"
-                heat.columns = [c.lstrip("%") for c in heat.columns]
-                # Solo dejar columnas con al menos un valor > 5%
+                # Mapear a abreviaturas cortas (3 letras)
+                col_map = {}
+                long_names = {}
+                for c in heat.columns:
+                    name_full = c.lstrip("%")
+                    short = ABREV_ACCION.get(name_full, name_full[:3].upper())
+                    # Evitar choques con sufijos
+                    if short in col_map.values():
+                        short = short + "·"
+                    col_map[c] = short
+                    long_names[short] = name_full
+                heat = heat.rename(columns=col_map)
+                # Solo dejar columnas con al menos un valor > 5% (filtrar ruido)
                 heat = heat.loc[:, heat.max() > 5]
+                # column_config con tooltips de nombre completo
+                cc_heat = {short: st.column_config.NumberColumn(short, help=long_names.get(short, ""), format="%.1f%%")
+                           for short in heat.columns}
                 st.dataframe(
                     heat.style.format("{:.1f}%", na_rep="—")
                     .background_gradient(cmap="YlOrRd", axis=None),
                     use_container_width=True,
+                    column_config=cc_heat,
                 )
 
         with sub_rival:
@@ -1786,7 +2049,16 @@ with tab_scout:
             if rivales_op:
                 rival_sel = st.selectbox("Rival a analizar", rivales_op, key="scout_rival")
                 df_r = scout_raw[scout_raw["rival_nombre"] == rival_sel].copy()
-                agr_r = scout_agr[scout_agr["rival_nombre"] == rival_sel].iloc[0] if not scout_agr[scout_agr["rival_nombre"] == rival_sel].empty else None
+                agr_r_filter = scout_agr[scout_agr["rival_nombre"] == rival_sel]
+                agr_r = agr_r_filter.iloc[0] if not agr_r_filter.empty else None
+                # Código del rival (3 letras)
+                cod_rival = (agr_r["rival_codigo"] if agr_r is not None
+                             and "rival_codigo" in agr_r.index else "")
+
+                # Detectar el nombre con el que aparece en SCOUTING_RIVALES como
+                # "contra_quien" (lo apuntan distinto cada equipo: "BARCELONA",
+                # "FC BARCELONA"...). Match aproximado por código de 3 letras.
+                rival_corto = (rival_sel.split()[0] if rival_sel else "").upper()
 
                 if agr_r is not None:
                     cols_acc = [c for c in agr_r.index if not c.startswith("%") and c not in (
@@ -1797,7 +2069,8 @@ with tab_scout:
                     media = pd.to_numeric(agr_r["total_goles"], errors="coerce") / max(pd.to_numeric(agr_r["partidos"], errors="coerce") or 1, 1)
                     k3.metric("Goles por partido", f"{media:.2f}")
 
-                    st.markdown(f"#### Cómo marca **{rival_sel}** (% por origen)")
+                    # ── A FAVOR (cómo marca este rival) ───────────────────
+                    st.markdown(f"#### ⚽ Cómo marca **{rival_sel}** (goles a favor)")
                     pct_data = []
                     for c in cols_acc:
                         v = pd.to_numeric(agr_r[c], errors="coerce")
@@ -1807,12 +2080,55 @@ with tab_scout:
                         df_pct = pd.DataFrame(pct_data).sort_values("goles", ascending=False)
                         st.bar_chart(df_pct.set_index("accion")["goles"])
 
+                    # ── EN CONTRA (cómo recibe este rival) ─────────────────
+                    # Reconstruir desde SCOUTING_RIVALES: filas donde
+                    # "contra_quien" coincide con este rival → goles que OTROS
+                    # rivales le metieron (cómo le marcan).
+                    st.markdown(f"#### 🥅 Cómo recibe **{rival_sel}** (goles en contra)")
+                    st.caption(
+                        "Cómo le marcan a este rival otros equipos (datos del scouting). "
+                        "Solo se incluyen los partidos donde el adversario también está scoutado."
+                    )
+                    # Match contra_quien por palabra clave (las apuntan distinto)
+                    contra_match = scout_raw["contra_quien"].astype(str).str.upper()
+                    df_recibe = scout_raw[contra_match.str.contains(rival_corto, na=False)].copy()
+                    if df_recibe.empty:
+                        st.caption(f"Sin datos: ningún rival scoutado ha jugado contra {rival_sel} en las pestañas que tenemos.")
+                    else:
+                        # Agregar goles que le metieron, por origen
+                        cols_origen = [c for c in df_recibe.columns
+                                       if c not in ("rival_codigo", "rival_nombre", "competicion",
+                                                    "contra_quien", "fecha", "total_a_favor")]
+                        for c in cols_origen + ["total_a_favor"]:
+                            df_recibe[c] = pd.to_numeric(df_recibe[c], errors="coerce").fillna(0)
+                        total_recibidos = int(df_recibe["total_a_favor"].sum())
+                        n_partidos = len(df_recibe)
+                        st.metric(f"Goles recibidos (en {n_partidos} partidos)",
+                                  total_recibidos,
+                                  help="Suma de los goles que otros rivales le marcaron")
+                        # Bar chart por origen
+                        recv = []
+                        for c in cols_origen:
+                            v = int(df_recibe[c].sum())
+                            if v > 0:
+                                recv.append({"accion": c, "goles_recibidos": v})
+                        if recv:
+                            df_recv = pd.DataFrame(recv).sort_values("goles_recibidos", ascending=False)
+                            st.bar_chart(df_recv.set_index("accion")["goles_recibidos"])
+
+                # ── Tabla partido a partido ─────────────────────────────
                 st.markdown(f"#### Partido a partido — {rival_sel}")
                 cols_show = ["competicion", "contra_quien", "fecha", "total_a_favor"]
                 cols_show = [c for c in cols_show if c in df_r.columns]
                 st.dataframe(
                     df_r[cols_show].sort_values("fecha", ascending=False),
                     use_container_width=True, hide_index=True,
+                    column_config={
+                        "competicion": st.column_config.Column(help="Competición"),
+                        "contra_quien": st.column_config.Column("contra", help="Equipo contra el que jugó"),
+                        "fecha": st.column_config.Column(help="Fecha del partido"),
+                        "total_a_favor": st.column_config.NumberColumn("Goles", help="Goles a favor del rival en ese partido", format="%d"),
+                    },
                 )
 
 
@@ -1835,33 +2151,40 @@ with tab_partido:
         if not ev.empty:
             ev["minuto"] = pd.to_numeric(ev["minuto"], errors="coerce")
 
-        # Selector de partido (los más recientes primero según fecha si la hay)
+        # ── Selector de partido en orden CRONOLÓGICO (más reciente arriba)──
         partidos_meta = (ep.groupby("partido_id", as_index=False)
                          .agg(tipo=("tipo", "first"),
                               competicion=("competicion", "first"),
                               rival=("rival", "first"),
                               fecha=("fecha", "first")))
-
-        # Etiqueta legible
-        def _label(r):
-            f = str(r["fecha"]) if r["fecha"] else ""
-            return f"{r['partido_id']} — {r['rival']}" + (f" ({f})" if f else "")
-        partidos_meta["label"] = partidos_meta.apply(_label, axis=1)
-
-        # Orden por fecha desc (los recientes arriba)
         partidos_meta["_fkey"] = pd.to_datetime(partidos_meta["fecha"], errors="coerce")
-        partidos_meta = partidos_meta.sort_values("_fkey", ascending=False)
+        # Orden: por fecha descendente; los partidos sin fecha al final
+        partidos_meta = partidos_meta.sort_values(
+            "_fkey", ascending=False, na_position="last"
+        )
 
+        def _label(r):
+            f = str(r["fecha"]) if r["fecha"] else "—"
+            return f"{f} · {r['partido_id']} — {r['rival']}"
+        partidos_meta["label"] = partidos_meta.apply(_label, axis=1)
         labels = partidos_meta["label"].tolist()
-        sel_label = st.selectbox("Selecciona partido", labels, key="partido_sel")
+        sel_label = st.selectbox("Selecciona partido (orden cronológico, recientes arriba)",
+                                  labels, key="partido_sel")
         sel_id = partidos_meta[partidos_meta["label"] == sel_label]["partido_id"].iloc[0]
         meta = partidos_meta[partidos_meta["partido_id"] == sel_id].iloc[0]
 
-        # ── Cabecera del partido ────────────────────────────────────────────
+        # ── Datos del partido ────────────────────────────────────────────
         ep_p = ep[ep["partido_id"] == sel_id].copy()
         ev_p = ev[ev["partido_id"] == sel_id] if not ev.empty else pd.DataFrame()
 
-        # Marcador deducido de los eventos
+        # Totales del partido (de EST_TOTALES_PARTIDO si está)
+        tot_p = None
+        if not est_tot_partido.empty:
+            row_t = est_tot_partido[est_tot_partido["partido_id"] == sel_id]
+            if not row_t.empty:
+                tot_p = row_t.iloc[0]
+
+        # Marcador
         gf_p = int((ev_p["equipo_marca"] == "INTER").sum()) if not ev_p.empty else 0
         gc_p = int((ev_p["equipo_marca"] == "RIVAL").sum()) if not ev_p.empty else 0
 
@@ -1873,26 +2196,118 @@ with tab_partido:
             cap_partes.append(str(meta["fecha"]))
         st.caption(" · ".join(cap_partes) if cap_partes else "")
 
-        # ── KPIs del partido ────────────────────────────────────────────────
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Goles a favor", gf_p)
-        k2.metric("Goles en contra", gc_p)
-        k3.metric("Pérdidas totales", int((ep_p["pf"] + ep_p["pnf"]).sum()))
-        k4.metric("Disparos puerta", int(ep_p["dp"].sum()))
+        # ── KPIs ampliados (10) ────────────────────────────────────────────
+        # Calcular totales (preferir EST_TOTALES_PARTIDO; fallback a sumar de EP)
+        if tot_p is not None:
+            dt_inter = int(pd.to_numeric(tot_p.get("dt_inter", 0), errors="coerce") or 0)
+            dp_inter = int(pd.to_numeric(tot_p.get("dp_inter", 0), errors="coerce") or 0)
+            dt_rival = int(pd.to_numeric(tot_p.get("dt_rival", 0), errors="coerce") or 0)
+            dp_rival = int(pd.to_numeric(tot_p.get("dp_rival", 0), errors="coerce") or 0)
+            pf_total = int(pd.to_numeric(tot_p.get("pf_inter", 0), errors="coerce") or 0)
+            pnf_total = int(pd.to_numeric(tot_p.get("pnf_inter", 0), errors="coerce") or 0)
+            robos_total = int(pd.to_numeric(tot_p.get("robos_inter", 0), errors="coerce") or 0)
+            cortes_total = int(pd.to_numeric(tot_p.get("cortes_inter", 0), errors="coerce") or 0)
+        else:
+            dt_inter = int((ep_p["dp"] + ep_p["dpalo"] + ep_p["db"] + ep_p["df"]).sum())
+            dp_inter = int(ep_p["dp"].sum())
+            dt_rival = 0
+            dp_rival = int((ep_p["par"] + ep_p["gol_p"]).sum())
+            pf_total = int(ep_p["pf"].sum())
+            pnf_total = int(ep_p["pnf"].sum())
+            robos_total = int(ep_p["robos"].sum())
+            cortes_total = int(ep_p["cortes"].sum())
+
+        # KPIs en 2 filas de 5
+        rfila1 = st.columns(5)
+        with rfila1[0]:
+            st.markdown('<div class="kpi-positivo">', unsafe_allow_html=True)
+            st.metric("⚽ Goles a favor", gf_p)
+            st.markdown('</div>', unsafe_allow_html=True)
+        with rfila1[1]:
+            st.markdown('<div class="kpi-negativo">', unsafe_allow_html=True)
+            st.metric("🥅 Goles en contra", gc_p)
+            st.markdown('</div>', unsafe_allow_html=True)
+        rfila1[2].metric("🎯 Disparos totales", dt_inter)
+        rfila1[3].metric("🎯 Disparos a puerta", dp_inter)
+        rfila1[4].metric("🛡 Recuperaciones", robos_total + cortes_total,
+                         help="Robos + Cortes (interceptaciones)")
+
+        rfila2 = st.columns(5)
+        rfila2[0].metric("🚫 Disparos rival (total)", dt_rival)
+        rfila2[1].metric("🚫 Disparos rival a puerta", dp_rival)
+        rfila2[2].metric("🪝 Pérdidas forzadas", pf_total,
+                         help="El rival te roba la pelota presionando")
+        rfila2[3].metric("⚠️ Pérdidas no forzadas", pnf_total,
+                         help="La pelota se pierde por error propio")
+        rfila2[4].metric("✋ Robos", robos_total)
 
         st.markdown("---")
 
-        # ── Tabla de minutos por jugador (1T, 2T, total) ────────────────────
+        # ── Tabla de minutos por jugador (con semáforo, sin porteros) ─────
         st.markdown("#### ⏱ Minutos por jugador y parte")
+        st.caption("Color: verde = más minutos · rojo = menos. Los porteros se excluyen del semáforo (juegan más por su rol).")
         tabla_min = ep_p.sort_values("min_total", ascending=False)[
             ["dorsal", "jugador", "min_1t", "min_2t", "min_total"]
         ].copy()
-        tabla_min["1ª parte"] = tabla_min["min_1t"].apply(_fmt_minutos)
-        tabla_min["2ª parte"] = tabla_min["min_2t"].apply(_fmt_minutos)
-        tabla_min["Total"] = tabla_min["min_total"].apply(_fmt_minutos)
-        tabla_min = tabla_min[["dorsal", "jugador", "1ª parte", "2ª parte", "Total"]]
-        tabla_min.columns = ["Nº", "Jugador", "1ª parte", "2ª parte", "Total"]
-        st.dataframe(tabla_min, use_container_width=True, hide_index=True)
+        # Detectar porteros (los que tienen métricas de portero rellenas)
+        ep_porteros = ep_p[
+            (ep_p["par"] > 0) | (ep_p["gol_p"] > 0) | (ep_p["bloq_p"] > 0)
+        ]["jugador"].tolist()
+        tabla_min["es_portero"] = tabla_min["jugador"].isin(ep_porteros)
+        # Render con semáforo solo en los de campo
+        sty = tabla_min[["dorsal", "jugador", "min_1t", "min_2t", "min_total"]].style.format({
+            "min_1t": "{:.1f}", "min_2t": "{:.1f}", "min_total": "{:.1f}",
+            "dorsal": "{:.0f}",
+        })
+        # Subset de no-porteros para el gradiente
+        idx_no_porteros = tabla_min[~tabla_min["es_portero"]].index
+        for c in ("min_1t", "min_2t", "min_total"):
+            try:
+                sty = sty.background_gradient(
+                    subset=(idx_no_porteros, c), cmap="RdYlGn"
+                )
+            except Exception:
+                pass
+        st.dataframe(
+            sty,
+            use_container_width=True, hide_index=True,
+            column_config={
+                "dorsal": st.column_config.Column("Nº", help="Número de dorsal"),
+                "jugador": st.column_config.Column("Jugador", help="Jugador"),
+                "min_1t": st.column_config.NumberColumn("1ª parte", help="Minutos en la 1ª parte", format="%.1f"),
+                "min_2t": st.column_config.NumberColumn("2ª parte", help="Minutos en la 2ª parte", format="%.1f"),
+                "min_total": st.column_config.NumberColumn("Total", help="Minutos totales", format="%.1f"),
+            },
+        )
+
+        # ── Rotaciones individuales (1ª-8ª de cada parte) ─────────────────
+        cols_rot_1t = [f"rot_1t_{i}" for i in range(1, 9)]
+        cols_rot_2t = [f"rot_2t_{i}" for i in range(1, 9)]
+        if all(c in ep_p.columns for c in cols_rot_1t):
+            with st.expander("⏱ Rotaciones individuales (cada vez que entra al campo)"):
+                # 1ª parte
+                st.markdown("**1ª parte**")
+                tab_rot1 = ep_p.sort_values("min_total", ascending=False)[
+                    ["dorsal", "jugador"] + cols_rot_1t + ["min_1t"]
+                ].copy()
+                # Convertir a mm:ss para visualización
+                for c in cols_rot_1t + ["min_1t"]:
+                    tab_rot1[c] = tab_rot1[c].apply(_fmt_minutos)
+                tab_rot1.columns = ["Nº", "Jugador",
+                                    "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª",
+                                    "Total 1T"]
+                st.dataframe(tab_rot1, use_container_width=True, hide_index=True)
+                # 2ª parte
+                st.markdown("**2ª parte**")
+                tab_rot2 = ep_p.sort_values("min_total", ascending=False)[
+                    ["dorsal", "jugador"] + cols_rot_2t + ["min_2t"]
+                ].copy()
+                for c in cols_rot_2t + ["min_2t"]:
+                    tab_rot2[c] = tab_rot2[c].apply(_fmt_minutos)
+                tab_rot2.columns = ["Nº", "Jugador",
+                                    "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª",
+                                    "Total 2T"]
+                st.dataframe(tab_rot2, use_container_width=True, hide_index=True)
 
         # ── Tabla de métricas individuales del partido ──────────────────────
         st.markdown("#### 📊 Métricas individuales del partido")
@@ -1903,34 +2318,55 @@ with tab_partido:
                     "goles_a_favor", "asistencias"]
         cols_met = [c for c in cols_met if c in ep_p.columns]
         tabla_met = ep_p[cols_met].copy()
-        tabla_met["DT"] = (ep_p["dp"] + ep_p["dpalo"] + ep_p["db"] + ep_p["df"]).astype(int)
-        rename = {
-            "dorsal": "Nº", "jugador": "Jugador",
-            "pf": "PF", "pnf": "PNF", "robos": "Robos", "cortes": "Cortes",
-            "bdg": "BDG", "bdp": "BDP",
-            "dp": "DP", "dpalo": "DPalo", "db": "DB", "df": "DF",
-            "goles_a_favor": "Goles", "asistencias": "Asists",
-        }
-        tabla_met = tabla_met.rename(columns=rename)
-        # Ordenar por minutos jugados (más arriba los que más jugaron)
-        tabla_met = tabla_met.assign(_min=ep_p["min_total"].values).sort_values("_min", ascending=False).drop(columns="_min")
-        st.dataframe(tabla_met, use_container_width=True, hide_index=True)
+        tabla_met["dt"] = (ep_p["dp"] + ep_p["dpalo"] + ep_p["db"] + ep_p["df"]).astype(int)
+        # Ordenar por minutos jugados
+        tabla_met = tabla_met.assign(_min=ep_p["min_total"].values).sort_values(
+            "_min", ascending=False
+        ).drop(columns="_min")
 
-        # ── Eventos de gol del partido ──────────────────────────────────────
+        cc_part = {
+            "dorsal": st.column_config.Column("Nº", help=TOOLTIPS_COLS["dorsal"]),
+            "jugador": st.column_config.Column("Jugador"),
+            "pf": st.column_config.NumberColumn("PF", help=TOOLTIPS_COLS["pf"], format="%d"),
+            "pnf": st.column_config.NumberColumn("PNF", help=TOOLTIPS_COLS["pnf"], format="%d"),
+            "robos": st.column_config.NumberColumn("Robos", help=TOOLTIPS_COLS["robos"], format="%d"),
+            "cortes": st.column_config.NumberColumn("Cortes", help=TOOLTIPS_COLS["cortes"], format="%d"),
+            "bdg": st.column_config.NumberColumn("BDG", help=TOOLTIPS_COLS["bdg"], format="%d"),
+            "bdp": st.column_config.NumberColumn("BDP", help=TOOLTIPS_COLS["bdp"], format="%d"),
+            "dp": st.column_config.NumberColumn("DP", help=TOOLTIPS_COLS["dp"], format="%d"),
+            "dpalo": st.column_config.NumberColumn("DPalo", help=TOOLTIPS_COLS["dpalo"], format="%d"),
+            "db": st.column_config.NumberColumn("DB", help=TOOLTIPS_COLS["db"], format="%d"),
+            "df": st.column_config.NumberColumn("DF", help=TOOLTIPS_COLS["df"], format="%d"),
+            "dt": st.column_config.NumberColumn("DT", help=TOOLTIPS_COLS["dt"], format="%d"),
+            "goles_a_favor": st.column_config.NumberColumn("Goles", help="Goles marcados", format="%d"),
+            "asistencias": st.column_config.NumberColumn("Asists", help="Asistencias", format="%d"),
+        }
+        st.dataframe(tabla_met, use_container_width=True, hide_index=True,
+                     column_config=cc_part)
+
+        # ── Eventos de gol del partido (con descripción) ──────────────────
         st.markdown("#### ⚽ Goles del partido")
         if ev_p.empty:
             st.caption("Sin eventos de gol registrados.")
         else:
             evp = ev_p.copy().sort_values("minuto")
-            evp["Equipo"] = evp["equipo_marca"].map({"INTER": "🟢 INTER", "RIVAL": "🔴 RIVAL"})
-            cols_ev = ["minuto", "marcador", "Equipo", "accion", "goleador", "asistente", "portero", "cuarteto"]
+            evp["equipo_emoji"] = evp["equipo_marca"].map({"INTER": "🟢 INTER", "RIVAL": "🔴 RIVAL"})
+            cols_ev = ["minuto", "marcador", "equipo_emoji", "accion",
+                       "goleador", "asistente", "portero", "cuarteto", "descripcion"]
             cols_ev = [c for c in cols_ev if c in evp.columns]
-            evp_show = evp[cols_ev].rename(columns={
-                "minuto": "Min", "marcador": "Marcador", "accion": "Acción",
-                "goleador": "Goleador", "asistente": "Asistente",
-                "portero": "Portero", "cuarteto": "Cuarteto",
-            })
-            st.dataframe(evp_show, use_container_width=True, hide_index=True)
+            cc_ev = {
+                "minuto": st.column_config.NumberColumn("Min", help="Minuto del partido", format="%d"),
+                "marcador": st.column_config.Column("Marcador", help="Marcador acumulado"),
+                "equipo_emoji": st.column_config.Column("Equipo", help="Equipo que marcó"),
+                "accion": st.column_config.Column("Acción", help=TOOLTIPS_COLS["accion"]),
+                "goleador": st.column_config.Column("Goleador"),
+                "asistente": st.column_config.Column("Asistente"),
+                "portero": st.column_config.Column("Portero", help="Portero que estaba en pista"),
+                "cuarteto": st.column_config.Column("Cuarteto", help="Jugadores de campo en pista"),
+                "descripcion": st.column_config.Column("Descripción", help=TOOLTIPS_COLS["descripcion"], width="medium"),
+            }
+            st.dataframe(evp[cols_ev], use_container_width=True, hide_index=True,
+                         column_config=cc_ev)
 
         # ── Goles por intervalos de 5' (lado a lado) ────────────────────────
         st.markdown("#### 📈 Goles por intervalos de 5 minutos")
@@ -2032,7 +2468,7 @@ with tab_equipo:
             agr["dif_rec_per"] = agr["robos"] + agr["cortes"] - (agr["pf"] + agr["pnf"])
             agr["dif_bd"] = agr["bdg"] - agr["bdp"]
             agr["g+a"] = agr["goles"] + agr["asists"]
-            agr["pct_dp_total"] = (agr["dp"] / agr["dt"].replace(0, pd.NA) * 100).round(1)
+            agr["pct_dp_total"] = (agr["dp"] / agr["dt"].replace(0, np.nan) * 100).round(1)
 
             # +/- desde eventos
             plusminus = []
@@ -2074,6 +2510,11 @@ with tab_equipo:
 
             agr = agr.sort_values("goles", ascending=False)
 
+            # Helper para construir column_config con tooltip
+            def _cc(*cols):
+                return {c: st.column_config.Column(help=TOOLTIPS_COLS.get(c, ""))
+                        for c in cols if TOOLTIPS_COLS.get(c)}
+
             # Tabs internos para no agobiar
             sub_total, sub_pct, sub_min = st.tabs(["📋 Totales", "📊 % vs Equipo", "⏱ Por minuto / por 40'"])
 
@@ -2085,27 +2526,32 @@ with tab_equipo:
                           "goles", "asists", "g+a",
                           "gf_pista", "gc_pista", "plus_minus"]
                 cols_t = [c for c in cols_t if c in agr.columns]
-                st.dataframe(
-                    agr[cols_t].style.format({
-                        "min_total": "{:.0f}", "min_partido": "{:.1f}",
-                        "pct_dp_total": "{:.1f}%",
-                    }, na_rep="—"),
-                    use_container_width=True, hide_index=True,
-                )
+                df_t = agr[cols_t]
+                # Semáforo sutil por columna numérica
+                num_cols_t = [c for c in cols_t if c not in ("jugador",)]
+                sty_t = df_t.style.format({
+                    "min_total": "{:.0f}", "min_partido": "{:.1f}",
+                    "pct_dp_total": "{:.1f}%",
+                }, na_rep="—")
+                sty_t = _gradiente_sutil(sty_t, num_cols_t)
+                st.dataframe(sty_t, use_container_width=True, hide_index=True,
+                             column_config=_cc(*cols_t))
 
             with sub_pct:
                 cols_p = ["jugador", "partidos_jug", "min_total",
                           "%_min_eq", "%_goles_eq", "%_asists_eq", "%_robos_eq", "%_dp_eq"]
                 cols_p = [c for c in cols_p if c in agr.columns]
-                st.dataframe(
-                    agr[cols_p].style.format({
-                        "min_total": "{:.0f}",
-                        "%_min_eq": "{:.1f}%", "%_goles_eq": "{:.1f}%",
-                        "%_asists_eq": "{:.1f}%", "%_robos_eq": "{:.1f}%",
-                        "%_dp_eq": "{:.1f}%",
-                    }, na_rep="—"),
-                    use_container_width=True, hide_index=True,
-                )
+                df_p = agr[cols_p]
+                num_cols_p = [c for c in cols_p if c not in ("jugador",)]
+                sty_p = df_p.style.format({
+                    "min_total": "{:.0f}",
+                    "%_min_eq": "{:.1f}%", "%_goles_eq": "{:.1f}%",
+                    "%_asists_eq": "{:.1f}%", "%_robos_eq": "{:.1f}%",
+                    "%_dp_eq": "{:.1f}%",
+                }, na_rep="—")
+                sty_p = _gradiente_sutil(sty_p, num_cols_p)
+                st.dataframe(sty_p, use_container_width=True, hide_index=True,
+                             column_config=_cc(*cols_p))
 
             with sub_min:
                 cols_m = ["jugador", "partidos_jug", "min_total",
@@ -2113,16 +2559,18 @@ with tab_equipo:
                           "robos/min", "cortes/min", "pf/min", "pnf/min", "dp/min",
                           "plus_minus"]
                 cols_m = [c for c in cols_m if c in agr.columns]
-                st.dataframe(
-                    agr[cols_m].style.format({
-                        "min_total": "{:.0f}",
-                        "goles/40": "{:.2f}", "asists/40": "{:.2f}", "g+a/40": "{:.2f}",
-                        "robos/min": "{:.3f}", "cortes/min": "{:.3f}",
-                        "pf/min": "{:.3f}", "pnf/min": "{:.3f}", "dp/min": "{:.3f}",
-                        "plus_minus": "{:+.0f}",
-                    }, na_rep="—"),
-                    use_container_width=True, hide_index=True,
-                )
+                df_m = agr[cols_m]
+                num_cols_m = [c for c in cols_m if c not in ("jugador",)]
+                sty_m = df_m.style.format({
+                    "min_total": "{:.0f}",
+                    "goles/40": "{:.2f}", "asists/40": "{:.2f}", "g+a/40": "{:.2f}",
+                    "robos/min": "{:.3f}", "cortes/min": "{:.3f}",
+                    "pf/min": "{:.3f}", "pnf/min": "{:.3f}", "dp/min": "{:.3f}",
+                    "plus_minus": "{:+.0f}",
+                }, na_rep="—")
+                sty_m = _gradiente_sutil(sty_m, num_cols_m)
+                st.dataframe(sty_m, use_container_width=True, hide_index=True,
+                             column_config=_cc(*cols_m))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2182,50 +2630,92 @@ with tab_goles:
 
         st.markdown("---")
 
-        # ── Tabla de goles ───────────────────────────────────────────────────
+        # ── Tabla de goles con descripción ──────────────────────────────────
         st.markdown(f"#### Tabla de goles ({len(ev_f)} eventos)")
         cols_g = ["partido_id", "tipo", "rival", "fecha", "minuto", "marcador",
-                  "equipo_marca", "accion", "goleador", "asistente", "portero", "cuarteto"]
+                  "equipo_marca", "accion", "goleador", "asistente", "portero",
+                  "cuarteto", "descripcion"]
         cols_g = [c for c in cols_g if c in ev_f.columns]
         st.dataframe(
             ev_f[cols_g].sort_values(["fecha", "minuto"]),
             use_container_width=True, hide_index=True,
+            column_config={
+                "minuto": st.column_config.NumberColumn("minuto", help="Minuto del partido", format="%d"),
+                "descripcion": st.column_config.Column("descripción", help=TOOLTIPS_COLS["descripcion"], width="medium"),
+                **{c: st.column_config.Column(help=TOOLTIPS_COLS.get(c, ""))
+                   for c in cols_g if c in TOOLTIPS_COLS and c not in ("minuto", "descripcion")},
+            },
         )
 
         st.markdown("---")
 
-        # ── Cuartetos completos ─────────────────────────────────────────────
-        st.markdown("#### Todos los cuartetos (ordenados por +/-)")
-        ev_for_q = ev.copy()  # cuartetos con TODOS los eventos, no filtrados
+        # ── Combinaciones (tríos / cuartetos / quintetos) ───────────────────
+        st.markdown("#### Combinaciones de jugadores en pista")
+        st.caption("Filtra por tamaño de la combinación y elige si incluir o no al portero. Útil para ver qué tríos/cuartetos/quintetos funcionan mejor.")
+
+        col_a, col_b, col_c = st.columns([2, 2, 2])
+        tamanos = col_a.multiselect(
+            "Tamaño combinación", [3, 4, 5], default=[4, 5],
+            key="g_cuart_tam",
+            help="3 = trío, 4 = cuarteto, 5 = quinteto. Puedes elegir varios."
+        )
+        incluir_portero = col_b.radio(
+            "Incluir portero", ["Sí", "No"], horizontal=True, key="g_cuart_port",
+            help="Si elijes 'No' la combinación se calcula solo con los jugadores de campo."
+        )
+        min_evt = col_c.slider(
+            "Mostrar solo combinaciones con al menos X eventos", 1, 10, 1,
+            key="g_cuart_min"
+        )
+
+        ev_for_q = ev.copy()
         ev_for_q["portero"] = ev_for_q["portero"].fillna("").astype(str)
         ev_for_q["cuarteto"] = ev_for_q["cuarteto"].fillna("").astype(str)
 
-        def _formacion(r):
+        def _formacion(r, incl_p):
             miembros = list(filter(None, r["cuarteto"].split("|")))
-            if r["portero"]:
+            if incl_p and r["portero"]:
                 miembros.append(r["portero"])
             return " | ".join(sorted(set(miembros)))
-        ev_for_q["formacion"] = ev_for_q.apply(_formacion, axis=1)
-        agr_q = ev_for_q.groupby("formacion", as_index=False).agg(
-            n_eventos=("formacion", "count"),
-            goles_a_favor=("equipo_marca", lambda s: (s == "INTER").sum()),
-            goles_en_contra=("equipo_marca", lambda s: (s == "RIVAL").sum()),
-        )
-        agr_q["plus_minus"] = agr_q["goles_a_favor"] - agr_q["goles_en_contra"]
-        agr_q = agr_q.sort_values(["plus_minus", "n_eventos"], ascending=[False, False])
 
-        # Filtro: ocultar cuartetos con menos de N eventos para no saturar
-        min_evt = st.slider("Mostrar solo cuartetos con al menos X eventos", 1, 10, 1, key="g_cuart_min")
-        agr_q_f = agr_q[agr_q["n_eventos"] >= min_evt]
-        st.caption(f"{len(agr_q_f)} cuartetos / {len(agr_q)} totales")
+        incl = (incluir_portero == "Sí")
+        ev_for_q["formacion"] = ev_for_q.apply(lambda r: _formacion(r, incl), axis=1)
+        ev_for_q["tam"] = ev_for_q["formacion"].str.split(" | ").str.len()
 
-        st.dataframe(
-            agr_q_f.style.format({
-                "n_eventos": "{:.0f}", "goles_a_favor": "{:.0f}",
-                "goles_en_contra": "{:.0f}", "plus_minus": "{:+.0f}",
-            }),
-            use_container_width=True, hide_index=True,
-        )
+        if tamanos:
+            ev_for_q = ev_for_q[ev_for_q["tam"].isin(tamanos)]
+
+        if ev_for_q.empty:
+            st.warning("Sin combinaciones para los filtros aplicados.")
+        else:
+            agr_q = ev_for_q.groupby("formacion", as_index=False).agg(
+                tamano=("tam", "first"),
+                n_eventos=("formacion", "count"),
+                goles_a_favor=("equipo_marca", lambda s: (s == "INTER").sum()),
+                goles_en_contra=("equipo_marca", lambda s: (s == "RIVAL").sum()),
+            )
+            agr_q["plus_minus"] = agr_q["goles_a_favor"] - agr_q["goles_en_contra"]
+            agr_q = agr_q.sort_values(
+                ["plus_minus", "n_eventos"], ascending=[False, False]
+            )
+            agr_q_f = agr_q[agr_q["n_eventos"] >= min_evt]
+            st.caption(f"{len(agr_q_f)} combinaciones / {len(agr_q)} con esos filtros")
+
+            sty_q = agr_q_f.style.format({
+                "tamano": "{:.0f}", "n_eventos": "{:.0f}",
+                "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
+                "plus_minus": "{:+.0f}",
+            })
+            sty_q = _gradiente_sutil(sty_q, ["plus_minus", "n_eventos"])
+            st.dataframe(sty_q, use_container_width=True, hide_index=True,
+                         column_config={
+                             "formacion": st.column_config.Column("Combinación", help="Jugadores en pista (orden alfabético)"),
+                             "tamano": st.column_config.NumberColumn("Nº", help="Número de jugadores en la combinación"),
+                             "n_eventos": st.column_config.NumberColumn("Eventos", help=TOOLTIPS_COLS["n_eventos"]),
+                             "goles_a_favor": st.column_config.NumberColumn("GF", help="Goles a favor con esta combinación"),
+                             "goles_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra con esta combinación"),
+                             "plus_minus": st.column_config.NumberColumn("+/-", help="GF − GC"),
+                         })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
