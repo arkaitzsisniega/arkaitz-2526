@@ -40,6 +40,7 @@ XLSX_DEFAULT = (
     "2025-26/Estadisticas/Goles TOTAL.xlsx"
 )
 HOJA = "RATIOS DISPAROS"
+HOJA_ZONAS = "ZONA GOLES"
 
 CABECERAS = [
     "competicion", "rival", "fecha",
@@ -50,6 +51,19 @@ CABECERAS = [
     "disparos_af_1t",
 ]
 
+# ZONA GOLES — mapa de columnas (1-indexed):
+# A FAVOR:
+#   Cuadrantes portería (P1-P9): cada cuadrante = 2 cols (disparos + goles).
+#     BC=55, BD=56 → P1; BE-BF → P2; ...; BS-BT → P9 (cols 55-72)
+#   Zonas campo (Z1-Z11): solo goles. BU=73 a CE=83 (11 cols).
+# EN CONTRA:
+#   Cuadrantes portería (P1-P9): CF=84, CG=85 → P1; ...; CV-CW → P9 (cols 84-101)
+#   Zonas campo (Z1-Z11): solo goles. CX=102 a DH=112 (11 cols).
+ZONA_COL_AF_P_INI = 55   # BC: D.AF P1
+ZONA_COL_AF_Z_INI = 73   # BU: G.AF Z1
+ZONA_COL_EC_P_INI = 84   # CF: D.EC P1
+ZONA_COL_EC_Z_INI = 102  # CX: G.EC Z1
+
 
 def _to_int(v) -> Optional[int]:
     if v is None or v == "":
@@ -58,6 +72,12 @@ def _to_int(v) -> Optional[int]:
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def _to_int0(v) -> int:
+    """Como _to_int pero devuelve 0 cuando no hay valor (para zonas)."""
+    n = _to_int(v)
+    return n if n is not None else 0
 
 
 def _to_float(v) -> Optional[float]:
@@ -77,6 +97,54 @@ def _to_date_iso(v) -> str:
     if isinstance(v, _dt.date):
         return v.isoformat()
     return ""
+
+
+def cargar_zonas(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
+    """Lee la hoja `ZONA GOLES` y extrae datos de cuadrantes portería
+    (P1-P9: disparos + goles) y zonas campo (Z1-Z11: solo goles).
+
+    Una fila por partido. Las cabeceras están en fila 2, los datos
+    desde fila 3 (1-indexed). El bloque "ZONA GOLES" está en cols
+    AZ (51) en adelante.
+    """
+    wb = load_workbook(xlsx_path, data_only=True)
+    if HOJA_ZONAS not in wb.sheetnames:
+        return pd.DataFrame()
+    ws = wb[HOJA_ZONAS]
+    filas: list[dict] = []
+    for r in range(3, ws.max_row + 1):
+        comp = ws.cell(r, 52).value   # col AZ (52)
+        rival = ws.cell(r, 53).value  # col BA (53)
+        fecha = ws.cell(r, 54).value  # col BB (54)
+        if not comp or not rival:
+            continue
+        base = {
+            "competicion": str(comp).strip(),
+            "rival": str(rival).strip(),
+            "fecha": _to_date_iso(fecha),
+        }
+        # A FAVOR · cuadrantes portería (cols BC..BT, 18 cols, 9 cuadrantes×2)
+        for i in range(9):
+            c_disp = ZONA_COL_AF_P_INI + 2 * i
+            c_gol = c_disp + 1
+            base[f"D_AF_P{i+1}"] = _to_int0(ws.cell(r, c_disp).value)
+            base[f"G_AF_P{i+1}"] = _to_int0(ws.cell(r, c_gol).value)
+        # A FAVOR · zonas campo (cols BU..CE, solo goles)
+        for i in range(11):
+            c = ZONA_COL_AF_Z_INI + i
+            base[f"G_AF_Z{i+1}"] = _to_int0(ws.cell(r, c).value)
+        # EN CONTRA · cuadrantes portería (cols CF..CW)
+        for i in range(9):
+            c_disp = ZONA_COL_EC_P_INI + 2 * i
+            c_gol = c_disp + 1
+            base[f"D_EC_P{i+1}"] = _to_int0(ws.cell(r, c_disp).value)
+            base[f"G_EC_P{i+1}"] = _to_int0(ws.cell(r, c_gol).value)
+        # EN CONTRA · zonas campo (cols CX..DH, solo goles)
+        for i in range(11):
+            c = ZONA_COL_EC_Z_INI + i
+            base[f"G_EC_Z{i+1}"] = _to_int0(ws.cell(r, c).value)
+        filas.append(base)
+    return pd.DataFrame(filas)
 
 
 def cargar(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
@@ -112,7 +180,7 @@ def cargar(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
     return pd.DataFrame(filas, columns=CABECERAS)
 
 
-def subir_a_sheet(df: pd.DataFrame) -> None:
+def subir_a_sheet(df: pd.DataFrame, df_zonas: pd.DataFrame = None) -> None:
     import gspread
     from google.oauth2.service_account import Credentials
     SCOPES = [
@@ -122,16 +190,23 @@ def subir_a_sheet(df: pd.DataFrame) -> None:
     creds = Credentials.from_service_account_file("google_credentials.json", scopes=SCOPES)
     gc = gspread.authorize(creds)
     sh = gc.open("Arkaitz - Datos Temporada 2526")
-    try:
-        ws = sh.worksheet("EST_DISPAROS")
-        ws.clear()
-    except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title="EST_DISPAROS", rows=200, cols=len(CABECERAS))
-    out = df.where(pd.notnull(df), "")
-    valores = [list(out.columns)] + out.astype(str).values.tolist()
-    ws.update(values=valores, range_name="A1")
-    ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
-    print(f"✅ EST_DISPAROS: {len(out)} filas, {len(out.columns)} cols")
+
+    def _write(hoja: str, dataf: pd.DataFrame):
+        try:
+            ws = sh.worksheet(hoja)
+            ws.clear()
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title=hoja, rows=max(len(dataf) + 5, 100),
+                                  cols=max(len(dataf.columns), 6))
+        out = dataf.where(pd.notnull(dataf), "")
+        valores = [list(out.columns)] + out.astype(str).values.tolist()
+        ws.update(values=valores, range_name="A1")
+        ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
+        print(f"✅ {hoja}: {len(out)} filas, {len(out.columns)} cols")
+
+    _write("EST_DISPAROS", df)
+    if df_zonas is not None and not df_zonas.empty:
+        _write("EST_DISPAROS_ZONAS", df_zonas)
 
 
 def main():
@@ -151,8 +226,16 @@ def main():
         print("Total goles AF:", df["goles_a_favor"].sum(skipna=True))
         print("Total goles EC:", df["goles_en_contra"].sum(skipna=True))
 
+    df_zonas = cargar_zonas(args.xlsx)
+    print(f"\nZONA GOLES: {len(df_zonas)} filas")
+    if not df_zonas.empty:
+        gaf = sum(int(df_zonas[f"G_AF_Z{i}"].sum()) for i in range(1, 12))
+        gec = sum(int(df_zonas[f"G_EC_Z{i}"].sum()) for i in range(1, 12))
+        print(f"  Total goles AF (zonas): {gaf}")
+        print(f"  Total goles EC (zonas): {gec}")
+
     if args.upload:
-        subir_a_sheet(df)
+        subir_a_sheet(df, df_zonas)
 
 
 if __name__ == "__main__":

@@ -265,6 +265,10 @@ def datos():
     except Exception:
         est_disparos = pd.DataFrame()
     try:
+        est_disparos_zonas = cargar("EST_DISPAROS_ZONAS")
+    except Exception:
+        est_disparos_zonas = pd.DataFrame()
+    try:
         scout_raw = cargar("SCOUTING_RIVALES")
         scout_agr = cargar("_VISTA_SCOUTING_RIVAL")
     except Exception:
@@ -297,7 +301,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -312,7 +316,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -322,7 +326,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -2901,8 +2905,58 @@ with tab_partido:
                     st.altair_chart(ch, use_container_width=True)
                 except Exception:
                     st.bar_chart(piv)
-    
-    
+
+            # ── Mapas SVG del partido (zonas + portería) ────────────────────
+            if not est_disparos_zonas.empty:
+                # Match por (rival + fecha) — la hoja Goles TOTAL no usa
+                # partido_id, así que cruzamos por las dos columnas que
+                # tenemos: rival y fecha.
+                meta_rival = str(meta.get("rival", "")).upper()
+                meta_fecha = str(meta.get("fecha", ""))
+                edz = est_disparos_zonas.copy()
+                # Normalizar
+                edz["rival_up"] = edz["rival"].astype(str).str.upper()
+                # Match aproximado: rival contiene la palabra del meta
+                rival_corto = meta_rival.split()[0] if meta_rival else ""
+                edz_match = edz[
+                    (edz["rival_up"].str.contains(rival_corto, na=False)) &
+                    (edz["fecha"].astype(str) == meta_fecha)
+                ]
+                if not edz_match.empty:
+                    fila_z = edz_match.iloc[0]
+                    st.markdown("---")
+                    st.markdown("#### 🎯 Zonas y portería de este partido")
+                    st.caption("Visualización de cuadrantes (P1-P9) y zonas del campo (A1-A11) según los disparos y goles del partido.")
+
+                    # Construir dicts para los SVG. Para portería usamos
+                    # los GOLES (G_AF_P1..) y para campo también goles.
+                    af_port = {f"P{i}": int(pd.to_numeric(fila_z.get(f"G_AF_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
+                    af_zona = {f"A{i}": int(pd.to_numeric(fila_z.get(f"G_AF_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
+                    ec_port = {f"P{i}": int(pd.to_numeric(fila_z.get(f"G_EC_P{i}", 0), errors="coerce") or 0) for i in range(1, 10)}
+                    ec_zona = {f"A{i}": int(pd.to_numeric(fila_z.get(f"G_EC_Z{i}", 0), errors="coerce") or 0) for i in range(1, 12)}
+
+                    sub_af_p, sub_ec_p = st.tabs([
+                        "⚽ Cómo metemos goles",
+                        "🥅 Cómo recibimos goles",
+                    ])
+                    with sub_af_p:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Campo · zonas desde donde marcamos**")
+                            st.markdown(generar_svg_campo(af_zona), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Portería · cuadrantes donde entran nuestros goles**")
+                            st.markdown(generar_svg_porteria(af_port), unsafe_allow_html=True)
+                    with sub_ec_p:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Campo · zonas desde donde nos disparan al gol**")
+                            st.markdown(generar_svg_campo(ec_zona), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Portería · cuadrantes por donde nos meten goles**")
+                            st.markdown(generar_svg_porteria(ec_port), unsafe_allow_html=True)
+
+
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña 🎮 Partido: {_e_tab}')
         import traceback as _tb
@@ -3260,8 +3314,72 @@ with tab_goles:
                                  "goles_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra con esta combinación"),
                                  "plus_minus": st.column_config.NumberColumn("+/-", help="GF − GC"),
                              })
-    
-    
+
+            # ── Mapas globales de zona y portería (Inter) ──────────────────
+            if not est_disparos_zonas.empty:
+                st.markdown("---")
+                st.markdown("#### 🎯 Mapas de zona del Inter")
+                st.caption(
+                    "Agrega TODOS los partidos. Filtra por competición y/o "
+                    "rango de fechas para ver patrones."
+                )
+                edz = est_disparos_zonas.copy()
+                edz["_fdate"] = pd.to_datetime(edz["fecha"], errors="coerce")
+
+                # Filtros
+                fc1, fc2 = st.columns([2, 3])
+                comp_op_z = ["TODAS"] + sorted(edz["competicion"].dropna().unique().tolist())
+                sel_comp_z = fc1.selectbox("Competición", comp_op_z, key="goles_zonas_comp")
+                fmin_z = edz["_fdate"].min()
+                fmax_z = edz["_fdate"].max()
+                if pd.notna(fmin_z) and pd.notna(fmax_z):
+                    rango_z = fc2.date_input(
+                        "Rango fechas",
+                        value=(fmin_z.date(), fmax_z.date()),
+                        min_value=fmin_z.date(), max_value=fmax_z.date(),
+                        key="goles_zonas_fechas",
+                    )
+                    if isinstance(rango_z, tuple) and len(rango_z) == 2:
+                        edz = edz[
+                            (edz["_fdate"] >= pd.Timestamp(rango_z[0])) &
+                            (edz["_fdate"] <= pd.Timestamp(rango_z[1]))
+                        ]
+                if sel_comp_z != "TODAS":
+                    edz = edz[edz["competicion"] == sel_comp_z]
+
+                if edz.empty:
+                    st.warning("Sin datos para los filtros aplicados.")
+                else:
+                    # Sumar todos los partidos del subset
+                    af_port_g = {f"P{i}": int(pd.to_numeric(edz[f"G_AF_P{i}"], errors="coerce").fillna(0).sum()) for i in range(1, 10)}
+                    af_zona_g = {f"A{i}": int(pd.to_numeric(edz[f"G_AF_Z{i}"], errors="coerce").fillna(0).sum()) for i in range(1, 12)}
+                    ec_port_g = {f"P{i}": int(pd.to_numeric(edz[f"G_EC_P{i}"], errors="coerce").fillna(0).sum()) for i in range(1, 10)}
+                    ec_zona_g = {f"A{i}": int(pd.to_numeric(edz[f"G_EC_Z{i}"], errors="coerce").fillna(0).sum()) for i in range(1, 12)}
+
+                    st.caption(f"Datos agregados de {len(edz)} partido(s).")
+
+                    sub_af_g, sub_ec_g = st.tabs([
+                        "⚽ Cómo metemos goles",
+                        "🥅 Cómo recibimos goles",
+                    ])
+                    with sub_af_g:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Campo · zonas desde donde marcamos**")
+                            st.markdown(generar_svg_campo(af_zona_g), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Portería · cuadrantes donde entran nuestros goles**")
+                            st.markdown(generar_svg_porteria(af_port_g), unsafe_allow_html=True)
+                    with sub_ec_g:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Campo · zonas desde donde nos disparan**")
+                            st.markdown(generar_svg_campo(ec_zona_g), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Portería · cuadrantes por donde nos meten goles**")
+                            st.markdown(generar_svg_porteria(ec_port_g), unsafe_allow_html=True)
+
+
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña 🥅 Goles: {_e_tab}')
         import traceback as _tb
