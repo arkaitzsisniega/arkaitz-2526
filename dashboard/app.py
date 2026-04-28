@@ -4289,6 +4289,12 @@ with tab_editar:
                         "portero (modo portero-jugador).")
             df_ev_edit = _editor_eventos(plantilla, _ev_dataframe_inicial(),
                                           key="cr_eventos")
+            # Validación EN VIVO bajo el editor
+            _, warns_live_cr = _normalizar_eventos_para_guardar(df_ev_edit)
+            if warns_live_cr:
+                st.markdown("**⚠️ Avisos sobre los eventos:**")
+                for w in warns_live_cr:
+                    st.warning(w)
 
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
@@ -4418,6 +4424,12 @@ with tab_editar:
                 df_ev_pre_norm = _ev_desde_df_existente(ev_actual)
                 df_ev_edit = _editor_eventos(plantilla, df_ev_pre_norm,
                                               key=f"ed_eventos_{pid_sel}")
+                # Validación EN VIVO bajo el editor
+                _, warns_live_ed = _normalizar_eventos_para_guardar(df_ev_edit)
+                if warns_live_ed:
+                    st.markdown("**⚠️ Avisos sobre los eventos:**")
+                    for w in warns_live_ed:
+                        st.warning(w)
 
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
