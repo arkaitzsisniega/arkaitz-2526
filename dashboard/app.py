@@ -152,9 +152,6 @@ def cargar(hoja: str) -> pd.DataFrame:
         return pd.DataFrame(data)
     except Exception:
         # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES).
-        # IMPORTANTE: usar UNFORMATTED_VALUE para que las fórmulas devuelvan
-        # su VALOR calculado, no el texto de la fórmula. Si no, salen literales
-        # tipo `=IF(B3="","",COUNTIFS(...))` en cada celda.
         try:
             rows = ws.get(
                 value_render_option=gspread.utils.ValueRenderOption.unformatted
@@ -163,6 +160,16 @@ def cargar(hoja: str) -> pd.DataFrame:
             rows = ws.get_all_values()
         if not rows:
             return pd.DataFrame()
+        # Limpiar fórmulas literales (cuando una celda empieza por "=" significa
+        # que está guardada como TEXTO, no como fórmula evaluada — caso típico
+        # de la hoja LESIONES donde las fórmulas se han pegado como texto).
+        rows = [
+            [
+                "" if (isinstance(c, str) and c.startswith("=")) else c
+                for c in fila
+            ]
+            for fila in rows
+        ]
         # Usar la segunda fila como cabecera real (la primera son grupos de color)
         headers = rows[1] if len(rows) > 1 else rows[0]
         # Desduplicar cabeceras vacías
@@ -1864,6 +1871,54 @@ def _ensure_numeric(df: pd.DataFrame, num_cols: list) -> pd.DataFrame:
     return out
 
 
+def _color_gradient_rgb(t: float) -> str:
+    """t en [0,1] → CSS background-color RdYlGn (0=rojo, 0.5=amarillo, 1=verde)."""
+    t = max(0.0, min(1.0, t))
+    if t < 0.5:
+        # rojo a amarillo
+        r, g, b = 255, int(165 + 90 * (t * 2)), 100
+    else:
+        # amarillo a verde
+        r = int(255 - 145 * ((t - 0.5) * 2))
+        g = int(255 - 50 * ((t - 0.5) * 2))
+        b = 100
+    return f"background-color: rgb({r},{g},{b}); color: black;"
+
+
+def _color_gradient_inverso(t: float) -> str:
+    """Como _color_gradient_rgb pero invertido (0=verde, 1=rojo)."""
+    return _color_gradient_rgb(1 - t)
+
+
+def _aplicar_gradient_columna(df: pd.DataFrame, col: str,
+                               filas_excluidas: list = None,
+                               invertir: bool = False) -> pd.Series:
+    """Devuelve una Series con el style CSS por celda de `col`.
+
+    Las filas en `filas_excluidas` (índices) salen en blanco.
+    Si `invertir=True`, valores ALTOS son rojos (vs default ALTOS = verdes).
+    """
+    if filas_excluidas is None:
+        filas_excluidas = []
+    base = pd.to_numeric(df[col], errors="coerce")
+    base_validos = base.drop(filas_excluidas, errors="ignore").dropna()
+    if base_validos.empty:
+        return pd.Series([""] * len(df), index=df.index)
+    vmin = float(base_validos.min())
+    vmax = float(base_validos.max())
+    out = []
+    for idx, v in base.items():
+        if idx in filas_excluidas:
+            out.append("background-color: #f5f5f5; color: #666;")
+            continue
+        if pd.isna(v) or vmin == vmax:
+            out.append("")
+            continue
+        t = (v - vmin) / (vmax - vmin)
+        out.append(_color_gradient_inverso(t) if invertir else _color_gradient_rgb(t))
+    return pd.Series(out, index=df.index)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 10 — 📈 EFICIENCIA (disparos, ratios, métricas avanzadas)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1968,28 +2023,33 @@ with tab_efic:
                     "Incluir portero", ["Sí", "No"], horizontal=True, key="efic_cuart_port"
                 )
     
+                # Generar TODAS las combinaciones de tamaño N para cada evento.
+                from itertools import combinations as _combos_e
                 ev_q = est_eventos.copy()
                 ev_q["portero"] = ev_q["portero"].fillna("").astype(str)
                 ev_q["cuarteto"] = ev_q["cuarteto"].fillna("").astype(str)
                 incl = (inc_p_e == "Sí")
-    
-                def _form_e(r):
+
+                regs_e = []
+                for _, r in ev_q.iterrows():
                     miembros = list(filter(None, r["cuarteto"].split("|")))
                     if incl and r["portero"]:
                         miembros.append(r["portero"])
-                    return " | ".join(sorted(set(miembros)))
-                ev_q["formacion"] = ev_q.apply(_form_e, axis=1)
-                # str.split(" | ") con pandas 3.x interpreta "|" como regex (OR).
-                # Pasamos regex=False para que sea literal.
-                ev_q["tam"] = ev_q["formacion"].str.split(" | ", regex=False).str.len()
-                if tamanos_e:
-                    ev_q = ev_q[ev_q["tam"].isin(tamanos_e)]
-    
-                if ev_q.empty:
+                    miembros = sorted(set(miembros))
+                    em = r["equipo_marca"]
+                    for n in tamanos_e or [3, 4, 5]:
+                        if n <= len(miembros):
+                            for combo in _combos_e(miembros, n):
+                                regs_e.append({
+                                    "formacion": " | ".join(combo),
+                                    "tamano": n,
+                                    "equipo_marca": em,
+                                })
+                if not regs_e:
                     st.warning("Sin combinaciones para los filtros aplicados.")
                 else:
-                    agr_q_e = ev_q.groupby("formacion", as_index=False).agg(
-                        tamano=("tam", "first"),
+                    df_regs_e = pd.DataFrame(regs_e)
+                    agr_q_e = df_regs_e.groupby(["formacion", "tamano"], as_index=False).agg(
                         n_eventos=("formacion", "count"),
                         goles_a_favor=("equipo_marca", lambda s: (s == "INTER").sum()),
                         goles_en_contra=("equipo_marca", lambda s: (s == "RIVAL").sum()),
@@ -2002,7 +2062,12 @@ with tab_efic:
                         "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
                         "plus_minus": "{:+.0f}",
                     })
-                    sty_qe = _gradiente_sutil(sty_qe, ["plus_minus"])
+                    if "plus_minus" in agr_q_e.columns:
+                        css_pm_e = _aplicar_gradient_columna(agr_q_e, "plus_minus")
+                        sty_qe = sty_qe.apply(
+                            lambda s: css_pm_e.reindex(s.index, fill_value="").tolist(),
+                            subset=["plus_minus"], axis=0,
+                        )
                     st.dataframe(sty_qe, use_container_width=True, hide_index=True)
     
             st.markdown("---")
@@ -2029,24 +2094,22 @@ with tab_efic:
                     "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
                     "ratio_a_favor": "{:.2f}", "ratio_en_contra": "{:.2f}",
                 }, na_rep="—")
-                # Semáforo:
-                # - ratio_a_favor: ALTO = MALO (muchos disparos para un gol) → rojo
-                # - ratio_en_contra: ALTO = BUENO (al rival le cuestan los goles) → verde
-                try:
-                    base_af = df_dis["ratio_a_favor"].dropna()
-                    if not base_af.empty and base_af.min() != base_af.max():
-                        sty_dis = sty_dis.background_gradient(
-                            subset=["ratio_a_favor"], cmap="RdYlGn_r",
-                            vmin=float(base_af.min()), vmax=float(base_af.max()),
-                        )
-                    base_ec = df_dis["ratio_en_contra"].dropna()
-                    if not base_ec.empty and base_ec.min() != base_ec.max():
-                        sty_dis = sty_dis.background_gradient(
-                            subset=["ratio_en_contra"], cmap="RdYlGn",
-                            vmin=float(base_ec.min()), vmax=float(base_ec.max()),
-                        )
-                except Exception:
-                    pass
+
+                # Semáforo (con applies por columna, robusto a Python 3.14):
+                # - ratio_a_favor: ALTO = MALO (más disparos por gol) → rojo
+                # - ratio_en_contra: ALTO = BUENO (rival le cuesta marcar) → verde
+                if "ratio_a_favor" in df_dis.columns:
+                    css_af = _aplicar_gradient_columna(df_dis, "ratio_a_favor", invertir=True)
+                    sty_dis = sty_dis.apply(
+                        lambda s: css_af.reindex(s.index, fill_value="").tolist(),
+                        subset=["ratio_a_favor"], axis=0,
+                    )
+                if "ratio_en_contra" in df_dis.columns:
+                    css_ec = _aplicar_gradient_columna(df_dis, "ratio_en_contra", invertir=False)
+                    sty_dis = sty_dis.apply(
+                        lambda s: css_ec.reindex(s.index, fill_value="").tolist(),
+                        subset=["ratio_en_contra"], axis=0,
+                    )
                 st.dataframe(sty_dis, use_container_width=True, hide_index=True,
                              column_config={c: st.column_config.Column(help=TOOLTIPS_COLS.get(c, ""))
                                             for c in cols_dis if TOOLTIPS_COLS.get(c)})
@@ -2414,49 +2477,47 @@ with tab_partido:
     
             # ── Tabla de minutos por jugador (con semáforo, sin porteros) ─────
             st.markdown("#### ⏱ Minutos por jugador y parte")
-            st.caption("Color: **verde** = más minutos · **rojo** = menos. Los porteros (J.GARCIA, J.HERRERO, OSCAR) se excluyen del semáforo y aparecen en blanco.")
+            st.caption("Color: **verde** = más minutos · **rojo** = menos. Los porteros (J.GARCIA, J.HERRERO, OSCAR) se excluyen del semáforo y aparecen en gris claro.")
+
             tabla_min = ep_p.sort_values("min_total", ascending=False)[
                 ["dorsal", "jugador", "min_1t", "min_2t", "min_total"]
             ].copy()
-            # Porteros = los 3 canónicos
-            PORT_DASH = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
-            tabla_min["es_portero"] = tabla_min["jugador"].astype(str).str.upper().isin(PORT_DASH)
-
-            df_tmin = _ensure_numeric(
-                tabla_min[["dorsal", "jugador", "min_1t", "min_2t", "min_total"]],
-                ["dorsal", "min_1t", "min_2t", "min_total"]
-            )
-            # Formatter callable que convierte minutos float → "mm:ss"
-            sty = df_tmin.style.format({
-                "min_1t": _fmt_minutos,
-                "min_2t": _fmt_minutos,
-                "min_total": _fmt_minutos,
-                "dorsal": "{:.0f}",
-            }, na_rep="—")
-            # Semáforo: SOLO sobre no-porteros, con vmin/vmax explícitos
-            # para que el gradiente sea consistente (más mins = más verde).
-            idx_no_p = tabla_min[~tabla_min["es_portero"]].index
+            # Pre-formatear minutos como mm:ss (string), guardar valores numéricos en cols paralelas
             for c in ("min_1t", "min_2t", "min_total"):
-                try:
-                    base = pd.to_numeric(df_tmin.loc[idx_no_p, c], errors="coerce").dropna()
-                    if base.empty:
-                        continue
-                    vmin = float(base.min())
-                    vmax = float(base.max())
-                    if vmin == vmax:
-                        continue
-                    sty = sty.background_gradient(
-                        subset=(idx_no_p, c), cmap="RdYlGn",
-                        vmin=vmin, vmax=vmax,
-                    )
-                except Exception:
-                    pass
+                tabla_min[c + "_num"] = pd.to_numeric(tabla_min[c], errors="coerce")
+                tabla_min[c] = tabla_min[c + "_num"].apply(_fmt_minutos)
+            tabla_min["dorsal"] = pd.to_numeric(tabla_min["dorsal"], errors="coerce").fillna(0).astype(int)
+
+            # Identificar índices de porteros (canónicos)
+            PORT_DASH = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+            es_p = tabla_min["jugador"].astype(str).str.upper().isin(PORT_DASH)
+            idx_porteros = tabla_min[es_p].index.tolist()
+
+            # Construir la tabla a renderizar (sin las cols _num)
+            df_tmin = tabla_min[["dorsal", "jugador", "min_1t", "min_2t", "min_total"]]
+
+            # Aplicar gradient por columna usando los valores NUMÉRICOS (de _num)
+            # via Styler.apply(axis=0) sobre cada columna numérica
+            def _style_min_col(col_label_num):
+                def _styler(s_visual):
+                    # s_visual son los strings mm:ss; usamos col paralela _num
+                    valores = tabla_min[col_label_num]
+                    return _aplicar_gradient_columna(
+                        tabla_min, col_label_num,
+                        filas_excluidas=idx_porteros, invertir=False,
+                    ).reindex(s_visual.index, fill_value="").tolist()
+                return _styler
+
+            sty = df_tmin.style
+            sty = sty.apply(_style_min_col("min_1t_num"), subset=["min_1t"], axis=0)
+            sty = sty.apply(_style_min_col("min_2t_num"), subset=["min_2t"], axis=0)
+            sty = sty.apply(_style_min_col("min_total_num"), subset=["min_total"], axis=0)
+
             st.dataframe(
-                sty,
-                use_container_width=True, hide_index=True,
+                sty, use_container_width=True, hide_index=True,
                 column_config={
                     "dorsal": st.column_config.Column("Nº", help="Número de dorsal"),
-                    "jugador": st.column_config.Column("Jugador", help="Jugador"),
+                    "jugador": st.column_config.Column("Jugador"),
                     "min_1t": st.column_config.Column("1ª parte", help="Minutos en la 1ª parte (mm:ss)"),
                     "min_2t": st.column_config.Column("2ª parte", help="Minutos en la 2ª parte (mm:ss)"),
                     "min_total": st.column_config.Column("Total", help="Minutos totales (mm:ss)"),
@@ -2467,23 +2528,44 @@ with tab_partido:
             cols_rot_1t = [f"rot_1t_{i}" for i in range(1, 9)]
             cols_rot_2t = [f"rot_2t_{i}" for i in range(1, 9)]
 
-            def _color_rotacion(v):
-                """Escala fija pedida por Arkaitz:
-                  >3'   = rojo · 2-3' = amarillo · 1-2' = verde · 0-1' = azul · 0 = blanco
-                """
-                try:
-                    v = float(v)
-                except (TypeError, ValueError):
-                    return ""
-                if pd.isna(v) or v <= 0:
+            def _css_rotacion(v_num):
+                """Escala fija: >3' rojo · 2-3' amarillo · 1-2' verde · 0-1' azul · 0 blanco"""
+                if pd.isna(v_num) or v_num <= 0:
                     return "background-color: #ffffff;"
-                if v <= 1:
+                if v_num <= 1:
                     return "background-color: #BBDEFB;"   # azul claro
-                if v <= 2:
+                if v_num <= 2:
                     return "background-color: #C8E6C9;"   # verde claro
-                if v <= 3:
+                if v_num <= 3:
                     return "background-color: #FFF59D;"   # amarillo claro
                 return "background-color: #FFCDD2;"       # rojo claro
+
+            def _render_rotaciones(tab_rot, cols_rot_orig, total_col_orig, label):
+                """Renderiza una mitad (1T o 2T)."""
+                # Convertir todos los rot a numérico y formatear como mm:ss en otra col
+                tab = tab_rot.copy()
+                for c in cols_rot_orig + [total_col_orig]:
+                    tab[c + "_num"] = pd.to_numeric(tab[c], errors="coerce")
+                    tab[c] = tab[c + "_num"].apply(_fmt_minutos)
+                tab["dorsal"] = pd.to_numeric(tab["dorsal"], errors="coerce").fillna(0).astype(int)
+
+                rename = {c: f"{i+1}ª" for i, c in enumerate(cols_rot_orig)}
+                rename.update({"dorsal": "Nº", "jugador": "Jugador", total_col_orig: f"Total {label}"})
+                tab_view = tab[["dorsal", "jugador"] + cols_rot_orig + [total_col_orig]].rename(columns=rename)
+
+                # Aplicar color por columna usando los valores numéricos
+                sty = tab_view.style
+                for i, c_orig in enumerate(cols_rot_orig):
+                    nombre_col_visual = f"{i+1}ª"
+                    serie_num = tab[c_orig + "_num"]
+                    css = serie_num.apply(_css_rotacion)
+                    # apply axis=0 sobre la columna concreta
+                    def _make_styler(css_series):
+                        def _f(s):
+                            return css_series.reindex(s.index, fill_value="").tolist()
+                        return _f
+                    sty = sty.apply(_make_styler(css), subset=[nombre_col_visual], axis=0)
+                st.dataframe(sty, use_container_width=True, hide_index=True)
 
             if all(c in ep_p.columns for c in cols_rot_1t):
                 with st.expander("⏱ Rotaciones individuales (cada vez que entra al campo)"):
@@ -2491,45 +2573,16 @@ with tab_partido:
                         "Color: **rojo** >3' · **amarillo** 2-3' · **verde** 1-2' · "
                         "**azul** <1' · **blanco** sin minutos."
                     )
-                    # 1ª parte: numerico para color, formato mm:ss para mostrar
                     st.markdown("**1ª parte**")
-                    tab_rot1 = _ensure_numeric(
-                        ep_p.sort_values("min_total", ascending=False)[
-                            ["dorsal", "jugador"] + cols_rot_1t + ["min_1t"]
-                        ],
-                        cols_rot_1t + ["dorsal", "min_1t"]
-                    )
-                    rename_rot = {f"rot_1t_{i}": f"{i}ª" for i in range(1, 9)}
-                    rename_rot.update({"dorsal": "Nº", "jugador": "Jugador", "min_1t": "Total 1T"})
-                    tab_rot1 = tab_rot1.rename(columns=rename_rot)
-                    sty1 = tab_rot1.style.format({
-                        **{f"{i}ª": _fmt_minutos for i in range(1, 9)},
-                        "Total 1T": _fmt_minutos,
-                        "Nº": "{:.0f}",
-                    }, na_rep="—")
-                    sty1 = sty1.applymap(_color_rotacion,
-                                         subset=[f"{i}ª" for i in range(1, 9)])
-                    st.dataframe(sty1, use_container_width=True, hide_index=True)
-
-                    # 2ª parte
+                    tab1_base = ep_p.sort_values("min_total", ascending=False)[
+                        ["dorsal", "jugador"] + cols_rot_1t + ["min_1t"]
+                    ]
+                    _render_rotaciones(tab1_base, cols_rot_1t, "min_1t", "1T")
                     st.markdown("**2ª parte**")
-                    tab_rot2 = _ensure_numeric(
-                        ep_p.sort_values("min_total", ascending=False)[
-                            ["dorsal", "jugador"] + cols_rot_2t + ["min_2t"]
-                        ],
-                        cols_rot_2t + ["dorsal", "min_2t"]
-                    )
-                    rename_rot2 = {f"rot_2t_{i}": f"{i}ª" for i in range(1, 9)}
-                    rename_rot2.update({"dorsal": "Nº", "jugador": "Jugador", "min_2t": "Total 2T"})
-                    tab_rot2 = tab_rot2.rename(columns=rename_rot2)
-                    sty2 = tab_rot2.style.format({
-                        **{f"{i}ª": _fmt_minutos for i in range(1, 9)},
-                        "Total 2T": _fmt_minutos,
-                        "Nº": "{:.0f}",
-                    }, na_rep="—")
-                    sty2 = sty2.applymap(_color_rotacion,
-                                         subset=[f"{i}ª" for i in range(1, 9)])
-                    st.dataframe(sty2, use_container_width=True, hide_index=True)
+                    tab2_base = ep_p.sort_values("min_total", ascending=False)[
+                        ["dorsal", "jugador"] + cols_rot_2t + ["min_2t"]
+                    ]
+                    _render_rotaciones(tab2_base, cols_rot_2t, "min_2t", "2T")
     
             # ── Tabla de métricas individuales del partido ──────────────────────
             st.markdown("#### 📊 Métricas individuales del partido")
@@ -2902,28 +2955,39 @@ with tab_goles:
                 key="g_cuart_min"
             )
     
+            # Generar TODAS las combinaciones de tamaño N a partir de los
+            # jugadores en pista en cada evento. Ej: si en pista están
+            # [A,B,C,D] y N=3, se cuentan los 4 tríos C(4,3): (A,B,C),
+            # (A,B,D), (A,C,D), (B,C,D). Cada uno suma 1 evento.
+            from itertools import combinations as _combos
+
             ev_for_q = ev.copy()
             ev_for_q["portero"] = ev_for_q["portero"].fillna("").astype(str)
             ev_for_q["cuarteto"] = ev_for_q["cuarteto"].fillna("").astype(str)
-    
-            def _formacion(r, incl_p):
-                miembros = list(filter(None, r["cuarteto"].split("|")))
-                if incl_p and r["portero"]:
-                    miembros.append(r["portero"])
-                return " | ".join(sorted(set(miembros)))
-    
             incl = (incluir_portero == "Sí")
-            ev_for_q["formacion"] = ev_for_q.apply(lambda r: _formacion(r, incl), axis=1)
-            ev_for_q["tam"] = ev_for_q["formacion"].str.split(" | ", regex=False).str.len()
-    
-            if tamanos:
-                ev_for_q = ev_for_q[ev_for_q["tam"].isin(tamanos)]
-    
-            if ev_for_q.empty:
+
+            registros = []  # (combinacion, equipo_marca)
+            for _, r in ev_for_q.iterrows():
+                miembros = list(filter(None, r["cuarteto"].split("|")))
+                if incl and r["portero"]:
+                    miembros.append(r["portero"])
+                miembros = sorted(set(miembros))
+                em = r["equipo_marca"]
+                # Generar todas las combinaciones de los tamaños solicitados
+                for n in tamanos or [3, 4, 5]:
+                    if n <= len(miembros):
+                        for combo in _combos(miembros, n):
+                            registros.append({
+                                "formacion": " | ".join(combo),
+                                "tamano": n,
+                                "equipo_marca": em,
+                            })
+
+            if not registros:
                 st.warning("Sin combinaciones para los filtros aplicados.")
             else:
-                agr_q = ev_for_q.groupby("formacion", as_index=False).agg(
-                    tamano=("tam", "first"),
+                df_reg = pd.DataFrame(registros)
+                agr_q = df_reg.groupby(["formacion", "tamano"], as_index=False).agg(
                     n_eventos=("formacion", "count"),
                     goles_a_favor=("equipo_marca", lambda s: (s == "INTER").sum()),
                     goles_en_contra=("equipo_marca", lambda s: (s == "RIVAL").sum()),
@@ -2933,19 +2997,27 @@ with tab_goles:
                     ["plus_minus", "n_eventos"], ascending=[False, False]
                 )
                 agr_q_f = agr_q[agr_q["n_eventos"] >= min_evt]
-                st.caption(f"{len(agr_q_f)} combinaciones / {len(agr_q)} con esos filtros")
-    
+                st.caption(
+                    f"{len(agr_q_f)} combinaciones / {len(agr_q)} totales · "
+                    f"{len(registros)} apariciones contadas"
+                )
+
                 sty_q = agr_q_f.style.format({
                     "tamano": "{:.0f}", "n_eventos": "{:.0f}",
                     "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
                     "plus_minus": "{:+.0f}",
                 })
-                sty_q = _gradiente_sutil(sty_q, ["plus_minus", "n_eventos"])
+                if "plus_minus" in agr_q_f.columns:
+                    css_pm = _aplicar_gradient_columna(agr_q_f, "plus_minus")
+                    sty_q = sty_q.apply(
+                        lambda s: css_pm.reindex(s.index, fill_value="").tolist(),
+                        subset=["plus_minus"], axis=0,
+                    )
                 st.dataframe(sty_q, use_container_width=True, hide_index=True,
                              column_config={
                                  "formacion": st.column_config.Column("Combinación", help="Jugadores en pista (orden alfabético)"),
                                  "tamano": st.column_config.NumberColumn("Nº", help="Número de jugadores en la combinación"),
-                                 "n_eventos": st.column_config.NumberColumn("Eventos", help=TOOLTIPS_COLS["n_eventos"]),
+                                 "n_eventos": st.column_config.NumberColumn("Eventos", help="Veces que esta combinación estuvo en pista cuando hubo gol"),
                                  "goles_a_favor": st.column_config.NumberColumn("GF", help="Goles a favor con esta combinación"),
                                  "goles_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra con esta combinación"),
                                  "plus_minus": st.column_config.NumberColumn("+/-", help="GF − GC"),
