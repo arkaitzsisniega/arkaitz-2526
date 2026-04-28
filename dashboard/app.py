@@ -108,6 +108,13 @@ div[data-testid="stTab"] button { font-weight: 600; }
 .kpi-positivo [data-testid="stMetricValue"] { color: #2E7D32 !important; }
 .kpi-negativo [data-testid="stMetricValue"] { color: #B71C1C !important; }
 .kpi-neutro   [data-testid="stMetricValue"] { color: #1B3A6B !important; }
+
+/* Eliminar la franja blanca al final de la página (espacio en blanco
+   inferior generado por el padding/footer por defecto de Streamlit) */
+.main .block-container { padding-bottom: 1rem !important; }
+[data-testid="stAppViewContainer"] > .main { padding-bottom: 0 !important; }
+footer, .stApp > footer { display: none !important; }
+.viewerBadge_container__1QSob, ._terminalButton_rix23_138 { display: none !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -1538,8 +1545,28 @@ with tab_ejer:
 
                 # ── Comparativa por jugador ──
                 st.markdown("#### Ranking por jugador")
-                st.caption("Agregado del jugador en el/los ejercicio(s) seleccionado(s).")
-                rank = f.groupby("jugador", as_index=False).agg(
+                st.caption(
+                    "Agregado del jugador en el/los ejercicio(s) seleccionado(s). "
+                    "**carga** = intensidad × duración + 5·sprints + 1·acc.alta + 0,5·dec.alta. "
+                    "Métrica compuesta para resumir el esfuerzo del ejercicio en un solo número."
+                )
+                # Calcular CARGA por fila antes de agregar (intensity * duracion + bonificadores)
+                f_carga = f.copy()
+                for col in ("intensity_medio", "duracion_min", "n_sprint",
+                             "n_acc_alta_pos", "n_acc_alta_neg"):
+                    if col in f_carga.columns:
+                        f_carga[col] = pd.to_numeric(f_carga[col], errors="coerce").fillna(0)
+                    else:
+                        f_carga[col] = 0
+                f_carga["carga"] = (
+                    f_carga["intensity_medio"] * f_carga["duracion_min"]
+                    + 5.0 * f_carga["n_sprint"]
+                    + 1.0 * f_carga["n_acc_alta_pos"]
+                    + 0.5 * f_carga["n_acc_alta_neg"]
+                ).round(1)
+
+                rank = f_carga.groupby("jugador", as_index=False).agg(
+                    carga=("carga", "sum"),
                     veces=("ejercicio", "count"),
                     duracion_total=("duracion_min", "sum"),
                     dist_total=("dist_total", "sum"),
@@ -1550,7 +1577,7 @@ with tab_ejer:
                     intensity=("intensity_medio", "mean"),
                     kcal=("kcal", "sum"),
                     top_speed_kmh=("top_speed_kmh", "max"),
-                ).round(2).sort_values("dist_total", ascending=False)
+                ).round(2).sort_values("carga", ascending=False)
 
                 # Gradiente suave por columna
                 def _grad(s: pd.Series):
@@ -1952,7 +1979,9 @@ with tab_efic:
                         miembros.append(r["portero"])
                     return " | ".join(sorted(set(miembros)))
                 ev_q["formacion"] = ev_q.apply(_form_e, axis=1)
-                ev_q["tam"] = ev_q["formacion"].str.split(" | ").str.len()
+                # str.split(" | ") con pandas 3.x interpreta "|" como regex (OR).
+                # Pasamos regex=False para que sea literal.
+                ev_q["tam"] = ev_q["formacion"].str.split(" | ", regex=False).str.len()
                 if tamanos_e:
                     ev_q = ev_q[ev_q["tam"].isin(tamanos_e)]
     
@@ -2112,46 +2141,57 @@ with tab_scout:
                     if c in ("rival_codigo", "rival_nombre"):
                         continue
                     agr[c] = pd.to_numeric(agr[c], errors="coerce")
-    
-                # Top: ordenable por total
-                cols_top = ["rival_codigo", "rival_nombre", "partidos", "total_goles"]
+
+                # Top: a favor + en contra
+                cols_top = ["rival_codigo", "rival_nombre", "partidos",
+                            "total_a_favor", "total_en_contra"]
                 cols_top = [c for c in cols_top if c in agr.columns]
+                if "total_a_favor" in agr.columns and "total_en_contra" in agr.columns:
+                    agr["dif_goles"] = agr["total_a_favor"] - agr["total_en_contra"]
+                    cols_top.append("dif_goles")
                 st.dataframe(
                     agr[cols_top].style
-                    .format({"partidos": "{:.0f}", "total_goles": "{:.0f}"}, na_rep="—")
-                    .background_gradient(subset=["total_goles"], cmap="Reds"),
+                    .format({"partidos": "{:.0f}",
+                             "total_a_favor": "{:.0f}",
+                             "total_en_contra": "{:.0f}",
+                             "dif_goles": "{:+.0f}"}, na_rep="—")
+                    .background_gradient(subset=["total_a_favor"], cmap="Greens")
+                    .background_gradient(subset=["total_en_contra"], cmap="Reds")
+                    .background_gradient(subset=["dif_goles"], cmap="RdYlGn"),
                     use_container_width=True, hide_index=True,
                 )
-    
-                # Heatmap de % por origen × rival CON CABECERAS CORTAS
-                cols_pct = [c for c in agr.columns if c.startswith("%")]
-                if cols_pct:
-                    st.markdown("#### Heatmap: % goles por origen × rival")
-                    st.caption("Pasa el ratón por una cabecera para ver el nombre completo del origen.")
+
+                # Heatmaps separados: A FAVOR y EN CONTRA
+                def _render_heatmap(prefix_pct, titulo):
+                    cols_pct = [c for c in agr.columns if c.startswith(prefix_pct)]
+                    if not cols_pct:
+                        return
+                    st.markdown(f"#### {titulo}")
+                    st.caption("Cabeceras abreviadas (pasa el ratón para ver el nombre completo).")
                     heat = agr[["rival_codigo"] + cols_pct].set_index("rival_codigo")
-                    # Mapear a abreviaturas cortas (3 letras)
-                    col_map = {}
-                    long_names = {}
+                    col_map, long_names = {}, {}
                     for c in heat.columns:
-                        name_full = c.lstrip("%")
+                        # Quitar prefijo "%AF_" o "%EC_"
+                        name_full = c.replace(prefix_pct, "")
                         short = ABREV_ACCION.get(name_full, name_full[:3].upper())
-                        # Evitar choques con sufijos
                         if short in col_map.values():
                             short = short + "·"
                         col_map[c] = short
                         long_names[short] = name_full
                     heat = heat.rename(columns=col_map)
-                    # Solo dejar columnas con al menos un valor > 5% (filtrar ruido)
                     heat = heat.loc[:, heat.max() > 5]
-                    # column_config con tooltips de nombre completo
-                    cc_heat = {short: st.column_config.NumberColumn(short, help=long_names.get(short, ""), format="%.1f%%")
-                               for short in heat.columns}
+                    cc = {s: st.column_config.NumberColumn(
+                        s, help=long_names.get(s, ""), format="%.1f%%")
+                          for s in heat.columns}
                     st.dataframe(
                         heat.style.format("{:.1f}%", na_rep="—")
                         .background_gradient(cmap="YlOrRd", axis=None),
                         use_container_width=True,
-                        column_config=cc_heat,
+                        column_config=cc,
                     )
+
+                _render_heatmap("%AF_", "Heatmap: cómo MARCA cada rival (% por origen)")
+                _render_heatmap("%EC_", "Heatmap: cómo RECIBE cada rival (% por origen)")
     
             with sub_rival:
                 rivales_op = scout_agr["rival_nombre"].tolist() if "rival_nombre" in scout_agr.columns else []
@@ -2170,73 +2210,87 @@ with tab_scout:
                     rival_corto = (rival_sel.split()[0] if rival_sel else "").upper()
     
                     if agr_r is not None:
-                        cols_acc = [c for c in agr_r.index if not c.startswith("%") and c not in (
-                            "rival_codigo", "rival_nombre", "partidos", "total_goles")]
-                        k1, k2, k3 = st.columns(3)
-                        k1.metric("Partidos analizados", int(pd.to_numeric(agr_r["partidos"], errors="coerce") or 0))
-                        k2.metric("Goles totales (a favor)", int(pd.to_numeric(agr_r["total_goles"], errors="coerce") or 0))
-                        media = pd.to_numeric(agr_r["total_goles"], errors="coerce") / max(pd.to_numeric(agr_r["partidos"], errors="coerce") or 1, 1)
-                        k3.metric("Goles por partido", f"{media:.2f}")
-    
+                        partidos = int(pd.to_numeric(agr_r.get("partidos", 0), errors="coerce") or 0)
+                        gf = int(pd.to_numeric(agr_r.get("total_a_favor", 0), errors="coerce") or 0)
+                        gc = int(pd.to_numeric(agr_r.get("total_en_contra", 0), errors="coerce") or 0)
+
+                        k1, k2, k3, k4 = st.columns(4)
+                        k1.metric("Partidos", partidos)
+                        k2.metric("⚽ Goles a favor", gf)
+                        k3.metric("🥅 Goles en contra", gc)
+                        k4.metric("Diferencial", f"{gf-gc:+d}")
+
                         # ── A FAVOR (cómo marca este rival) ───────────────────
-                        st.markdown(f"#### ⚽ Cómo marca **{rival_sel}** (goles a favor)")
-                        pct_data = []
-                        for c in cols_acc:
-                            v = pd.to_numeric(agr_r[c], errors="coerce")
+                        st.markdown(f"#### ⚽ Cómo marca **{rival_sel}**")
+                        af_data = []
+                        for accion in [a for a in agr_r.index if a.startswith("AF_") and not a.startswith("AF_port") and not a.startswith("AF_zona")]:
+                            v = pd.to_numeric(agr_r[accion], errors="coerce")
                             if v and v > 0:
-                                pct_data.append({"accion": c, "goles": int(v)})
-                        if pct_data:
-                            df_pct = pd.DataFrame(pct_data).sort_values("goles", ascending=False)
-                            st.bar_chart(df_pct.set_index("accion")["goles"])
-    
-                        # ── EN CONTRA (cómo recibe este rival) ─────────────────
-                        # Reconstruir desde SCOUTING_RIVALES: filas donde
-                        # "contra_quien" coincide con este rival → goles que OTROS
-                        # rivales le metieron (cómo le marcan).
-                        st.markdown(f"#### 🥅 Cómo recibe **{rival_sel}** (goles en contra)")
-                        st.caption(
-                            "Cómo le marcan a este rival otros equipos (datos del scouting). "
-                            "Solo se incluyen los partidos donde el adversario también está scoutado."
-                        )
-                        # Match contra_quien por palabra clave (las apuntan distinto)
-                        contra_match = scout_raw["contra_quien"].astype(str).str.upper()
-                        df_recibe = scout_raw[contra_match.str.contains(rival_corto, na=False)].copy()
-                        if df_recibe.empty:
-                            st.caption(f"Sin datos: ningún rival scoutado ha jugado contra {rival_sel} en las pestañas que tenemos.")
+                                af_data.append({"accion": accion.replace("AF_", ""), "goles": int(v)})
+                        if af_data:
+                            df_af = pd.DataFrame(af_data).sort_values("goles", ascending=False)
+                            st.bar_chart(df_af.set_index("accion")["goles"], color="#2E7D32")
                         else:
-                            # Agregar goles que le metieron, por origen
-                            cols_origen = [c for c in df_recibe.columns
-                                           if c not in ("rival_codigo", "rival_nombre", "competicion",
-                                                        "contra_quien", "fecha", "total_a_favor")]
-                            for c in cols_origen + ["total_a_favor"]:
-                                df_recibe[c] = pd.to_numeric(df_recibe[c], errors="coerce").fillna(0)
-                            total_recibidos = int(df_recibe["total_a_favor"].sum())
-                            n_partidos = len(df_recibe)
-                            st.metric(f"Goles recibidos (en {n_partidos} partidos)",
-                                      total_recibidos,
-                                      help="Suma de los goles que otros rivales le marcaron")
-                            # Bar chart por origen
-                            recv = []
-                            for c in cols_origen:
-                                v = int(df_recibe[c].sum())
-                                if v > 0:
-                                    recv.append({"accion": c, "goles_recibidos": v})
-                            if recv:
-                                df_recv = pd.DataFrame(recv).sort_values("goles_recibidos", ascending=False)
-                                st.bar_chart(df_recv.set_index("accion")["goles_recibidos"])
-    
+                            st.caption("Sin datos.")
+
+                        # ── EN CONTRA (cómo recibe este rival) ─────────────────
+                        st.markdown(f"#### 🥅 Cómo recibe **{rival_sel}**")
+                        ec_data = []
+                        for accion in [a for a in agr_r.index if a.startswith("EC_") and not a.startswith("EC_port") and not a.startswith("EC_zona")]:
+                            v = pd.to_numeric(agr_r[accion], errors="coerce")
+                            if v and v > 0:
+                                ec_data.append({"accion": accion.replace("EC_", ""), "goles": int(v)})
+                        if ec_data:
+                            df_ec = pd.DataFrame(ec_data).sort_values("goles", ascending=False)
+                            st.bar_chart(df_ec.set_index("accion")["goles"], color="#B71C1C")
+                        else:
+                            st.caption("Sin datos.")
+
+                        # ── Zonas: cuadrantes portería + zonas campo ──────────
+                        st.markdown("#### 🎯 Zonas")
+                        st.caption(
+                            "**Portería** = 9 cuadrantes (1 arriba-izda, 3 arriba-dcha, 7 abajo-izda, 9 abajo-dcha). "
+                            "**Campo** = 11 zonas desde donde se realiza el disparo."
+                        )
+                        zonas_tabs = st.tabs(["📍 Portería A FAVOR", "📍 Portería EN CONTRA",
+                                              "🌐 Zona A FAVOR", "🌐 Zona EN CONTRA"])
+                        for idx, (prefix, lbl) in enumerate([
+                            ("AF_port_", "P"), ("EC_port_", "P"),
+                            ("AF_zona_", "Z"), ("EC_zona_", "Z"),
+                        ]):
+                            with zonas_tabs[idx]:
+                                rng = range(1, 10) if lbl == "P" else range(1, 12)
+                                z_data = []
+                                for i in rng:
+                                    col = f"{prefix}{lbl}{i}"
+                                    if col in agr_r.index:
+                                        v = pd.to_numeric(agr_r[col], errors="coerce")
+                                        z_data.append({"zona": f"{lbl}{i}",
+                                                        "goles": int(v) if v and v > 0 else 0})
+                                if any(z["goles"] > 0 for z in z_data):
+                                    df_z = pd.DataFrame(z_data)
+                                    st.bar_chart(df_z.set_index("zona")["goles"])
+                                else:
+                                    st.caption("Sin datos para esta zona.")
+
                     # ── Tabla partido a partido ─────────────────────────────
                     st.markdown(f"#### Partido a partido — {rival_sel}")
-                    cols_show = ["competicion", "contra_quien", "fecha", "total_a_favor"]
+                    cols_show = ["competicion", "contra_quien", "fecha",
+                                 "total_a_favor", "total_en_contra"]
                     cols_show = [c for c in cols_show if c in df_r.columns]
+                    df_r_show = df_r[cols_show].copy()
+                    for c in ("total_a_favor", "total_en_contra"):
+                        if c in df_r_show.columns:
+                            df_r_show[c] = pd.to_numeric(df_r_show[c], errors="coerce")
                     st.dataframe(
-                        df_r[cols_show].sort_values("fecha", ascending=False),
+                        df_r_show.sort_values("fecha", ascending=False),
                         use_container_width=True, hide_index=True,
                         column_config={
                             "competicion": st.column_config.Column(help="Competición"),
                             "contra_quien": st.column_config.Column("contra", help="Equipo contra el que jugó"),
                             "fecha": st.column_config.Column(help="Fecha del partido"),
-                            "total_a_favor": st.column_config.NumberColumn("Goles", help="Goles a favor del rival en ese partido", format="%d"),
+                            "total_a_favor": st.column_config.NumberColumn("GF", help="Goles a favor del rival en ese partido", format="%d"),
+                            "total_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra del rival en ese partido", format="%d"),
                         },
                     )
     
@@ -2860,7 +2914,7 @@ with tab_goles:
     
             incl = (incluir_portero == "Sí")
             ev_for_q["formacion"] = ev_for_q.apply(lambda r: _formacion(r, incl), axis=1)
-            ev_for_q["tam"] = ev_for_q["formacion"].str.split(" | ").str.len()
+            ev_for_q["tam"] = ev_for_q["formacion"].str.split(" | ", regex=False).str.len()
     
             if tamanos:
                 ev_for_q = ev_for_q[ev_for_q["tam"].isin(tamanos)]

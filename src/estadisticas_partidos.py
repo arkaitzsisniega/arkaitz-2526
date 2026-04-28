@@ -52,6 +52,12 @@ PATRON_PARTIDO = re.compile(
 # Hojas que parecen partidos pero están vacías (plantillas no usadas)
 HOJAS_VACIAS = {"J27", "J28", "J29", "J30", "P49", "CAJA NEGRA"}
 
+# Porteros canónicos del equipo. Si en la columna "portero" del Excel
+# aparece otro nombre, es un error de Arkaitz al rellenar (probablemente
+# se confundió de columna). En ese caso movemos el nombre al cuarteto y
+# dejamos el portero vacío (situación de portero-jugador o 5x4).
+PORTEROS_CANONICOS = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+
 # Filas/columnas de los bloques (0-indexed)
 ROT_FILA_INI, ROT_FILA_FIN = 4, 19          # 5..19 → idx 4..18, slice 4:19
 ROT_COL_DORSAL, ROT_COL_NOMBRE = 1, 2       # B, C
@@ -391,6 +397,15 @@ def parsear_partido(
                 v = _norm_nombre(row[c])
                 if v:
                     cuarteto.append(v)
+
+        # Validación de portero canónico: si lo que viene en col M no es
+        # uno de los 3 porteros oficiales, es error de apuntado. En ese
+        # caso lo movemos al cuarteto (era jugador de campo) y el portero
+        # queda vacío (situación de 5 jugadores en pista, portero-jugador).
+        if portero and portero not in PORTEROS_CANONICOS:
+            if portero not in cuarteto:
+                cuarteto.append(portero)
+            portero = ""
 
         asist = ""
         if EVT_COL_ASIST < len(row):

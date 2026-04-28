@@ -63,29 +63,38 @@ RIVALES_NOMBRES = {
     "XOT": "Osasuna Magna",
 }
 
-# Columnas (1-indexed, openpyxl) → nombre canónico
-COLUMNAS_ORIGEN = {
-    7:  "Banda",
-    8:  "Córner",
-    9:  "Saque de Centro",
-    10: "Falta",
-    11: "2ª jugada",
-    12: "10 metros",
-    13: "Penalti",
-    14: "Falta sin barrera",
-    15: "Salida de presión",
-    16: "Ataque Posicional 4x4",
-    17: "1x1 en banda",
-    18: "2ª jugada de ABP",
-    19: "Incorporación del portero",
-    20: "5x4",
-    21: "4x3",
-    22: "4x5",
-    23: "3x4",
-    24: "Contraataque",
-    25: "Robo en zona alta",
-    26: "No calificado",
+# Bloque 1: cols 6-27 = TOTAL A/F + 21 acciones de goles A FAVOR
+# Bloque 1: cols 29-50 = TOTAL E/C + 21 acciones de goles EN CONTRA
+# Bloque 2: cols 55-94 = zonas (portería P1-P9 y campo Z1-Z11) AF y EC
+
+# Columnas A FAVOR (origen del gol)
+COLS_AF_ORIGEN = {
+    7:  "Banda", 8:  "Córner", 9:  "Saque de Centro", 10: "Falta",
+    11: "2ª jugada", 12: "10 metros", 13: "Penalti", 14: "Falta sin barrera",
+    15: "Salida de presión", 16: "Ataque Posicional 4x4", 17: "1x1 en banda",
+    18: "2ª jugada de ABP", 19: "Incorporación del portero",
+    20: "Robo en incorporación de portero",
+    21: "5x4", 22: "4x3", 23: "4x5", 24: "3x4",
+    25: "Contraataque", 26: "Robo en zona alta", 27: "No calificado",
 }
+# Columnas EN CONTRA (origen del gol que les meten)
+COLS_EC_ORIGEN = {
+    30: "Banda", 31: "Córner", 32: "Saque de Centro", 33: "Falta",
+    34: "2ª jugada", 35: "10 metros", 36: "Penalti", 37: "Falta sin barrera",
+    38: "Salida de presión", 39: "Ataque Posicional 4x4", 40: "1x1 en banda",
+    41: "2ª jugada de ABP", 42: "Incorporación del portero",
+    43: "Pérdida en incorporación de portero",
+    44: "5x4", 45: "4x3", 46: "4x5", 47: "3x4",
+    48: "Contraataque", 49: "Robo en zona alta", 50: "No calificado",
+}
+# Zonas A FAVOR: 9 cuadrantes de portería (cols 55-63) + 11 zonas campo (cols 64-74)
+COLS_AF_PORT = {55+i: f"P{i+1}" for i in range(9)}
+COLS_AF_ZONA = {64+i: f"Z{i+1}" for i in range(11)}
+# Zonas EN CONTRA: 9 cuadrantes portería (cols 75-83) + 11 zonas campo (cols 84-94)
+# (en el Excel las cabeceras de cols 75-83 están como "G.AF P" pero son
+#  realmente las zonas de portería de los goles EN CONTRA, según contexto)
+COLS_EC_PORT = {75+i: f"P{i+1}" for i in range(9)}
+COLS_EC_ZONA = {84+i: f"Z{i+1}" for i in range(11)}
 
 
 def _to_int(v) -> int:
@@ -117,14 +126,17 @@ def cargar(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
             print(f"⚠️  Hoja '{codigo}' no encontrada, salto.")
             continue
         ws = wb[codigo]
-        # Datos a partir de fila 8 según la inspección
+        # Datos a partir de fila 8 (1-indexed)
         for row in ws.iter_rows(min_row=8, values_only=True):
             if not row:
                 continue
-            comp = row[1] if len(row) > 1 else None
-            contra = row[2] if len(row) > 2 else None
-            fecha = row[3] if len(row) > 3 else None
-            total_af = row[5] if len(row) > 5 else None
+            # Col idx 1-based en openpyxl ↔ 0-based en tuple
+            def _g(c1):
+                return row[c1 - 1] if len(row) >= c1 else None
+
+            comp = _g(2)
+            contra = _g(3)
+            fecha = _g(4)
             if not comp or not contra:
                 continue
             base = {
@@ -133,36 +145,61 @@ def cargar(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
                 "competicion": str(comp).strip(),
                 "contra_quien": str(contra).strip(),
                 "fecha": _to_date_iso(fecha),
-                "total_a_favor": _to_int(total_af),
+                "total_a_favor": _to_int(_g(6)),
+                "total_en_contra": _to_int(_g(29)),
             }
-            # Conteos por origen de gol
-            for col_idx, accion in COLUMNAS_ORIGEN.items():
-                # Col idx 1-based en openpyxl, pero row es 0-based con tuple
-                v = row[col_idx - 1] if len(row) > (col_idx - 1) else None
-                base[accion] = _to_int(v)
+            # Conteos por origen — A FAVOR (cols 7-27)
+            for col_idx, accion in COLS_AF_ORIGEN.items():
+                base[f"AF_{accion}"] = _to_int(_g(col_idx))
+            # Conteos por origen — EN CONTRA (cols 30-50)
+            for col_idx, accion in COLS_EC_ORIGEN.items():
+                base[f"EC_{accion}"] = _to_int(_g(col_idx))
+            # Zonas portería A FAVOR (cols 55-63: P1-P9)
+            for col_idx, p in COLS_AF_PORT.items():
+                base[f"AF_port_{p}"] = _to_int(_g(col_idx))
+            # Zonas campo A FAVOR (cols 64-74: Z1-Z11)
+            for col_idx, z in COLS_AF_ZONA.items():
+                base[f"AF_zona_{z}"] = _to_int(_g(col_idx))
+            # Zonas portería EN CONTRA (cols 75-83: P1-P9)
+            for col_idx, p in COLS_EC_PORT.items():
+                base[f"EC_port_{p}"] = _to_int(_g(col_idx))
+            # Zonas campo EN CONTRA (cols 84-94: Z1-Z11)
+            for col_idx, z in COLS_EC_ZONA.items():
+                base[f"EC_zona_{z}"] = _to_int(_g(col_idx))
             filas.append(base)
 
-    cols_base = ["rival_codigo", "rival_nombre", "competicion",
-                 "contra_quien", "fecha", "total_a_favor"]
-    cols_acciones = list(COLUMNAS_ORIGEN.values())
-    return pd.DataFrame(filas, columns=cols_base + cols_acciones)
+    return pd.DataFrame(filas)
 
 
 def calcular_agregado_rival(df: pd.DataFrame) -> pd.DataFrame:
-    """Una fila por rival con totales y % por origen."""
+    """Una fila por rival con totales y % por origen.
+
+    Incluye AF (cómo marca), EC (cómo recibe) y zonas (P y Z) en ambos.
+    """
     if df.empty:
         return pd.DataFrame()
-    cols_acciones = list(COLUMNAS_ORIGEN.values())
-    g = df.groupby(["rival_codigo", "rival_nombre"], as_index=False).agg(
-        partidos=("contra_quien", "count"),
-        total_goles=("total_a_favor", "sum"),
-        **{c: (c, "sum") for c in cols_acciones},
-    )
-    # Porcentajes por origen
-    for c in cols_acciones:
-        pct_col = f"%{c}"
-        g[pct_col] = (g[c] / g["total_goles"].replace(0, float("nan")) * 100).round(1)
-    return g.sort_values("total_goles", ascending=False)
+    cols_sum = [c for c in df.columns
+                if c.startswith(("AF_", "EC_", "total_"))]
+    aggs = {"partidos": ("contra_quien", "count")}
+    for c in cols_sum:
+        aggs[c] = (c, "sum")
+    g = df.groupby(["rival_codigo", "rival_nombre"], as_index=False).agg(**aggs)
+
+    # % por origen sobre total_a_favor
+    for accion in COLS_AF_ORIGEN.values():
+        col = f"AF_{accion}"
+        if col in g.columns:
+            g[f"%AF_{accion}"] = (
+                g[col] / g["total_a_favor"].replace(0, float("nan")) * 100
+            ).round(1)
+    # % por origen sobre total_en_contra
+    for accion in COLS_EC_ORIGEN.values():
+        col = f"EC_{accion}"
+        if col in g.columns:
+            g[f"%EC_{accion}"] = (
+                g[col] / g["total_en_contra"].replace(0, float("nan")) * 100
+            ).round(1)
+    return g.sort_values("total_a_favor", ascending=False)
 
 
 def subir_a_sheet(df_raw: pd.DataFrame, df_agr: pd.DataFrame) -> None:
@@ -205,7 +242,7 @@ def main():
     print(f"Rivales scouted: {df_raw['rival_codigo'].nunique()}")
     print()
     print("Top rivales por goles registrados:")
-    print(df_agr[["rival_codigo", "rival_nombre", "partidos", "total_goles"]]
+    print(df_agr[["rival_codigo", "rival_nombre", "partidos", "total_a_favor", "total_en_contra"]]
           .head(15).to_string(index=False))
 
     if args.upload:
