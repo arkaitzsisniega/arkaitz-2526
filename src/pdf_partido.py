@@ -131,25 +131,300 @@ def _svg_porteria(cuadrantes, svg_porteria_fn=None):
 
 
 def _svg_to_image(svg_str: str, width: float, height: float) -> RLImage:
-    """Convierte un string SVG en un objeto RLImage para reportlab."""
+    """Convierte un string SVG en un objeto RLImage para reportlab.
+    (Solo se usa si svglib está disponible; caso contrario usar mpl).
+    """
     if not SVG_DISPONIBLE:
         raise RuntimeError("svglib no disponible — saltando mapa")
     drawing = svg2rlg(io.BytesIO(svg_str.encode("utf-8")))
     if drawing is None:
-        # Fallback: imagen vacía
         return RLImage(io.BytesIO(b""), width=width, height=height)
-    # Escalar para encajar en width/height
     sx = width / drawing.width if drawing.width else 1
     sy = height / drawing.height if drawing.height else 1
     s = min(sx, sy)
     drawing.scale(s, s)
     drawing.width *= s
     drawing.height *= s
-    # Renderizar a PNG
     buf = io.BytesIO()
     renderPM.drawToFile(drawing, buf, fmt="PNG", dpi=150)
     buf.seek(0)
     return RLImage(buf, width=drawing.width, height=drawing.height)
+
+
+# ── Generadores nativos con matplotlib (sin SVG) ─────────────────────────────
+def _mpl_color_zona(valor: int, max_v: int):
+    """Mismo gradiente que `_color_zona` del dashboard pero como tuple RGB."""
+    if max_v <= 0 or valor <= 0:
+        return (0.96, 0.96, 0.96)  # gris muy claro
+    t = max(0.0, min(1.0, valor / max_v))
+    if t < 0.5:
+        r = 255
+        g = int(220 - 50 * (t * 2))
+        b = 180
+    else:
+        r = int(255 - 100 * ((t - 0.5) * 2))
+        g = int(170 - 130 * ((t - 0.5) * 2))
+        b = int(80 - 30 * ((t - 0.5) * 2))
+    return (r/255, g/255, b/255)
+
+
+def _arco_xy(cx, cy, r, ang_ini, ang_fin, n=40):
+    """Devuelve (xs, ys) de un arco de radio r centrado en (cx,cy), de
+    ang_ini a ang_fin (en grados, sentido matemático estándar). Se usa
+    para construir polígonos compuestos con arcos."""
+    import numpy as np
+    a = np.radians(np.linspace(ang_ini, ang_fin, n))
+    return cx + r * np.cos(a), cy + r * np.sin(a)
+
+
+def _dibujar_campo_mpl(zonas: dict) -> bytes:
+    """Dibuja el campo con 11 zonas + portería + áreas usando matplotlib y
+    devuelve un PNG en bytes. Geometría (en "px de SVG"): 1m = 25px →
+    campo 1000 × 500. Mitad atacante = 0..500 (izda)."""
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    from matplotlib.patches import Polygon as MplPolygon
+
+    z = {k: int(v) if v else 0 for k, v in (zonas or {}).items()}
+    max_v = max(max(z.values()), 1) if z else 1
+
+    fig, ax = plt.subplots(figsize=(10.8, 5.3), dpi=180)
+    fig.patch.set_facecolor("#A5D6A7")
+    ax.set_facecolor("#A5D6A7")
+    ax.set_xlim(-50, 1010)
+    ax.set_ylim(510, -10)  # invertido para que (0,0) esté arriba a la izda
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    BORDE = "#1B5E20"
+
+    def col(zk):
+        return _mpl_color_zona(z.get(zk, 0), max_v)
+
+    def texto(zk, x, y):
+        v = z.get(zk, 0)
+        ax.text(x, y - 7, zk, ha="center", va="center",
+                fontsize=8, fontweight="bold", color="#222")
+        ax.text(x, y + 13, str(v), ha="center", va="center",
+                fontsize=11, fontweight="bold", color="#000")
+
+    # ── Zonas rectangulares ───────────────────────────────────────────────
+    rects_z = [
+        # (zk, x, y, w, h, tx, ty)
+        ("A11", 500, 0, 500, 500, 750, 250),
+        ("A6",  0,   0, 250, 62.5, 125, 31),
+        ("A3",  0,   437.5, 250, 62.5, 125, 469),
+        ("A10", 250, 0, 250, 62.5, 375, 31),
+        ("A7",  250, 437.5, 250, 62.5, 375, 469),
+        ("A9",  250, 62.5, 250, 187.5, 375, 156),
+        ("A8",  250, 250,  250, 187.5, 375, 343),
+    ]
+    for zk, x, y, w, h, tx, ty in rects_z:
+        ax.add_patch(mpatches.Rectangle((x, y), w, h, facecolor=col(zk),
+                                          edgecolor="none", zorder=1))
+        texto(zk, tx, ty)
+
+    # ── Zonas con arco (A5, A4, A2, A1) ──────────────────────────────────
+    # OJO: el eje Y está invertido (ylim 510→-10), por lo que los ángulos
+    # estándar de matplotlib se "invierten" visualmente: ángulo positivo
+    # va hacia ABAJO en pantalla. Por eso A5 (arriba) usa ángulo NEGATIVO.
+
+    # A5: zona externa SUPERIOR — polígono cerrado por arco de (150,212.5) →
+    #      (0,62.5). Centro (0,212.5), r=150, ang 0° → -90°.
+    xs_a, ys_a = _arco_xy(0, 212.5, 150, 0, -90)
+    poly_a5 = list(zip([0, 250, 250, 150, 150] + list(xs_a),
+                        [62.5, 62.5, 250, 250, 212.5] + list(ys_a)))
+    ax.add_patch(MplPolygon(poly_a5, closed=True, facecolor=col("A5"),
+                              edgecolor="none", zorder=1))
+    texto("A5", 200, 156)
+
+    # A4: simétrica abajo. Arco de (150,287.5) → (0,437.5).
+    xs_a, ys_a = _arco_xy(0, 287.5, 150, 0, 90)
+    poly_a4 = list(zip([0, 250, 250, 150, 150] + list(xs_a),
+                        [437.5, 437.5, 250, 250, 287.5] + list(ys_a)))
+    ax.add_patch(MplPolygon(poly_a4, closed=True, facecolor=col("A4"),
+                              edgecolor="none", zorder=1))
+    texto("A4", 200, 343)
+
+    # A2: dentro del área SUPERIOR. Arco (0,62.5) → (150,212.5), -90° → 0°.
+    xs_a, ys_a = _arco_xy(0, 212.5, 150, -90, 0)
+    poly_a2 = list(zip(list(xs_a) + [150, 0],
+                        list(ys_a) + [250, 250]))
+    ax.add_patch(MplPolygon(poly_a2, closed=True, facecolor=col("A2"),
+                              edgecolor="none", zorder=1))
+    texto("A2", 60, 175)
+
+    # A1: dentro del área INFERIOR. Polígono (0,250) → (150,250) →
+    #      (150,287.5) → arco → (0,437.5). Ángulos 0° → 90°.
+    xs_a, ys_a = _arco_xy(0, 287.5, 150, 0, 90)
+    poly_a1 = list(zip([0, 150] + list(xs_a),
+                        [250, 250] + list(ys_a)))
+    ax.add_patch(MplPolygon(poly_a1, closed=True, facecolor=col("A1"),
+                              edgecolor="none", zorder=1))
+    texto("A1", 60, 325)
+
+    # ── Líneas discontinuas de zonas ─────────────────────────────────────
+    dash_kw = dict(color=BORDE, linewidth=1, linestyle=(0, (4, 3)), zorder=3)
+    ax.plot([250, 250], [0, 500], **dash_kw)
+    ax.plot([0, 500], [62.5, 62.5], **dash_kw)
+    ax.plot([0, 500], [437.5, 437.5], **dash_kw)
+    ax.plot([0, 500], [250, 250], **dash_kw)
+
+    # ── Líneas oficiales (continuas, marcadas) ───────────────────────────
+    line_kw = dict(color=BORDE, linewidth=2.5, zorder=4)
+    # Perímetro
+    ax.add_patch(mpatches.Rectangle((0, 0), 1000, 500, fill=False,
+                                      edgecolor=BORDE, linewidth=2.5,
+                                      zorder=4))
+    # Línea media
+    ax.plot([500, 500], [0, 500], **line_kw)
+    # Círculo central
+    ax.add_patch(mpatches.Circle((500, 250), 75, fill=False,
+                                   edgecolor=BORDE, linewidth=2, zorder=4))
+    ax.add_patch(mpatches.Circle((500, 250), 4, color=BORDE, zorder=4))
+    # Área grande (arco de 6m desde cada poste + segmento medio)
+    # Top: de (0,62.5) → (150,212.5), centro (0,212.5)
+    xs_top, ys_top = _arco_xy(0, 212.5, 150, -90, 0)
+    ax.plot(xs_top, ys_top, color=BORDE, linewidth=2, zorder=4)
+    # Bot: de (150,287.5) → (0,437.5), centro (0,287.5)
+    xs_bot, ys_bot = _arco_xy(0, 287.5, 150, 0, 90)
+    ax.plot(xs_bot, ys_bot, color=BORDE, linewidth=2, zorder=4)
+    ax.plot([150, 150], [212.5, 287.5], color=BORDE, linewidth=2, zorder=4)
+    # Punto de penalti (6m) y doble penalti (10m)
+    ax.add_patch(mpatches.Circle((150, 250), 4, color=BORDE, zorder=4))
+    ax.add_patch(mpatches.Circle((250, 250), 4, color=BORDE, zorder=4))
+
+    # ── Portería: 3m, postes con franjas rojo/blanco ─────────────────────
+    POSTE_LARGO = 32
+    GROSOR = 8
+    n_franjas = 5
+    franja_h = 75 / n_franjas
+    # Larguero (vertical, conectando ambos postes en x=-GROSOR..0)
+    for i in range(n_franjas):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        ax.add_patch(mpatches.Rectangle(
+            (-GROSOR, 212.5 + i * franja_h), GROSOR, franja_h,
+            facecolor=c, edgecolor="#7F1010", linewidth=0.4, zorder=5))
+    # Poste superior e inferior (saliendo hacia x negativo)
+    ax.add_patch(mpatches.Rectangle(
+        (-POSTE_LARGO, 212.5 - GROSOR/2), POSTE_LARGO, GROSOR,
+        facecolor="#B71C1C", edgecolor="#7F1010", linewidth=0.4, zorder=5))
+    ax.add_patch(mpatches.Rectangle(
+        (-POSTE_LARGO, 287.5 - GROSOR/2), POSTE_LARGO, GROSOR,
+        facecolor="#B71C1C", edgecolor="#7F1010", linewidth=0.4, zorder=5))
+
+    # Guardar a PNG en memoria
+    buf = io.BytesIO()
+    fig.savefig(buf, format="PNG", dpi=180, bbox_inches="tight",
+                pad_inches=0.05, facecolor="#A5D6A7")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def _dibujar_porteria_mpl(cuadrantes: dict) -> bytes:
+    """Portería 3×2m con cuadrícula 3×3 (P1-P9) y postes con franjas."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+
+    p = {k: int(v) if v else 0 for k, v in (cuadrantes or {}).items()}
+    max_v = max(max(p.values()), 1) if p else 1
+
+    POSTE = 14
+    SVG_W, SVG_H = 360, 250
+    POSX, POSY = 30, 18
+    PORT_W, PORT_H = 300, 200
+
+    fig, ax = plt.subplots(figsize=(7.2, 5.0), dpi=180)
+    fig.patch.set_facecolor("#FFFFFF")
+    ax.set_facecolor("#FFFFFF")
+    ax.set_xlim(0, SVG_W)
+    ax.set_ylim(SVG_H, 0)  # invertido
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # Fondo de la portería
+    ax.add_patch(mpatches.Rectangle((POSX, POSY), PORT_W, PORT_H,
+                                      facecolor="#FAFAFA", edgecolor="none",
+                                      zorder=1))
+    # Líneas de red decorativas
+    for i in range(1, 6):
+        x = POSX + i * (PORT_W / 6)
+        ax.plot([x, x], [POSY, POSY + PORT_H], color="#E0E0E0",
+                linewidth=0.5, zorder=2)
+    for i in range(1, 4):
+        y = POSY + i * (PORT_H / 4)
+        ax.plot([POSX, POSX + PORT_W], [y, y], color="#E0E0E0",
+                linewidth=0.5, zorder=2)
+
+    # 9 cuadrantes
+    cuad_w = PORT_W / 3
+    cuad_h = PORT_H / 3
+    for i in range(9):
+        col_idx = i % 3
+        row_idx = i // 3
+        x = POSX + col_idx * cuad_w
+        y = POSY + row_idx * cuad_h
+        zona = f"P{i+1}"
+        v = p.get(zona, 0)
+        color = _mpl_color_zona(v, max_v)
+        ax.add_patch(mpatches.Rectangle((x, y), cuad_w, cuad_h,
+                                          facecolor=color, alpha=0.85,
+                                          edgecolor="#888", linewidth=0.6,
+                                          linestyle=(0, (3, 2)), zorder=3))
+        ax.text(x + cuad_w/2, y + cuad_h/2 - 7, zona,
+                ha="center", va="center", fontsize=9,
+                fontweight="bold", color="#222", zorder=4)
+        ax.text(x + cuad_w/2, y + cuad_h/2 + 12, str(v),
+                ha="center", va="center", fontsize=12,
+                fontweight="bold", color="#000", zorder=4)
+
+    # Postes verticales con franjas
+    n_v = 6
+    fv_h = PORT_H / n_v
+    for i in range(n_v):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        ax.add_patch(mpatches.Rectangle((POSX - POSTE, POSY + i * fv_h),
+                                          POSTE, fv_h, facecolor=c,
+                                          edgecolor="#7F1010", linewidth=0.4,
+                                          zorder=5))
+        ax.add_patch(mpatches.Rectangle((POSX + PORT_W, POSY + i * fv_h),
+                                          POSTE, fv_h, facecolor=c,
+                                          edgecolor="#7F1010", linewidth=0.4,
+                                          zorder=5))
+    # Larguero
+    n_h = 8
+    fh_w = PORT_W / n_h
+    for i in range(n_h):
+        c = "#B71C1C" if i % 2 == 0 else "#FFFFFF"
+        ax.add_patch(mpatches.Rectangle((POSX + i * fh_w, POSY - POSTE),
+                                          fh_w, POSTE, facecolor=c,
+                                          edgecolor="#7F1010", linewidth=0.4,
+                                          zorder=5))
+
+    # Línea de campo bajo la portería
+    ax.plot([POSX - POSTE - 10, POSX + PORT_W + POSTE + 10],
+            [POSY + PORT_H + 4, POSY + PORT_H + 4],
+            color="#1B5E20", linewidth=2, zorder=4)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="PNG", dpi=180, bbox_inches="tight",
+                pad_inches=0.05, facecolor="#FFFFFF")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def _png_to_image(png_bytes: bytes, width: float, height: float) -> RLImage:
+    """Wrapping a PNG byte buffer en un RLImage con tamaño deseado."""
+    img = RLImage(io.BytesIO(png_bytes), width=width, height=height)
+    img.hAlign = "CENTER"
+    return img
 
 
 # ── Generador principal ──────────────────────────────────────────────────────
@@ -423,8 +698,8 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 story.append(t_rot)
                 story.append(Spacer(1, 6))
 
-    # ── Mapas de zona y portería ────────────────────────────────────────────
-    if not df_dz.empty and SVG_DISPONIBLE:
+    # ── Mapas de zona y portería (matplotlib, sin svglib) ───────────────────
+    if not df_dz.empty:
         meta_rival = str(rival).upper()
         rival_corto = meta_rival.split()[0] if meta_rival else ""
         df_dz["rival_up"] = df_dz["rival"].astype(str).str.upper()
@@ -445,27 +720,27 @@ def generar_pdf_partido(partido_id: str, sh=None,
             # A favor
             story.append(Paragraph("<b>⚽ Cómo metemos goles</b>", p_body))
             try:
-                img_campo_af = _svg_to_image(_svg_campo(af_zona, svg_campo_fn), 16*cm, 8*cm)
-                img_port_af = _svg_to_image(_svg_porteria(af_port, svg_porteria_fn), 7*cm, 5*cm)
+                img_campo_af = _png_to_image(_dibujar_campo_mpl(af_zona), 12*cm, 6*cm)
+                img_port_af = _png_to_image(_dibujar_porteria_mpl(af_port), 6.5*cm, 4.5*cm)
                 t = Table([[img_campo_af, img_port_af]],
-                           colWidths=[16*cm, 7*cm])
+                           colWidths=[12*cm, 6.5*cm])
                 t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
                 story.append(t)
-            except Exception:
-                story.append(Paragraph("(Error generando mapa)", p_caption))
+            except Exception as _emap:
+                story.append(Paragraph(f"(Error generando mapa: {_emap})", p_caption))
             story.append(Spacer(1, 6))
 
             # En contra
             story.append(Paragraph("<b>🥅 Cómo recibimos goles</b>", p_body))
             try:
-                img_campo_ec = _svg_to_image(_svg_campo(ec_zona, svg_campo_fn), 16*cm, 8*cm)
-                img_port_ec = _svg_to_image(_svg_porteria(ec_port, svg_porteria_fn), 7*cm, 5*cm)
+                img_campo_ec = _png_to_image(_dibujar_campo_mpl(ec_zona), 12*cm, 6*cm)
+                img_port_ec = _png_to_image(_dibujar_porteria_mpl(ec_port), 6.5*cm, 4.5*cm)
                 t = Table([[img_campo_ec, img_port_ec]],
-                           colWidths=[16*cm, 7*cm])
+                           colWidths=[12*cm, 6.5*cm])
                 t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
                 story.append(t)
-            except Exception:
-                story.append(Paragraph("(Error generando mapa)", p_caption))
+            except Exception as _emap:
+                story.append(Paragraph(f"(Error generando mapa: {_emap})", p_caption))
 
     # ── Footer ──────────────────────────────────────────────────────────────
     story.append(Spacer(1, 12))
