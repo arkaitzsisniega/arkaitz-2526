@@ -1920,6 +1920,176 @@ def _aplicar_gradient_columna(df: pd.DataFrame, col: str,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Mapas SVG: campo (11 zonas) y portería (9 cuadrantes)
+# ═══════════════════════════════════════════════════════════════════════════════
+def _color_zona(valor: int, max_v: int) -> str:
+    """Color de relleno para una zona según valor / max."""
+    if max_v <= 0 or valor <= 0:
+        return "#f5f5f5"  # gris muy claro
+    t = max(0.0, min(1.0, valor / max_v))
+    if t < 0.5:
+        r = 255
+        g = int(220 - 50 * (t * 2))
+        b = 180
+    else:
+        r = int(255 - 100 * ((t - 0.5) * 2))
+        g = int(170 - 130 * ((t - 0.5) * 2))
+        b = int(80 - 30 * ((t - 0.5) * 2))
+    return f"rgb({r},{g},{b})"
+
+
+def _texto_zona(zona: str, valor: int, x: float, y: float) -> str:
+    """SVG text con etiqueta + valor centrados en (x, y)."""
+    return (
+        f'<text x="{x}" y="{y - 4}" text-anchor="middle" '
+        f'font-size="13" font-weight="600" fill="#222" '
+        f'style="pointer-events:none">{zona}</text>'
+        f'<text x="{x}" y="{y + 14}" text-anchor="middle" '
+        f'font-size="16" font-weight="800" fill="#000" '
+        f'style="pointer-events:none">{valor}</text>'
+    )
+
+
+def generar_svg_campo(zonas: dict, titulo: str = "") -> str:
+    """Genera un SVG del campo de futsal con las 11 zonas coloreadas.
+
+    `zonas` es un dict {"A1": int, "A2": int, ..., "A11": int}.
+
+    Geometría (en píxeles, 1m = 25px → 40m × 20m = 1000 × 500):
+    - Línea fondo en x=0, mediocampo en x=500, otro fondo en x=1000.
+    - Banda superior y=0, banda inferior y=500.
+    - Portería en y=212.5 a y=287.5 (3m centrados).
+    - Área grande: desde la línea de fondo, cuarto de círculo de 6m de radio
+      desde cada poste, cerrado por una línea paralela a 6m de profundidad.
+    - A6/A3: rectángulos 10m×2.5m en las esquinas (banda × fondo→10m).
+    - A4/A5: zonas centrales fuera del área entre fondo y los 10m.
+    - A1/A2: el área grande dividida horizontalmente.
+    - A7/A10: rectángulos 10m×2.5m a continuación de A3/A6 (10m→medio).
+    - A8/A9: zonas centrales 10m×7.5m (entre A7/A10 y mediocampo).
+    - A11: toda la mitad rival.
+    """
+    z = {k: int(v) if v else 0 for k, v in (zonas or {}).items()}
+    max_v = max(z.values()) if z else 1
+    max_v = max(max_v, 1)
+
+    def col(zk):
+        return _color_zona(z.get(zk, 0), max_v)
+
+    parts = [
+        '<svg width="100%" viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg" '
+        'style="background:#e8f5e9; border:2px solid #2E7D32; border-radius:8px;">',
+    ]
+
+    # A11 (mitad rival)
+    parts.append(f'<rect x="500" y="0" width="500" height="500" fill="{col("A11")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A11", z.get("A11", 0), 750, 250))
+
+    # A6 (banda superior, fondo→10m, 2.5m de alto = 62.5px)
+    parts.append(f'<rect x="0" y="0" width="250" height="62.5" fill="{col("A6")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A6", z.get("A6", 0), 125, 31))
+
+    # A3 (banda inferior, fondo→10m)
+    parts.append(f'<rect x="0" y="437.5" width="250" height="62.5" fill="{col("A3")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A3", z.get("A3", 0), 125, 469))
+
+    # A10 (banda superior, 10m→medio)
+    parts.append(f'<rect x="250" y="0" width="250" height="62.5" fill="{col("A10")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A10", z.get("A10", 0), 375, 31))
+
+    # A7 (banda inferior, 10m→medio)
+    parts.append(f'<rect x="250" y="437.5" width="250" height="62.5" fill="{col("A7")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A7", z.get("A7", 0), 375, 469))
+
+    # A9 (centro superior, 10m→medio, ancho 7.5m=187.5px)
+    parts.append(f'<rect x="250" y="62.5" width="250" height="187.5" fill="{col("A9")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A9", z.get("A9", 0), 375, 156))
+
+    # A8 (centro inferior, 10m→medio)
+    parts.append(f'<rect x="250" y="250" width="250" height="187.5" fill="{col("A8")}" stroke="#bbb"/>')
+    parts.append(_texto_zona("A8", z.get("A8", 0), 375, 343))
+
+    # A5 (mitad superior fuera del área, fondo→10m).
+    # Polígono con arco "negativo" del cuarto de círculo del área:
+    # contorno: (0,62.5)→(250,62.5)→(250,250)→(150,250)→(150,212.5)→arco→(0,62.5)
+    parts.append(
+        f'<path d="M 0,62.5 L 250,62.5 L 250,250 L 150,250 L 150,212.5 '
+        f'A 150,150 0 0,0 0,62.5 Z" fill="{col("A5")}" stroke="#bbb"/>'
+    )
+    parts.append(_texto_zona("A5", z.get("A5", 0), 200, 156))
+
+    # A4 (mitad inferior fuera del área, simétrica)
+    parts.append(
+        f'<path d="M 0,437.5 L 250,437.5 L 250,250 L 150,250 L 150,287.5 '
+        f'A 150,150 0 0,0 0,437.5 Z" fill="{col("A4")}" stroke="#bbb"/>'
+    )
+    parts.append(_texto_zona("A4", z.get("A4", 0), 200, 343))
+
+    # A2 (mitad superior del área grande, dentro del cuarto de círculo)
+    parts.append(
+        f'<path d="M 0,62.5 A 150,150 0 0,1 150,212.5 L 150,250 L 0,250 Z" '
+        f'fill="{col("A2")}" stroke="#bbb"/>'
+    )
+    parts.append(_texto_zona("A2", z.get("A2", 0), 60, 175))
+
+    # A1 (mitad inferior del área)
+    parts.append(
+        f'<path d="M 0,250 L 150,250 L 150,287.5 A 150,150 0 0,1 0,437.5 Z" '
+        f'fill="{col("A1")}" stroke="#bbb"/>'
+    )
+    parts.append(_texto_zona("A1", z.get("A1", 0), 60, 325))
+
+    # Línea media (vertical en x=500)
+    parts.append('<line x1="500" y1="0" x2="500" y2="500" stroke="white" stroke-width="3"/>')
+    # Círculo central
+    parts.append('<circle cx="500" cy="250" r="60" fill="none" stroke="white" stroke-width="2"/>')
+    # Portería (3m, líneas verticales en x=0)
+    parts.append('<rect x="-8" y="212.5" width="8" height="75" fill="#1565C0" stroke="#0D47A1" stroke-width="2"/>')
+
+    if titulo:
+        parts.append(f'<text x="500" y="20" text-anchor="middle" font-size="13" font-weight="600" fill="#1B3A6B">{titulo}</text>')
+
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def generar_svg_porteria(cuadrantes: dict, titulo: str = "") -> str:
+    """SVG de la portería con cuadrícula 3×3 (P1-P9) coloreada."""
+    p = {k: int(v) if v else 0 for k, v in (cuadrantes or {}).items()}
+    max_v = max(p.values()) if p else 1
+    max_v = max(max_v, 1)
+
+    # Proporciones reales: portería 3m × 2m. Escala 1m = 100px → 300×200.
+    parts = [
+        '<svg width="100%" viewBox="0 0 360 230" xmlns="http://www.w3.org/2000/svg" '
+        'style="border-radius:8px;">',
+        # Marco de la portería (palos en rojo)
+        '<rect x="20" y="15" width="320" height="200" fill="none" '
+        'stroke="#B71C1C" stroke-width="6"/>',
+    ]
+    # 9 cuadrantes
+    cuad_w = 320 / 3
+    cuad_h = 200 / 3
+    for i in range(9):
+        col_idx = i % 3
+        row_idx = i // 3
+        x = 20 + col_idx * cuad_w
+        y = 15 + row_idx * cuad_h
+        zona = f"P{i+1}"
+        v = p.get(zona, 0)
+        color = _color_zona(v, max_v)
+        parts.append(
+            f'<rect x="{x}" y="{y}" width="{cuad_w}" height="{cuad_h}" '
+            f'fill="{color}" stroke="#666" stroke-width="1"/>'
+        )
+        parts.append(_texto_zona(zona, v, x + cuad_w/2, y + cuad_h/2))
+    if titulo:
+        parts.append(f'<text x="180" y="225" text-anchor="middle" font-size="12" '
+                     f'font-weight="600" fill="#1B3A6B">{titulo}</text>')
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # TAB 10 — 📈 EFICIENCIA (disparos, ratios, métricas avanzadas)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_efic:
@@ -2151,8 +2321,8 @@ with tab_efic:
                     goles=("goles_a_favor", "sum"),
                 )
                 agr_e["dt"] = agr_e["dp"] + agr_e["dpalo"] + agr_e["db"] + agr_e["df"]
-                agr_e["pct_a_puerta"] = (agr_e["dp"] / agr_e["dt"].replace(0, pd.NA) * 100).round(1)
-                agr_e["pct_conversion"] = (agr_e["goles"] / agr_e["dp"].replace(0, pd.NA) * 100).round(1)
+                agr_e["pct_a_puerta"] = (agr_e["dp"] / agr_e["dt"].replace(0, np.nan) * 100).round(1)
+                agr_e["pct_conversion"] = (agr_e["goles"] / agr_e["dp"].replace(0, np.nan) * 100).round(1)
                 inv_min_e = 1 / agr_e["min_total"].clip(lower=1)
                 agr_e["dp_por_40"] = (agr_e["dp"] * 40 * inv_min_e).round(2)
                 agr_e["dt_por_40"] = (agr_e["dt"] * 40 * inv_min_e).round(2)
@@ -2328,32 +2498,71 @@ with tab_scout:
                         else:
                             st.caption("Sin datos.")
 
-                        # ── Zonas: cuadrantes portería + zonas campo ──────────
-                        st.markdown("#### 🎯 Zonas")
+                        # ── Mapas SVG: campo (11 zonas) + portería (9 cuadrantes) ─
+                        st.markdown("#### 🎯 Mapas de zona")
                         st.caption(
-                            "**Portería** = 9 cuadrantes (1 arriba-izda, 3 arriba-dcha, 7 abajo-izda, 9 abajo-dcha). "
-                            "**Campo** = 11 zonas desde donde se realiza el disparo."
+                            "**Verde claro** = pocos goles · **rojo intenso** = muchos goles · "
+                            "**gris** = ningún gol registrado desde esa zona."
                         )
-                        zonas_tabs = st.tabs(["📍 Portería A FAVOR", "📍 Portería EN CONTRA",
-                                              "🌐 Zona A FAVOR", "🌐 Zona EN CONTRA"])
-                        for idx, (prefix, lbl) in enumerate([
-                            ("AF_port_", "P"), ("EC_port_", "P"),
-                            ("AF_zona_", "Z"), ("EC_zona_", "Z"),
-                        ]):
-                            with zonas_tabs[idx]:
-                                rng = range(1, 10) if lbl == "P" else range(1, 12)
-                                z_data = []
-                                for i in rng:
-                                    col = f"{prefix}{lbl}{i}"
-                                    if col in agr_r.index:
-                                        v = pd.to_numeric(agr_r[col], errors="coerce")
-                                        z_data.append({"zona": f"{lbl}{i}",
-                                                        "goles": int(v) if v and v > 0 else 0})
-                                if any(z["goles"] > 0 for z in z_data):
-                                    df_z = pd.DataFrame(z_data)
-                                    st.bar_chart(df_z.set_index("zona")["goles"])
-                                else:
-                                    st.caption("Sin datos para esta zona.")
+
+                        # Helper: construye dict {A1: v, A2: v, ..., P1: v, ...} desde la fila
+                        def _zonas_dict(prefix_campo, prefix_port):
+                            d = {}
+                            for i in range(1, 12):
+                                k_campo = f"A{i}"
+                                col_z = f"{prefix_campo}Z{i}"
+                                if col_z in agr_r.index:
+                                    v = pd.to_numeric(agr_r[col_z], errors="coerce")
+                                    d[k_campo] = int(v) if v and v > 0 else 0
+                            for i in range(1, 10):
+                                k_port = f"P{i}"
+                                col_p = f"{prefix_port}P{i}"
+                                if col_p in agr_r.index:
+                                    v = pd.to_numeric(agr_r[col_p], errors="coerce")
+                                    d[k_port] = int(v) if v and v > 0 else 0
+                            return d
+
+                        zonas_af = _zonas_dict("AF_zona_", "AF_port_")
+                        zonas_ec = _zonas_dict("EC_zona_", "EC_port_")
+
+                        sub_af, sub_ec = st.tabs([
+                            f"⚽ Cómo marca {rival_sel}",
+                            f"🥅 Cómo recibe {rival_sel}"
+                        ])
+
+                        with sub_af:
+                            colA, colB = st.columns([3, 2])
+                            with colA:
+                                st.markdown("**Campo · desde dónde dispara**")
+                                st.markdown(
+                                    generar_svg_campo({k: zonas_af.get(k, 0)
+                                                        for k in [f"A{i}" for i in range(1, 12)]}),
+                                    unsafe_allow_html=True,
+                                )
+                            with colB:
+                                st.markdown("**Portería · dónde entra el balón**")
+                                st.markdown(
+                                    generar_svg_porteria({k: zonas_af.get(k, 0)
+                                                           for k in [f"P{i}" for i in range(1, 10)]}),
+                                    unsafe_allow_html=True,
+                                )
+
+                        with sub_ec:
+                            colA, colB = st.columns([3, 2])
+                            with colA:
+                                st.markdown("**Campo · desde dónde le disparan**")
+                                st.markdown(
+                                    generar_svg_campo({k: zonas_ec.get(k, 0)
+                                                        for k in [f"A{i}" for i in range(1, 12)]}),
+                                    unsafe_allow_html=True,
+                                )
+                            with colB:
+                                st.markdown("**Portería · por dónde le entran**")
+                                st.markdown(
+                                    generar_svg_porteria({k: zonas_ec.get(k, 0)
+                                                           for k in [f"P{i}" for i in range(1, 10)]}),
+                                    unsafe_allow_html=True,
+                                )
 
                     # ── Tabla partido a partido ─────────────────────────────
                     st.markdown(f"#### Partido a partido — {rival_sel}")
