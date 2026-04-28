@@ -144,8 +144,16 @@ def cargar(hoja: str) -> pd.DataFrame:
         )
         return pd.DataFrame(data)
     except Exception:
-        # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES)
-        rows = ws.get_all_values()
+        # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES).
+        # IMPORTANTE: usar UNFORMATTED_VALUE para que las fórmulas devuelvan
+        # su VALOR calculado, no el texto de la fórmula. Si no, salen literales
+        # tipo `=IF(B3="","",COUNTIFS(...))` en cada celda.
+        try:
+            rows = ws.get(
+                value_render_option=gspread.utils.ValueRenderOption.unformatted
+            )
+        except Exception:
+            rows = ws.get_all_values()
         if not rows:
             return pd.DataFrame()
         # Usar la segunda fila como cabecera real (la primera son grupos de color)
@@ -323,8 +331,14 @@ with st.sidebar:
         sel_jugadores = jugadores_todos
 
     _hoy = pd.Timestamp.now().normalize().date()
-    fecha_min = carga["FECHA"].min().date()
-    fecha_max = min(carga["FECHA"].max().date(), _hoy)  # nunca permitir futuro
+    # Inicio de la temporada 25/26: 1 agosto 2025. No tiene sentido elegir fechas
+    # anteriores; los datos viejos del Sheet (si los hay) son ruido.
+    INICIO_TEMPORADA = pd.Timestamp("2025-08-01").date()
+    fecha_min_data = carga["FECHA"].min().date() if not carga["FECHA"].dropna().empty else INICIO_TEMPORADA
+    fecha_min = max(fecha_min_data, INICIO_TEMPORADA)
+    fecha_max = min(carga["FECHA"].max().date(), _hoy) if not carga["FECHA"].dropna().empty else _hoy
+    if fecha_min > fecha_max:
+        fecha_min = fecha_max
     rango = st.date_input(
         "📅 Período",
         value=(fecha_min, fecha_max),
@@ -1104,6 +1118,56 @@ with tab_rec:
             fig_rec.add_vline(x=80, line_dash="dash", line_color=NARANJA)
             fig_rec.update_layout(**LAYOUT, height=500, coloraxis_showscale=False, showlegend=False)
             st.plotly_chart(fig_rec, use_container_width=True)
+
+        # ── Gráfico apilado horizontal: distribución de estados por jugador ──
+        st.markdown("---")
+        st.markdown("### Distribución de disponibilidades por jugador")
+        st.caption("Cada barra es un jugador. Verde = disponible (Borg 1-10) · "
+                   "naranja/rojo/gris = no disponible (selección, ausencia, lesión, descanso, NC).")
+
+        cols_estado = ["SESIONES_CON_DATOS", "EST_S", "EST_A", "EST_L",
+                       "EST_N", "EST_D", "EST_NC"]
+        cols_estado = [c for c in cols_estado if c in rec_f.columns]
+        if cols_estado and "JUGADOR" in rec_f.columns:
+            df_disp = rec_f[["JUGADOR"] + cols_estado].copy()
+            for c in cols_estado:
+                df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").fillna(0)
+            # Renombrar para etiquetas legibles
+            mapa_estados = {
+                "SESIONES_CON_DATOS": "Disponible",
+                "EST_S": "Selección", "EST_A": "Ausente",
+                "EST_L": "Lesión", "EST_N": "No entrena",
+                "EST_D": "Descanso", "EST_NC": "No calificado",
+            }
+            df_disp = df_disp.rename(columns=mapa_estados)
+            cols_renamed = [mapa_estados[c] for c in cols_estado]
+            df_long = df_disp.melt(id_vars="JUGADOR", value_vars=cols_renamed,
+                                    var_name="Estado", value_name="Sesiones")
+            # Ordenar jugadores por suma total (más arriba los que más jugaron)
+            orden_j = (df_disp.set_index("JUGADOR")[cols_renamed]
+                       .sum(axis=1).sort_values(ascending=True).index.tolist())
+            colores = {
+                "Disponible": "#2E7D32", "Selección": "#1565C0",
+                "Ausente": "#FB8C00", "Lesión": "#B71C1C",
+                "No entrena": "#9E9E9E", "Descanso": "#7B1FA2",
+                "No calificado": "#BDBDBD",
+            }
+            fig_disp = px.bar(
+                df_long, y="JUGADOR", x="Sesiones", color="Estado",
+                orientation="h",
+                category_orders={"JUGADOR": orden_j,
+                                 "Estado": cols_renamed},
+                color_discrete_map=colores,
+                title="",
+            )
+            fig_disp.update_layout(
+                **LAYOUT, height=max(380, 28 * len(orden_j)),
+                barmode="stack",
+                xaxis_title="Sesiones",
+                yaxis_title="",
+                legend_title="",
+            )
+            st.plotly_chart(fig_disp, use_container_width=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1936,6 +2000,24 @@ with tab_efic:
                     "goles_a_favor": "{:.0f}", "goles_en_contra": "{:.0f}",
                     "ratio_a_favor": "{:.2f}", "ratio_en_contra": "{:.2f}",
                 }, na_rep="—")
+                # Semáforo:
+                # - ratio_a_favor: ALTO = MALO (muchos disparos para un gol) → rojo
+                # - ratio_en_contra: ALTO = BUENO (al rival le cuestan los goles) → verde
+                try:
+                    base_af = df_dis["ratio_a_favor"].dropna()
+                    if not base_af.empty and base_af.min() != base_af.max():
+                        sty_dis = sty_dis.background_gradient(
+                            subset=["ratio_a_favor"], cmap="RdYlGn_r",
+                            vmin=float(base_af.min()), vmax=float(base_af.max()),
+                        )
+                    base_ec = df_dis["ratio_en_contra"].dropna()
+                    if not base_ec.empty and base_ec.min() != base_ec.max():
+                        sty_dis = sty_dis.background_gradient(
+                            subset=["ratio_en_contra"], cmap="RdYlGn",
+                            vmin=float(base_ec.min()), vmax=float(base_ec.max()),
+                        )
+                except Exception:
+                    pass
                 st.dataframe(sty_dis, use_container_width=True, hide_index=True,
                              column_config={c: st.column_config.Column(help=TOOLTIPS_COLS.get(c, ""))
                                             for c in cols_dis if TOOLTIPS_COLS.get(c)})
@@ -2278,30 +2360,40 @@ with tab_partido:
     
             # ── Tabla de minutos por jugador (con semáforo, sin porteros) ─────
             st.markdown("#### ⏱ Minutos por jugador y parte")
-            st.caption("Color: verde = más minutos · rojo = menos. Los porteros se excluyen del semáforo (juegan más por su rol).")
+            st.caption("Color: **verde** = más minutos · **rojo** = menos. Los porteros (J.GARCIA, J.HERRERO, OSCAR) se excluyen del semáforo y aparecen en blanco.")
             tabla_min = ep_p.sort_values("min_total", ascending=False)[
                 ["dorsal", "jugador", "min_1t", "min_2t", "min_total"]
             ].copy()
-            # Detectar porteros (los que tienen métricas de portero rellenas)
-            ep_porteros = ep_p[
-                (ep_p["par"] > 0) | (ep_p["gol_p"] > 0) | (ep_p["bloq_p"] > 0)
-            ]["jugador"].tolist()
-            tabla_min["es_portero"] = tabla_min["jugador"].isin(ep_porteros)
-            # Render con semáforo solo en los de campo
+            # Porteros = los 3 canónicos
+            PORT_DASH = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+            tabla_min["es_portero"] = tabla_min["jugador"].astype(str).str.upper().isin(PORT_DASH)
+
             df_tmin = _ensure_numeric(
                 tabla_min[["dorsal", "jugador", "min_1t", "min_2t", "min_total"]],
                 ["dorsal", "min_1t", "min_2t", "min_total"]
             )
+            # Formatter callable que convierte minutos float → "mm:ss"
             sty = df_tmin.style.format({
-                "min_1t": "{:.1f}", "min_2t": "{:.1f}", "min_total": "{:.1f}",
+                "min_1t": _fmt_minutos,
+                "min_2t": _fmt_minutos,
+                "min_total": _fmt_minutos,
                 "dorsal": "{:.0f}",
             }, na_rep="—")
-            # Subset de no-porteros para el gradiente
-            idx_no_porteros = tabla_min[~tabla_min["es_portero"]].index
+            # Semáforo: SOLO sobre no-porteros, con vmin/vmax explícitos
+            # para que el gradiente sea consistente (más mins = más verde).
+            idx_no_p = tabla_min[~tabla_min["es_portero"]].index
             for c in ("min_1t", "min_2t", "min_total"):
                 try:
+                    base = pd.to_numeric(df_tmin.loc[idx_no_p, c], errors="coerce").dropna()
+                    if base.empty:
+                        continue
+                    vmin = float(base.min())
+                    vmax = float(base.max())
+                    if vmin == vmax:
+                        continue
                     sty = sty.background_gradient(
-                        subset=(idx_no_porteros, c), cmap="RdYlGn"
+                        subset=(idx_no_p, c), cmap="RdYlGn",
+                        vmin=vmin, vmax=vmax,
                     )
                 except Exception:
                     pass
@@ -2311,40 +2403,79 @@ with tab_partido:
                 column_config={
                     "dorsal": st.column_config.Column("Nº", help="Número de dorsal"),
                     "jugador": st.column_config.Column("Jugador", help="Jugador"),
-                    "min_1t": st.column_config.NumberColumn("1ª parte", help="Minutos en la 1ª parte", format="%.1f"),
-                    "min_2t": st.column_config.NumberColumn("2ª parte", help="Minutos en la 2ª parte", format="%.1f"),
-                    "min_total": st.column_config.NumberColumn("Total", help="Minutos totales", format="%.1f"),
+                    "min_1t": st.column_config.Column("1ª parte", help="Minutos en la 1ª parte (mm:ss)"),
+                    "min_2t": st.column_config.Column("2ª parte", help="Minutos en la 2ª parte (mm:ss)"),
+                    "min_total": st.column_config.Column("Total", help="Minutos totales (mm:ss)"),
                 },
             )
     
             # ── Rotaciones individuales (1ª-8ª de cada parte) ─────────────────
             cols_rot_1t = [f"rot_1t_{i}" for i in range(1, 9)]
             cols_rot_2t = [f"rot_2t_{i}" for i in range(1, 9)]
+
+            def _color_rotacion(v):
+                """Escala fija pedida por Arkaitz:
+                  >3'   = rojo · 2-3' = amarillo · 1-2' = verde · 0-1' = azul · 0 = blanco
+                """
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    return ""
+                if pd.isna(v) or v <= 0:
+                    return "background-color: #ffffff;"
+                if v <= 1:
+                    return "background-color: #BBDEFB;"   # azul claro
+                if v <= 2:
+                    return "background-color: #C8E6C9;"   # verde claro
+                if v <= 3:
+                    return "background-color: #FFF59D;"   # amarillo claro
+                return "background-color: #FFCDD2;"       # rojo claro
+
             if all(c in ep_p.columns for c in cols_rot_1t):
                 with st.expander("⏱ Rotaciones individuales (cada vez que entra al campo)"):
-                    # 1ª parte
+                    st.caption(
+                        "Color: **rojo** >3' · **amarillo** 2-3' · **verde** 1-2' · "
+                        "**azul** <1' · **blanco** sin minutos."
+                    )
+                    # 1ª parte: numerico para color, formato mm:ss para mostrar
                     st.markdown("**1ª parte**")
-                    tab_rot1 = ep_p.sort_values("min_total", ascending=False)[
-                        ["dorsal", "jugador"] + cols_rot_1t + ["min_1t"]
-                    ].copy()
-                    # Convertir a mm:ss para visualización
-                    for c in cols_rot_1t + ["min_1t"]:
-                        tab_rot1[c] = tab_rot1[c].apply(_fmt_minutos)
-                    tab_rot1.columns = ["Nº", "Jugador",
-                                        "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª",
-                                        "Total 1T"]
-                    st.dataframe(tab_rot1, use_container_width=True, hide_index=True)
+                    tab_rot1 = _ensure_numeric(
+                        ep_p.sort_values("min_total", ascending=False)[
+                            ["dorsal", "jugador"] + cols_rot_1t + ["min_1t"]
+                        ],
+                        cols_rot_1t + ["dorsal", "min_1t"]
+                    )
+                    rename_rot = {f"rot_1t_{i}": f"{i}ª" for i in range(1, 9)}
+                    rename_rot.update({"dorsal": "Nº", "jugador": "Jugador", "min_1t": "Total 1T"})
+                    tab_rot1 = tab_rot1.rename(columns=rename_rot)
+                    sty1 = tab_rot1.style.format({
+                        **{f"{i}ª": _fmt_minutos for i in range(1, 9)},
+                        "Total 1T": _fmt_minutos,
+                        "Nº": "{:.0f}",
+                    }, na_rep="—")
+                    sty1 = sty1.applymap(_color_rotacion,
+                                         subset=[f"{i}ª" for i in range(1, 9)])
+                    st.dataframe(sty1, use_container_width=True, hide_index=True)
+
                     # 2ª parte
                     st.markdown("**2ª parte**")
-                    tab_rot2 = ep_p.sort_values("min_total", ascending=False)[
-                        ["dorsal", "jugador"] + cols_rot_2t + ["min_2t"]
-                    ].copy()
-                    for c in cols_rot_2t + ["min_2t"]:
-                        tab_rot2[c] = tab_rot2[c].apply(_fmt_minutos)
-                    tab_rot2.columns = ["Nº", "Jugador",
-                                        "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª",
-                                        "Total 2T"]
-                    st.dataframe(tab_rot2, use_container_width=True, hide_index=True)
+                    tab_rot2 = _ensure_numeric(
+                        ep_p.sort_values("min_total", ascending=False)[
+                            ["dorsal", "jugador"] + cols_rot_2t + ["min_2t"]
+                        ],
+                        cols_rot_2t + ["dorsal", "min_2t"]
+                    )
+                    rename_rot2 = {f"rot_2t_{i}": f"{i}ª" for i in range(1, 9)}
+                    rename_rot2.update({"dorsal": "Nº", "jugador": "Jugador", "min_2t": "Total 2T"})
+                    tab_rot2 = tab_rot2.rename(columns=rename_rot2)
+                    sty2 = tab_rot2.style.format({
+                        **{f"{i}ª": _fmt_minutos for i in range(1, 9)},
+                        "Total 2T": _fmt_minutos,
+                        "Nº": "{:.0f}",
+                    }, na_rep="—")
+                    sty2 = sty2.applymap(_color_rotacion,
+                                         subset=[f"{i}ª" for i in range(1, 9)])
+                    st.dataframe(sty2, use_container_width=True, hide_index=True)
     
             # ── Tabla de métricas individuales del partido ──────────────────────
             st.markdown("#### 📊 Métricas individuales del partido")
