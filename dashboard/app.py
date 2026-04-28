@@ -90,6 +90,21 @@ h2, h3 { color: #1B3A6B; }
 }
 div[data-testid="stTab"] button { font-weight: 600; }
 
+/* Tabs en MULTILINEA: con tantas pestañas (Semáforo, Carga, Peso,
+   Wellness, Lesiones, Recuento, Oliver, Ejercicios, Partido, Equipo,
+   Eficiencia, Goles, Comp, Scout, Editar...) hace falta envolverlas
+   en varias filas en vez de tener una scroll horizontal. */
+div[role="tablist"] {
+    flex-wrap: wrap !important;
+    row-gap: 4px !important;
+    border-bottom: 2px solid #E0E5EE !important;
+    padding-bottom: 4px !important;
+}
+div[role="tablist"] button[role="tab"] {
+    flex: 0 0 auto !important;
+    margin-bottom: 2px !important;
+}
+
 /* Zebra striping en tablas de st.dataframe */
 [data-testid="stDataFrame"] [data-testid="stVerticalBlock"] div[role="row"]:nth-child(odd):not([role="columnheader"]) {
     background: rgba(0, 0, 0, 0.02);
@@ -1945,14 +1960,13 @@ def _color_zona(valor: int, max_v: int) -> str:
 
 
 def _texto_zona(zona: str, valor: int, x: float, y: float) -> str:
-    """SVG text con etiqueta + valor centrados en (x, y)."""
+    """SVG text del valor (sin etiqueta de zona) centrado en (x, y).
+    Etiqueta de zona disponible en tooltip via <title>."""
     return (
-        f'<text x="{x}" y="{y - 4}" text-anchor="middle" '
-        f'font-size="13" font-weight="600" fill="#222" '
-        f'style="pointer-events:none">{zona}</text>'
-        f'<text x="{x}" y="{y + 14}" text-anchor="middle" '
-        f'font-size="16" font-weight="800" fill="#000" '
-        f'style="pointer-events:none">{valor}</text>'
+        f'<text x="{x}" y="{y + 8}" text-anchor="middle" '
+        f'font-size="32" font-weight="800" fill="#000" '
+        f'style="pointer-events:none">'
+        f'<title>{zona}</title>{valor}</text>'
     )
 
 
