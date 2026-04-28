@@ -243,6 +243,11 @@ class TotalesPartido:
     competicion: str
     rival: str
     fecha: Optional[_dt.date]
+    # Cabecera (filas 2-3 del Excel: PARTIDO/CATEGORÍA/LUGAR/HORA/FECHA)
+    categoria: str = ""    # ej. "LIGA 25/26", "COPA REY"
+    lugar: str = ""        # ej. "MADRID", "BARCELONA", "CARTAGENA"
+    hora: str = ""         # ej. "13:00h"
+    local_visitante: str = ""  # "LOCAL" / "VISITANTE" (deducido por lugar)
     # Inter (calculados desde fila 149)
     dp_inter: int = 0
     dpalo_inter: int = 0
@@ -510,6 +515,38 @@ def parsear_partido(
         rival=rival,
         fecha=fecha,
     )
+
+    # ─── Cabecera del partido (filas 2-3 del Excel) ─────────────────────────
+    # E2/L2/P2/T2/W2 = labels  → E3/I3/L3/P3/T3/W3 = valores
+    # E=col 4 (índice 4), I=8, L=11, P=15, T=19, W=22
+    if len(valores) >= 3:
+        row3 = valores[2]
+        def _cell(idx):
+            if idx >= len(row3):
+                return ""
+            v = row3[idx]
+            if v is None or v == "":
+                return ""
+            if isinstance(v, _dt.time):
+                return v.strftime("%H:%M") + "h"
+            if isinstance(v, _dt.datetime):
+                return v.strftime("%d/%m/%Y")
+            return str(v).strip()
+        totales.categoria = _cell(11)   # L3
+        totales.lugar     = _cell(15)   # P3
+        totales.hora      = _cell(19)   # T3
+        # Local/Visitante: el Movistar Inter juega como local en pabellones
+        # de Madrid (Garbajosa, Magariños, Madrid). Cualquier otro lugar es
+        # visitante. Si lugar está vacío, dejar el campo vacío.
+        lugar_up = totales.lugar.upper()
+        es_local = any(k in lugar_up for k in
+                       ("MADRID", "MAGARI", "GARBAJOSA", "TORREJON",
+                        "ALCALA", "ALCOBENDAS"))
+        if es_local:
+            totales.local_visitante = "LOCAL"
+        elif lugar_up:
+            totales.local_visitante = "VISITANTE"
+
     # Fila 149: TOTALES de Inter
     if len(valores) > 148:
         row_t = valores[148]

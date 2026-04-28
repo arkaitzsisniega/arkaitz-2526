@@ -442,7 +442,7 @@ def _dibujar_goles_5min_mpl(ev_p: pd.DataFrame) -> bytes:
             elif r.get("equipo_marca") == "RIVAL":
                 ec[idx] += 1
 
-    fig, ax = plt.subplots(figsize=(9, 3.0), dpi=160)
+    fig, ax = plt.subplots(figsize=(9, 4.5), dpi=160)
     fig.patch.set_facecolor("#FFFFFF")
     x = np.arange(len(labels))
     w = 0.38
@@ -531,6 +531,35 @@ def generar_pdf_partido(partido_id: str, sh=None,
     gf = int((ep["equipo_marca"] == "INTER").sum()) if not ep.empty else 0
     gc = int((ep["equipo_marca"] == "RIVAL").sum()) if not ep.empty else 0
 
+    # Cabecera completa (categoría/lugar/hora/local-visitante) si existen
+    categoria = ""
+    lugar = ""
+    hora = ""
+    local_visitante = ""
+    if tp is not None:
+        categoria = str(tp.get("categoria", "") or "").strip() or competicion
+        lugar = str(tp.get("lugar", "") or "").strip()
+        hora = str(tp.get("hora", "") or "").strip()
+        local_visitante = str(tp.get("local_visitante", "") or "").strip()
+    else:
+        categoria = competicion
+    # Formatear fecha como dd/mm/aa
+    fecha_fmt = str(fecha)
+    try:
+        _f = pd.to_datetime(fecha, errors="coerce")
+        if pd.notnull(_f):
+            fecha_fmt = _f.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+
+    # Decidir orden Inter / rival según local/visitante
+    if local_visitante == "VISITANTE":
+        equipo_izq, equipo_der = rival, "Movistar Inter FS"
+        gol_izq, gol_der = gc, gf
+    else:
+        equipo_izq, equipo_der = "Movistar Inter FS", rival
+        gol_izq, gol_der = gf, gc
+
     # Buffer del PDF
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -552,21 +581,107 @@ def generar_pdf_partido(partido_id: str, sh=None,
 
     story = []
 
-    # ── CABECERA ──────────────────────────────────────────────────────────
-    story.append(Paragraph("📋 Informe de partido", h_titulo))
-    story.append(Paragraph(
-        f"<b>{competicion}</b> · {fecha} · {partido_id}", p_body))
+    # ── CABECERA estilo Movistar (logos + tabla info + marcador) ─────────
+    LOGO_DIR = ROOT / "assets" / "logos"
+    logo_izq_path = LOGO_DIR / "inter_verde.png"
+    logo_der_path = LOGO_DIR / "inter_dorado.png"
+
+    def _logo_or_blank(path, w=2.0*cm, h=2.4*cm):
+        if path.exists():
+            try:
+                img = RLImage(str(path), width=w, height=h, kind="proportional")
+                img.hAlign = "CENTER"
+                return img
+            except Exception:
+                pass
+        return Paragraph("", p_body)
+
+    # Texto del partido con vs centrado
+    p_partido = ParagraphStyle("partido_lbl", parent=styles["BodyText"],
+                                 fontSize=10, alignment=1, leading=12)
+    p_partido_v = ParagraphStyle("partido_val", parent=styles["BodyText"],
+                                   fontSize=11, alignment=1, leading=13,
+                                   fontName="Helvetica-Bold", textColor=AZUL)
+    p_celda_lbl = ParagraphStyle("c_lbl", parent=styles["BodyText"],
+                                   fontSize=8, alignment=1, leading=10,
+                                   textColor=colors.whitesmoke,
+                                   fontName="Helvetica-Bold")
+    p_celda_val = ParagraphStyle("c_val", parent=styles["BodyText"],
+                                   fontSize=10, alignment=1, leading=12,
+                                   fontName="Helvetica-Bold", textColor=AZUL)
+
+    # Tabla informativa (header en azul, valores debajo)
+    info_header = [
+        Paragraph("PARTIDO", p_celda_lbl),
+        Paragraph("CATEGORÍA", p_celda_lbl),
+        Paragraph("LUGAR", p_celda_lbl),
+        Paragraph("HORA", p_celda_lbl),
+        Paragraph("FECHA", p_celda_lbl),
+    ]
+    partido_txt = (f"<b>{equipo_izq.upper()}</b> &nbsp;<i>vs</i>&nbsp; "
+                    f"<b>{equipo_der.upper()}</b>")
+    info_valores = [
+        Paragraph(partido_txt, p_celda_val),
+        Paragraph(categoria or "—", p_celda_val),
+        Paragraph(lugar or "—", p_celda_val),
+        Paragraph(hora or "—", p_celda_val),
+        Paragraph(fecha_fmt, p_celda_val),
+    ]
+    t_info = Table([info_header, info_valores],
+                    colWidths=[5.4*cm, 3.0*cm, 3.0*cm, 2.0*cm, 2.4*cm],
+                    rowHeights=[0.55*cm, 0.85*cm])
+    t_info.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("BACKGROUND", (0, 1), (-1, 1), GRIS_MUY_CLARO),
+        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
+        ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.lightgrey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]))
+
+    # Tabla principal: [logo_izq | info | logo_der]
+    t_cab = Table(
+        [[_logo_or_blank(logo_izq_path),
+          t_info,
+          _logo_or_blank(logo_der_path)]],
+        colWidths=[2.4*cm, 15.8*cm, 2.4*cm],
+    )
+    t_cab.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(t_cab)
     story.append(Spacer(1, 6))
+
+    # Marcador grande centrado
+    if local_visitante:
+        sub_lv = f" — <font size='9' color='#666'>({local_visitante})</font>"
+    else:
+        sub_lv = ""
     story.append(Paragraph(
-        f"<b>Movistar Inter FS</b> &nbsp;&nbsp; "
-        f"<font color='#2E7D32'>{gf}</font> "
-        f"– <font color='#B71C1C'>{gc}</font> &nbsp;&nbsp; "
-        f"<b>{rival}</b>",
+        f"<b>{equipo_izq}</b> &nbsp;&nbsp;"
+        f"<font color='#2E7D32'>{gol_izq}</font> "
+        f"– <font color='#B71C1C'>{gol_der}</font> &nbsp;&nbsp;"
+        f"<b>{equipo_der}</b>{sub_lv}",
         h_marcador,
     ))
+    story.append(Paragraph(
+        f"<font size='8' color='#666'>Partido: {partido_id}</font>",
+        ParagraphStyle("pid", parent=styles["BodyText"], alignment=1)))
+    story.append(Spacer(1, 4))
 
     # ── KPIs (con totales del partido si existen) ────────────────────────
     if tp is not None:
+        # Style centrado para que los textos queden en mitad de cada celda
+        p_kpi_label = ParagraphStyle("kpi_label", parent=styles["BodyText"],
+                                       fontSize=8, textColor=GRIS,
+                                       alignment=1, spaceAfter=0, leading=10)
+        p_kpi_valor = ParagraphStyle("kpi_valor", parent=styles["BodyText"],
+                                       fontSize=14, textColor=AZUL,
+                                       alignment=1, spaceAfter=0, leading=16,
+                                       fontName="Helvetica-Bold")
         kpis = [
             ("Disparos totales", int(pd.to_numeric(tp.get("dt_inter", 0), errors="coerce") or 0)),
             ("Disparos a puerta", int(pd.to_numeric(tp.get("dp_inter", 0), errors="coerce") or 0)),
@@ -582,14 +697,14 @@ def generar_pdf_partido(partido_id: str, sh=None,
         labels_row = []
         valores_row = []
         for lbl, v in kpis:
-            labels_row.append(Paragraph(f"<font size='8' color='#666'>{lbl}</font>", p_body))
-            valores_row.append(Paragraph(f"<b><font size='14' color='#1B3A6B'>{v}</font></b>", p_body))
+            labels_row.append(Paragraph(lbl, p_kpi_label))
+            valores_row.append(Paragraph(str(v), p_kpi_valor))
             if len(labels_row) == 4:
                 rows_kpi.append(labels_row); rows_kpi.append(valores_row)
                 labels_row = []; valores_row = []
         if labels_row:
             rows_kpi.append(labels_row); rows_kpi.append(valores_row)
-        t_kpi = Table(rows_kpi, colWidths=[4.4*cm]*4)
+        t_kpi = Table(rows_kpi, colWidths=[4.4*cm]*4, rowHeights=[0.55*cm, 0.85*cm]*2)
         t_kpi.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), GRIS_MUY_CLARO),
             ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
@@ -767,15 +882,28 @@ def generar_pdf_partido(partido_id: str, sh=None,
         ]))
         story.append(t_ev)
 
-        # ── Gráfico: goles cada 5' ──────────────────────────────────────────
+        # ── Gráfico: goles cada 5' (más espaciado y más alto) ───────────────
         try:
             png_chart = _dibujar_goles_5min_mpl(evp)
-            story.append(Spacer(1, 8))
-            story.append(_png_to_image(png_chart, 17*cm, 5.5*cm))
+            story.append(Spacer(1, 24))
+            story.append(_png_to_image(png_chart, 17*cm, 8.5*cm))
         except Exception as _ec:
             story.append(Paragraph(f"(Error gráfico goles 5': {_ec})", p_caption))
 
     # ── Rotaciones ──────────────────────────────────────────────────────────
+    # Colores según minutos en una rotación (criterio del usuario):
+    #   0 min → blanco · 0-1 → azul · 1-2 → verde · 2-3 → amarillo · >3 → rojo
+    def _color_rotacion(mins: float):
+        if mins <= 0:
+            return colors.white
+        if mins < 1:
+            return colors.HexColor("#BBDEFB")   # azul claro
+        if mins < 2:
+            return colors.HexColor("#C8E6C9")   # verde claro
+        if mins < 3:
+            return colors.HexColor("#FFF59D")   # amarillo claro
+        return colors.HexColor("#EF9A9A")       # rojo claro
+
     if all(c in jp.columns for c in [f"rot_1t_{i}" for i in range(1, 9)]):
         # Solo si hay al menos un valor > 0 en alguna rotación
         rot_cols_1 = [f"rot_1t_{i}" for i in range(1, 9)]
@@ -783,60 +911,110 @@ def generar_pdf_partido(partido_id: str, sh=None,
         if jp[rot_cols_1 + rot_cols_2].sum().sum() > 0:
             story.append(PageBreak())
             story.append(Paragraph("🔄 Rotaciones individuales", h_seccion))
+            story.append(Paragraph(
+                "<font size='8' color='#666'>Color por duración: "
+                "<font backcolor='#BBDEFB'>&nbsp;0-1'&nbsp;</font> "
+                "<font backcolor='#C8E6C9'>&nbsp;1-2'&nbsp;</font> "
+                "<font backcolor='#FFF59D'>&nbsp;2-3'&nbsp;</font> "
+                "<font backcolor='#EF9A9A'>&nbsp;>3'&nbsp;</font></font>",
+                p_body))
+            story.append(Spacer(1, 4))
             for parte_label, cols in [("1ª parte", rot_cols_1), ("2ª parte", rot_cols_2)]:
                 story.append(Paragraph(f"<b>{parte_label}</b>", p_body))
                 rows_rot = [["Nº", "Jugador", "1ª", "2ª", "3ª", "4ª", "5ª", "6ª", "7ª", "8ª"]]
                 jp_rot = jp[jp["min_total"] > 0].sort_values("min_total", ascending=False)
+                # Recoger valores numéricos para colorear celdas después
+                valores_rot = []
                 for _, r in jp_rot.iterrows():
+                    fila_vals = [float(r.get(c, 0) or 0) for c in cols]
+                    valores_rot.append(fila_vals)
                     rows_rot.append([
                         int(r.get("dorsal", 0)) if r.get("dorsal", 0) else "",
                         r.get("jugador", ""),
-                    ] + [_fmt_minutos(r.get(c, 0)) for c in cols])
-                t_rot = Table(rows_rot, colWidths=[0.9*cm, 2.8*cm] + [1.6*cm]*8)
-                t_rot.setStyle(TableStyle([
+                    ] + [_fmt_minutos(v) if v > 0 else "" for v in fila_vals])
+                # Estilos base
+                style_cmds = [
                     ("BACKGROUND", (0, 0), (-1, 0), AZUL),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, GRIS_MUY_CLARO]),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("ALIGN", (1, 1), (1, -1), "LEFT"),
                     ("FONTSIZE", (0, 0), (-1, -1), 7),
                     ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
                     ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ]))
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]
+                # Pintar cada celda de rotación según su valor
+                for i_row, vals in enumerate(valores_rot, start=1):  # +1 por header
+                    for i_col, v in enumerate(vals):
+                        c_idx = 2 + i_col  # 0=Nº, 1=Jugador, 2..9=rotaciones
+                        style_cmds.append(
+                            ("BACKGROUND", (c_idx, i_row), (c_idx, i_row),
+                             _color_rotacion(v)))
+                t_rot = Table(rows_rot, colWidths=[0.9*cm, 2.8*cm] + [1.6*cm]*8)
+                t_rot.setStyle(TableStyle(style_cmds))
                 story.append(t_rot)
-                story.append(Spacer(1, 6))
+                story.append(Spacer(1, 8))
 
     # ── Mapas de zona y portería (matplotlib, sin svglib) ───────────────────
     story.append(PageBreak())
     story.append(Paragraph("🎯 Mapas de zona del partido", h_seccion))
     if df_dz.empty:
         story.append(Paragraph(
-            "<i>No hay datos en la hoja EST_DISPAROS_ZONAS. Asegúrate de "
-            "haber ejecutado <code>src/estadisticas_disparos.py --upload</code> "
-            "para que se cargue la hoja ZONA GOLES.</i>", p_caption))
+            "<i>No hay datos en la hoja <b>EST_DISPAROS_ZONAS</b>. "
+            "Ejecuta <code>/usr/bin/python3 src/estadisticas_disparos.py "
+            "--upload</code> para cargar la hoja ZONA GOLES.</i>", p_caption))
         match = pd.DataFrame()
     else:
-        meta_rival = str(rival).upper()
-        rival_corto = meta_rival.split()[0] if meta_rival else ""
-        df_dz["rival_up"] = df_dz["rival"].astype(str).str.upper()
-        match = df_dz[
-            (df_dz["rival_up"].str.contains(rival_corto, na=False)) &
-            (df_dz["fecha"].astype(str) == str(fecha))
-        ]
+        # Match robusto: probamos varias estrategias de búsqueda
+        # 1) rival contiene el primer token + fecha exacta
+        # 2) rival contiene el primer token (sin filtrar fecha)
+        # 3) cualquier palabra de >=4 letras del rival + fecha exacta
+        meta_rival = str(rival).upper().strip()
+        df_dz["rival_up"] = df_dz["rival"].astype(str).str.upper().str.strip()
+        df_dz["fecha_str"] = df_dz["fecha"].astype(str).str.strip()
+        fecha_str = str(fecha).strip()
+
+        rival_tokens = [t for t in meta_rival.replace("-", " ").split()
+                          if len(t) >= 4]
+        match = pd.DataFrame()
+        estrategia = ""
+        # Estrategia 1: primer token + fecha
+        if rival_tokens:
+            t0 = rival_tokens[0]
+            match = df_dz[
+                (df_dz["rival_up"].str.contains(t0, na=False, regex=False)) &
+                (df_dz["fecha_str"] == fecha_str)
+            ]
+            estrategia = f"rival contiene '{t0}' + fecha = {fecha_str}"
+        # Estrategia 2: cualquier token + fecha
+        if match.empty and rival_tokens:
+            for t in rival_tokens:
+                m = df_dz[
+                    (df_dz["rival_up"].str.contains(t, na=False, regex=False)) &
+                    (df_dz["fecha_str"] == fecha_str)
+                ]
+                if not m.empty:
+                    match = m
+                    estrategia = f"rival contiene '{t}' + fecha = {fecha_str}"
+                    break
+        # Estrategia 3: solo por fecha (último recurso)
         if match.empty:
-            # Diagnóstico: indicar al usuario qué rivales+fechas hay y por
-            # qué no hizo match
-            disponibles = (df_dz[["rival", "fecha"]]
-                            .head(10).astype(str).agg(" · ".join, axis=1)
-                            .tolist())
+            match = df_dz[df_dz["fecha_str"] == fecha_str]
+            if not match.empty:
+                estrategia = f"solo por fecha = {fecha_str}"
+        if match.empty:
+            # Diagnóstico claro
+            disp = (df_dz[["rival", "fecha"]].astype(str)
+                    .head(15).agg(" · ".join, axis=1).tolist())
             story.append(Paragraph(
-                f"<i>No se encontró fila en EST_DISPAROS_ZONAS para "
-                f"<b>{rival}</b> · <b>{fecha}</b>. "
-                f"Buscado por '{rival_corto}' + fecha exacta. "
-                f"Primeras filas disponibles: {'; '.join(disponibles)}</i>",
+                f"<b>⚠️ No se encontró fila en EST_DISPAROS_ZONAS para "
+                f"este partido.</b><br/>"
+                f"Partido buscado: <b>{rival}</b> · <b>{fecha}</b><br/>"
+                f"Tokens probados: {rival_tokens or '(sin tokens largos)'}<br/>"
+                f"Primeras filas disponibles en la hoja: "
+                f"{'; '.join(disp[:8])}",
                 p_caption))
     if not match.empty:
             fz = match.iloc[0]
