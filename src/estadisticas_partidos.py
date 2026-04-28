@@ -189,6 +189,24 @@ class JugadorEnPartido:
     min_total: float
     convocado: bool
     participa: bool
+    # Rotaciones individuales (1ª-8ª de cada parte). En minutos float.
+    # Los valores no rellenados quedan en 0.0.
+    rot_1t_1: float = 0.0
+    rot_1t_2: float = 0.0
+    rot_1t_3: float = 0.0
+    rot_1t_4: float = 0.0
+    rot_1t_5: float = 0.0
+    rot_1t_6: float = 0.0
+    rot_1t_7: float = 0.0
+    rot_1t_8: float = 0.0
+    rot_2t_1: float = 0.0
+    rot_2t_2: float = 0.0
+    rot_2t_3: float = 0.0
+    rot_2t_4: float = 0.0
+    rot_2t_5: float = 0.0
+    rot_2t_6: float = 0.0
+    rot_2t_7: float = 0.0
+    rot_2t_8: float = 0.0
     # Métricas individuales de juego (de filas 134-147 en cada partido)
     pf: int = 0           # Pérdidas Forzadas
     pnf: int = 0          # Pérdidas No Forzadas
@@ -210,6 +228,36 @@ class JugadorEnPartido:
 
 
 @dataclass
+class TotalesPartido:
+    """Datos a nivel partido (no por jugador): disparos totales del Inter
+    y del rival, calculados de la fila 150 del Excel y de la suma de
+    métricas de los porteros."""
+    partido_id: str
+    tipo: str
+    competicion: str
+    rival: str
+    fecha: Optional[_dt.date]
+    # Inter (calculados desde fila 149)
+    dp_inter: int = 0
+    dpalo_inter: int = 0
+    db_inter: int = 0
+    df_inter: int = 0
+    dt_inter: int = 0     # disparos totales Inter (fila 150 col P)
+    pf_inter: int = 0
+    pnf_inter: int = 0
+    robos_inter: int = 0
+    cortes_inter: int = 0
+    # Rival (calculados desde fila 150 col T y desde porteros)
+    dt_rival: int = 0     # disparos totales rival (fila 150 col T)
+    dp_rival: int = 0     # paradas + goles encajados (suma de porteros)
+    dpalo_rival: int = 0  # poste recibido (suma de porteros)
+    db_rival: int = 0     # bloqueos del portero
+    # Goles del partido
+    goles_a_favor: int = 0
+    goles_en_contra: int = 0
+
+
+@dataclass
 class EventoGol:
     partido_id: str
     tipo: str
@@ -226,6 +274,8 @@ class EventoGol:
     asistente: str
     portero: str
     cuarteto: list[str]
+    descripcion: str = ""   # texto libre que Arkaitz escribe a mano en el Sheet
+                            # (se preserva entre re-extracciones)
 
 
 def _intervalo_5min(minuto: Optional[int]) -> str:
@@ -275,23 +325,28 @@ def parsear_partido(
         except (TypeError, ValueError):
             dorsal = None
 
-        # 1T: cols D..L (idx 3..11). La última (L) es el total, lo recalculamos
-        # nosotros sumando D..K para ser robustos.
-        min_1t = 0.0
-        for c in range(ROT_COL_1T_INI, ROT_COL_1T_FIN):  # D..K
-            if c < len(row):
-                min_1t += _to_minutes(row[c])
-        min_2t = 0.0
-        for c in range(ROT_COL_2T_INI, ROT_COL_2T_FIN):  # O..V
-            if c < len(row):
-                min_2t += _to_minutes(row[c])
+        # Rotaciones individuales 1T (cols D..K, idx 3..10)
+        rots_1t = []
+        for c in range(ROT_COL_1T_INI, ROT_COL_1T_FIN):
+            v = _to_minutes(row[c]) if c < len(row) else 0.0
+            rots_1t.append(round(v, 2))
+        # Pad a 8
+        rots_1t = (rots_1t + [0.0] * 8)[:8]
+        min_1t = sum(rots_1t)
+
+        # Rotaciones individuales 2T (cols O..V, idx 14..21)
+        rots_2t = []
+        for c in range(ROT_COL_2T_INI, ROT_COL_2T_FIN):
+            v = _to_minutes(row[c]) if c < len(row) else 0.0
+            rots_2t.append(round(v, 2))
+        rots_2t = (rots_2t + [0.0] * 8)[:8]
+        min_2t = sum(rots_2t)
 
         min_total = min_1t + min_2t
-        # convocado = aparece en la tabla; participa = jugó algo
         convocado = True
         participa = min_total > 0
 
-        jugadores.append(JugadorEnPartido(
+        jp = JugadorEnPartido(
             partido_id=nombre_hoja,
             tipo=tipo,
             competicion=competicion,
@@ -304,7 +359,12 @@ def parsear_partido(
             min_total=round(min_total, 2),
             convocado=convocado,
             participa=participa,
-        ))
+        )
+        # Inyectar rotaciones individuales
+        for i in range(8):
+            setattr(jp, f"rot_1t_{i+1}", rots_1t[i])
+            setattr(jp, f"rot_2t_{i+1}", rots_2t[i])
+        jugadores.append(jp)
 
     # ─── Eventos de gol (filas 41-56, idx 40-55) ───────────────────────────
     for r_idx in range(EVT_FILA_INI - 1, min(EVT_FILA_FIN, len(valores))):
@@ -353,6 +413,7 @@ def parsear_partido(
             asistente=asist,
             portero=portero,
             cuarteto=cuarteto,
+            descripcion="",
         ))
 
     # ─── Métricas individuales (filas 134-147) ──────────────────────────────
@@ -391,7 +452,43 @@ def parsear_partido(
             for k, v in m.items():
                 setattr(j, k, v)
 
-    return jugadores, eventos
+    # ─── Totales del partido (fila 149-150) ─────────────────────────────────
+    totales = TotalesPartido(
+        partido_id=nombre_hoja,
+        tipo=tipo,
+        competicion=competicion,
+        rival=rival,
+        fecha=fecha,
+    )
+    # Fila 149: TOTALES de Inter
+    if len(valores) > 148:
+        row_t = valores[148]
+        if row_t and len(row_t) > MET_COL_DF:
+            totales.pf_inter     = _to_int(row_t, MET_COL_PF)
+            totales.pnf_inter    = _to_int(row_t, MET_COL_PNF)
+            totales.robos_inter  = _to_int(row_t, MET_COL_ROBOS)
+            totales.cortes_inter = _to_int(row_t, MET_COL_CORTES)
+            totales.dp_inter     = _to_int(row_t, MET_COL_DP)
+            totales.dpalo_inter  = _to_int(row_t, MET_COL_DPALO)
+            totales.db_inter     = _to_int(row_t, MET_COL_DB)
+            totales.df_inter     = _to_int(row_t, MET_COL_DF)
+    # Fila 150: "DISPAROS TOTALES" del partido
+    if len(valores) > 149:
+        row_dt = valores[149]
+        if row_dt and len(row_dt) > 19:
+            totales.dt_inter = _to_int(row_dt, 15)  # col P
+            totales.dt_rival = _to_int(row_dt, 19)  # col T
+    # Disparos del rival a porterías (sumando paradas + goles encajados de los porteros)
+    porteros = [j for j in jugadores if j.par > 0 or j.gol_p > 0 or j.bloq_p > 0 or j.poste_p > 0]
+    for p in porteros:
+        totales.dp_rival    += p.par + p.gol_p
+        totales.dpalo_rival += p.poste_p
+        totales.db_rival    += p.bloq_p
+    # Goles
+    totales.goles_a_favor   = sum(1 for e in eventos if e.equipo_marca == "INTER")
+    totales.goles_en_contra = sum(1 for e in eventos if e.equipo_marca == "RIVAL")
+
+    return jugadores, eventos, totales
 
 
 def _to_int(row, col: int) -> int:
@@ -431,20 +528,19 @@ def cargar_valores_hoja(wb, nombre: str) -> list[list]:
     return [list(row) for row in ws.iter_rows(values_only=True)]
 
 
-def procesar_excel(xlsx_path: str = XLSX_DEFAULT) -> tuple[pd.DataFrame, pd.DataFrame]:
+def procesar_excel(xlsx_path: str = XLSX_DEFAULT) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     wb = load_workbook(xlsx_path, data_only=True)
     todos_jug: list[dict] = []
     todos_evt: list[dict] = []
+    todos_tot: list[dict] = []
 
     for nombre in wb.sheetnames:
         if not hoja_es_partido(nombre):
             continue
         valores = cargar_valores_hoja(wb, nombre)
-        jugadores, eventos = parsear_partido(nombre, valores)
-        # Saltamos hojas vacías (sin ningún jugador convocado)
+        jugadores, eventos, totales = parsear_partido(nombre, valores)
         if not jugadores:
             continue
-        # Y aquellas en las que NADIE haya participado (plantilla aún sin rellenar)
         if not any(j.participa for j in jugadores):
             continue
         for j in jugadores:
@@ -453,9 +549,11 @@ def procesar_excel(xlsx_path: str = XLSX_DEFAULT) -> tuple[pd.DataFrame, pd.Data
             d = asdict(e)
             d["cuarteto"] = "|".join(d["cuarteto"])
             todos_evt.append(d)
+        todos_tot.append(asdict(totales))
 
     df_jug = pd.DataFrame(todos_jug)
     df_evt = pd.DataFrame(todos_evt)
+    df_tot = pd.DataFrame(todos_tot)
 
     # Cruzar: goles a favor, en contra, asistencias por (partido_id, jugador)
     if not df_evt.empty and not df_jug.empty:
@@ -476,7 +574,7 @@ def procesar_excel(xlsx_path: str = XLSX_DEFAULT) -> tuple[pd.DataFrame, pd.Data
         df_jug["goles_a_favor"] = 0
         df_jug["asistencias"] = 0
 
-    return df_jug, df_evt
+    return df_jug, df_evt, df_tot
 
 
 def calcular_agregados_jugador(df_jug: pd.DataFrame) -> pd.DataFrame:
@@ -521,7 +619,8 @@ def _col_letra(n: int) -> str:
     return s
 
 
-def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFrame) -> None:
+def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFrame,
+                  df_tot: pd.DataFrame = None) -> None:
     """Sube las 3 hojas al Sheet maestro (mismo Sheet que el resto del proyecto)."""
     import gspread
     from google.oauth2.service_account import Credentials
@@ -563,10 +662,42 @@ def subir_a_sheet(df_jug: pd.DataFrame, df_evt: pd.DataFrame, df_agr: pd.DataFra
         ws.format(f"A1:{_col_letra(len(out.columns))}1", {"textFormat": {"bold": True}})
         print(f"  ✅ {hoja}: {len(out)} filas, {len(out.columns)} cols")
 
+    # ─── Preservar descripciones de gol escritas a mano ─────────────────────
+    if not df_evt.empty:
+        try:
+            ws_old = sh.worksheet("EST_EVENTOS")
+            old_rows = ws_old.get_all_records()
+            old_df = pd.DataFrame(old_rows)
+            if not old_df.empty and "descripcion" in old_df.columns:
+                # Clave única: (partido_id, minuto, goleador, equipo_marca)
+                old_df["_k"] = (
+                    old_df["partido_id"].astype(str) + "|" +
+                    old_df["minuto"].astype(str) + "|" +
+                    old_df["goleador"].astype(str) + "|" +
+                    old_df["equipo_marca"].astype(str)
+                )
+                desc_map = dict(zip(old_df["_k"], old_df["descripcion"].astype(str)))
+                df_evt["_k"] = (
+                    df_evt["partido_id"].astype(str) + "|" +
+                    df_evt["minuto"].astype(str) + "|" +
+                    df_evt["goleador"].astype(str) + "|" +
+                    df_evt["equipo_marca"].astype(str)
+                )
+                # Solo sobreescribimos si el viejo tenía descripción
+                df_evt["descripcion"] = df_evt.apply(
+                    lambda r: desc_map.get(r["_k"], "") or r.get("descripcion", ""),
+                    axis=1,
+                )
+                df_evt = df_evt.drop(columns="_k")
+        except Exception:
+            pass  # primera vez o no había hoja, sigue normal
+
     print("Subiendo a Google Sheet:")
     _write("EST_PARTIDOS", df_jug)
     _write("EST_EVENTOS", df_evt)
     _write("_VISTA_EST_JUGADOR", df_agr)
+    if df_tot is not None and not df_tot.empty:
+        _write("EST_TOTALES_PARTIDO", df_tot)
 
 
 def main():
@@ -578,7 +709,7 @@ def main():
                     help="Sube los datos al Google Sheet (hojas EST_PARTIDOS, EST_EVENTOS, _VISTA_EST_JUGADOR).")
     args = ap.parse_args()
 
-    df_jug, df_evt = procesar_excel(args.xlsx)
+    df_jug, df_evt, df_tot = procesar_excel(args.xlsx)
 
     print(f"Partidos procesados: {df_jug['partido_id'].nunique()}")
     print(f"Filas jugador-partido: {len(df_jug)}")
@@ -611,7 +742,7 @@ def main():
 
     if args.upload:
         df_agr = calcular_agregados_jugador(df_jug)
-        subir_a_sheet(df_jug, df_evt, df_agr)
+        subir_a_sheet(df_jug, df_evt, df_agr, df_tot)
 
 
 if __name__ == "__main__":
