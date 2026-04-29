@@ -294,13 +294,19 @@ def datos():
     except Exception:
         ejercicios = pd.DataFrame()
     # Estadísticas de partido — opcional (solo si se corrió estadisticas_partidos.py --upload)
+    # IMPORTANTE: cada hoja en su propio try/except. Antes estaban
+    # agrupadas y si una fallaba, las 3 quedaban vacías.
     try:
         est_jug = cargar("_VISTA_EST_JUGADOR")
-        est_partidos = cargar("EST_PARTIDOS")
-        est_eventos = cargar("EST_EVENTOS")
     except Exception:
         est_jug = pd.DataFrame()
+    try:
+        est_partidos = cargar("EST_PARTIDOS")
+    except Exception:
         est_partidos = pd.DataFrame()
+    try:
+        est_eventos = cargar("EST_EVENTOS")
+    except Exception:
         est_eventos = pd.DataFrame()
     try:
         est_avanz = cargar("_VISTA_EST_AVANZADAS")
@@ -320,9 +326,11 @@ def datos():
         est_disparos_zonas = pd.DataFrame()
     try:
         scout_raw = cargar("SCOUTING_RIVALES")
-        scout_agr = cargar("_VISTA_SCOUTING_RIVAL")
     except Exception:
         scout_raw = pd.DataFrame()
+    try:
+        scout_agr = cargar("_VISTA_SCOUTING_RIVAL")
+    except Exception:
         scout_agr = pd.DataFrame()
     try:
         est_tot_partido = cargar("EST_TOTALES_PARTIDO")
