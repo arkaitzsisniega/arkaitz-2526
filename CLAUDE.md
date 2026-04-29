@@ -118,6 +118,14 @@
 
 ### 🔴 Reglas de dominio importantes (no olvidar)
 
+**Días de partido — sesión MATINAL** (acordado 30/04/2026):
+- En las sesiones MATINAL (los días que hay partido por la tarde),
+  **NO se usan los GPS**. Por tanto, en Oliver no debería aparecer una
+  sesión correspondiente al matinal.
+- Si en `OLIVER` ves una sesión "Tec-Tac" o similar el mismo día que
+  hay PARTIDO, probablemente es algún test/sesión de algún jugador
+  individual y no la matinal del equipo. Contrastar con SESIONES.
+
 **Geometría de penaltis y 10m** (acordada 29/04/2026):
 - **Penalti** (6m) se tira en convergencia de `A1`, `A2`, `A4`, `A5`.
 - **10 metros** se tira en convergencia de `A4`, `A5`, `A8`, `A9`.

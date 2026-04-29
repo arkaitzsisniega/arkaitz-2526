@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from telegram import Update, constants
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
+    CallbackQueryHandler,
 )
 
 # Whisper es opcional: si no está instalado, el bot sigue funcionando solo con texto.
@@ -192,6 +193,10 @@ _fresh_chats: set = set()
 # Modo "/ejercicios_voz": chat_id → timestamp de activación (vence a los 15 min)
 _modo_ejercicios_voz: dict = {}
 EJVOZ_TTL_SEG = 15 * 60
+
+# Modo "/sesion": chat_id → timestamp de activación (vence a los 15 min)
+_modo_sesion_voz: dict = {}
+SESVOZ_TTL_SEG = 15 * 60
 
 # Modelo Whisper (lazy load; primera vez descarga ~150MB, luego cacheado)
 _whisper_model = None
@@ -526,6 +531,115 @@ async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: Co
         )
         return
     await _enviar_bloques(update, out.decode("utf-8", "replace"))
+
+
+async def cmd_sesion_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Activa modo /sesion: el siguiente audio se procesa como descripción
+    de una sesión de entrenamiento y se vuelca a la hoja SESIONES.
+    También acepta texto directo: /sesion FÍSICO 75 minutos por la mañana"""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    # Si hay argumentos, procesar directamente como texto
+    args_text = " ".join(ctx.args).strip() if ctx.args else ""
+    if args_text:
+        await _procesar_audio_sesion(args_text, update, ctx)
+        return
+    # Si no, activar modo captura
+    _modo_sesion_voz[chat_id] = _dt.datetime.now().timestamp()
+    await update.message.reply_text(
+        "🎤 *Modo sesión activado.*\n\n"
+        "Mándame ahora un audio (o un texto) describiendo la sesión "
+        "de entrenamiento de hoy. Yo me encargo de:\n"
+        "  • detectar el tipo (FÍSICO, TEC-TAC, GYM, MATINAL, PARTIDO…)\n"
+        "  • el turno (M/T/P)\n"
+        "  • la duración total\n"
+        "  • un resumen breve con los bloques\n\n"
+        "Y lo apunto en la hoja SESIONES.\n\n"
+        "_Ejemplo: «matinal de 35 minutos: 8 min activación mental, 7 min "
+        "calentamiento, 8 min rondeo 3v1, 4 min banda, 4 min córner, 3 "
+        "min YO-YO»_\n\n"
+        "Tienes 15 min para mandar el audio.",
+        parse_mode="Markdown",
+    )
+
+
+async def _procesar_audio_sesion(transcripcion: str, update: Update,
+                                   ctx: ContextTypes.DEFAULT_TYPE):
+    """Llama al script parse_sesion_voz.py con la transcripción."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🧠 Estructurando la sesión con Claude…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/python3", str(PROJECT_DIR / "src" / "parse_sesion_voz.py"),
+            cwd=str(PROJECT_DIR),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(
+                proc.communicate(input=transcripcion.encode("utf-8")),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            proc.kill(); await proc.wait()
+            await update.message.reply_text("⚠️ Timeout (>5 min).")
+            return
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if proc.returncode != 0:
+        await update.message.reply_text(
+            f"❌ Error procesando sesión (código {proc.returncode}):\n"
+            f"{(err or out).decode('utf-8', 'replace')[-1500:]}"
+        )
+        return
+    # El script imprime el mensaje al usuario tras "---MSG---"
+    salida = out.decode("utf-8", "replace")
+    if "---MSG---" in salida:
+        msg = salida.split("---MSG---", 1)[1].strip()
+    else:
+        msg = salida.strip()
+    # Botón inline opcional para mandar enlaces a jugadores
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📤 Mandar /enlaces_hoy",
+                              callback_data="run_enlaces_hoy"),
+    ]])
+    await update.message.reply_text(msg, parse_mode="Markdown",
+                                     reply_markup=kb)
+
+
+async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Maneja botones inline."""
+    q = update.callback_query
+    await q.answer()
+    if not _authorized(update):
+        await q.edit_message_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    if q.data == "run_enlaces_hoy":
+        # Quitar el botón para que no se pulse 2 veces
+        try:
+            await q.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await ctx.bot.send_message(chat_id, "⏳ Lanzando enlaces del día…")
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_hoy.py")
+        if rc != 0:
+            await ctx.bot.send_message(
+                chat_id,
+                f"❌ Error generando enlaces (código {rc}):\n{(err or out)[:1500]}"
+            )
+            return
+        # Enviar bloques: simulamos enviar como send_message
+        for chunk in _chunks(out):
+            await ctx.bot.send_message(chat_id, chunk, parse_mode=None)
 
 
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -877,6 +991,16 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _procesar_audio_ejercicios(text, update, ctx)
         return
 
+    # Si el chat está en modo /sesion y no ha caducado → procesar como sesión
+    ts_s = _modo_sesion_voz.get(chat_id_v)
+    if ts_s and (ahora - ts_s) < SESVOZ_TTL_SEG:
+        _modo_sesion_voz.pop(chat_id_v, None)
+        _append_log(chat_id_v,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    text, "(procesado como sesion_voz)", kind="voz")
+        await _procesar_audio_sesion(text, update, ctx)
+        return
+
     await _process_prompt(text, update, ctx, kind="voz")
 
 
@@ -906,6 +1030,8 @@ def main():
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     app.add_handler(CommandHandler("ejercicios_voz", cmd_ejercicios_voz))
+    app.add_handler(CommandHandler("sesion", cmd_sesion_voz))
+    app.add_handler(CallbackQueryHandler(on_callback_query))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
     app.add_error_handler(on_error)
