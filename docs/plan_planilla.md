@@ -138,7 +138,7 @@
 
 ---
 
-## 🔜 Iteración 9 — Dashboard visualizar faltas/penaltis
+## ✅ Iteración 9 — Dashboard visualizar faltas/penaltis (hecho 30/04/2026)
 
 - Pestaña **🟨 Faltas y penaltis** en el dashboard:
   - Histórico de faltas por jugador (ranking).
@@ -168,7 +168,7 @@ Por tanto:
 
 ---
 
-## 🔜 Iteración 10 — Scouting de equipos rivales (PRIORIDAD ALTA, ANTES DE PWA)
+## ✅ Iteración 10 — Scouting de equipos rivales (hecho 30/04/2026)
 
 > **Reordenado el 29/04/2026.** Acordado: scouting va antes que PWA.
 
