@@ -4869,6 +4869,209 @@ with tab_editar:
                        range_name="A1")
             return len(filas_nuevas)
 
+        # ── Iter 7: FALTAS ──────────────────────────────────────────────
+        # Esquema EST_FALTAS:
+        #   partido_id, tipo, competicion, rival, fecha,
+        #   condicion (A_FAVOR/EN_CONTRA), parte (1/2), minuto_mmss,
+        #   jugador (quien comete si EN_CONTRA, quien recibe si A_FAVOR),
+        #   num_falta (1, 2, 3, ... reinicia en 2T por equipo),
+        #   genera_10m (TRUE/FALSE — TRUE si esta es la 6ª de la parte
+        #               del rival que comete: la siguiente penalización
+        #               sobre nuestro equipo o vice-versa). Lo calcula la
+        #               normalización al guardar.
+        #   descripcion (texto libre opcional)
+        FALTAS_COLS_EDITOR = [
+            "parte", "minuto_mmss", "condicion", "jugador",
+            "num_falta", "descripcion",
+        ]
+
+        def _df_faltas_inicial():
+            """DataFrame vacío con las columnas del editor de faltas."""
+            return pd.DataFrame({
+                "parte": pd.Series(dtype="str"),
+                "minuto_mmss": pd.Series(dtype="str"),
+                "condicion": pd.Series(dtype="str"),
+                "jugador": pd.Series(dtype="str"),
+                "num_falta": pd.Series(dtype="object"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+
+        def _df_faltas_desde_sheet(partido_id):
+            """Carga las faltas del partido_id desde EST_FALTAS si existe."""
+            try:
+                sh = _conexion_sheet()
+                ws = sh.worksheet("EST_FALTAS")
+                df_all = pd.DataFrame(ws.get_all_records())
+            except Exception:
+                return _df_faltas_inicial()
+            if df_all.empty or "partido_id" not in df_all.columns:
+                return _df_faltas_inicial()
+            df = df_all[df_all["partido_id"].astype(str) == str(partido_id)].copy()
+            if df.empty:
+                return _df_faltas_inicial()
+            # Reordenar columnas a las del editor (rellenar las que falten)
+            for c in FALTAS_COLS_EDITOR:
+                if c not in df.columns:
+                    df[c] = ""
+            df = df[FALTAS_COLS_EDITOR].copy()
+            # Tipos: parte como string "1"/"2"
+            df["parte"] = df["parte"].astype(str).str.strip()
+            return df.reset_index(drop=True)
+
+        def _editor_faltas(plantilla_actual, df_pre, key):
+            """data_editor para faltas. Selectores filtrados a la plantilla."""
+            if plantilla_actual:
+                opciones_jug = sorted({p["jugador"] for p in plantilla_actual})
+            else:
+                opciones_jug = jug_conocidos
+            cfg = {
+                "parte": st.column_config.SelectboxColumn(
+                    "Parte", options=["", "1", "2"], width="small",
+                    help="1ª o 2ª parte"),
+                "minuto_mmss": st.column_config.TextColumn(
+                    "Min", help="MM:SS (formato 12:37)", max_chars=6,
+                    width="small"),
+                "condicion": st.column_config.SelectboxColumn(
+                    "Condición",
+                    options=["", "A_FAVOR", "EN_CONTRA"], width="medium",
+                    help="A_FAVOR = falta que recibimos · EN_CONTRA = falta que cometemos"),
+                "jugador": st.column_config.SelectboxColumn(
+                    "Jugador", options=[""] + opciones_jug,
+                    help="Si EN_CONTRA: quién comete. Si A_FAVOR: quién recibe."),
+                "num_falta": st.column_config.NumberColumn(
+                    "Nº falta", min_value=1, max_value=20, format="%d",
+                    width="small",
+                    help="Nº correlativo dentro de la parte y la condición. "
+                          "Si lo dejas vacío se autocalcula al guardar. "
+                          "La 6ª por equipo desencadena 10m."),
+                "descripcion": st.column_config.TextColumn(
+                    "Descripción", width="medium"),
+            }
+            return st.data_editor(
+                df_pre, num_rows="dynamic", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _normalizar_faltas_para_guardar(df_edit):
+            """Limpia el dataframe, autocalcula num_falta donde falte y
+            marca la 6ª como genera_10m. Devuelve (df_normalizado, warns)."""
+            warns = []
+            if df_edit is None or df_edit.empty:
+                return _df_faltas_inicial().assign(genera_10m=""), warns
+            df = df_edit.copy().fillna("")
+            # Filtrar filas vacías
+            mask = (df["minuto_mmss"].astype(str).str.strip() != "") | \
+                    (df["condicion"].astype(str).str.strip() != "") | \
+                    (df["jugador"].astype(str).str.strip() != "")
+            df = df[mask].reset_index(drop=True)
+            if df.empty:
+                return _df_faltas_inicial().assign(genera_10m=""), warns
+            # Normalizar minutos a "MM:SS"
+            mmss_norm = []
+            min_int = []
+            for i, txt in enumerate(df["minuto_mmss"].astype(str)):
+                m_int, m_mmss = _parse_mmss(txt)
+                if m_int is None and txt.strip():
+                    warns.append(f"Falta fila {i+1}: minuto '{txt}' no se pudo parsear (MM:SS).")
+                mmss_norm.append(m_mmss)
+                min_int.append(m_int if m_int is not None else 0)
+            df["minuto_mmss"] = mmss_norm
+            df["minuto"] = min_int
+            # Parte como string "1" o "2"
+            df["parte"] = df["parte"].astype(str).str.strip()
+            df["condicion"] = df["condicion"].astype(str).str.strip().str.upper()
+            df["jugador"] = df["jugador"].astype(str).str.strip().str.upper()
+            # Ordenar por parte y minuto para asignar num_falta
+            df["_parte_n"] = pd.to_numeric(df["parte"], errors="coerce").fillna(0).astype(int)
+            df["_min_n"] = pd.to_numeric(df["minuto"], errors="coerce").fillna(0)
+            df = df.sort_values(["_parte_n", "_min_n"]).reset_index(drop=True)
+            # Autocalcular num_falta dentro de cada (parte, condicion)
+            df["num_falta"] = pd.to_numeric(df["num_falta"], errors="coerce")
+            counters = {}
+            num_finales = []
+            for _, r in df.iterrows():
+                key = (r["_parte_n"], r["condicion"])
+                counters[key] = counters.get(key, 0) + 1
+                # Si el usuario rellenó num_falta lo respetamos; si no, autocalc
+                if pd.isna(r["num_falta"]) or r["num_falta"] <= 0:
+                    num_finales.append(counters[key])
+                else:
+                    num_finales.append(int(r["num_falta"]))
+                    counters[key] = max(counters[key], int(r["num_falta"]))
+            df["num_falta"] = num_finales
+            # Marcar las que generan 10m (la 6ª por (parte, condicion))
+            df["genera_10m"] = df.apply(
+                lambda r: "TRUE" if int(r["num_falta"]) >= 6 else "FALSE",
+                axis=1,
+            )
+            df = df.drop(columns=["_parte_n", "_min_n"])
+            return df, warns
+
+        def _calcular_alertas_faltas(df_norm):
+            """Devuelve lista de strings con alertas para mostrar al usuario:
+            equipo X llegó a la 6ª en la parte Y → 10m sin barrera."""
+            alertas = []
+            if df_norm is None or df_norm.empty:
+                return alertas
+            for parte in ("1", "2"):
+                df_p = df_norm[df_norm["parte"].astype(str) == parte]
+                for cond, label in (("EN_CONTRA", "Inter (faltas cometidas)"),
+                                       ("A_FAVOR", "Rival (faltas cometidas contra nosotros)")):
+                    n = len(df_p[df_p["condicion"] == cond])
+                    if n >= 6:
+                        alertas.append(
+                            f"⚠️ **{label}** ha cometido {n} faltas en {parte}ª parte. "
+                            f"A partir de la 6ª, las siguientes son **10m sin barrera** "
+                            f"contra el equipo que las comete."
+                        )
+                    elif n == 5:
+                        alertas.append(
+                            f"🟧 **{label}** lleva 5 faltas en {parte}ª parte. "
+                            f"La siguiente sería la 6ª → 10m."
+                        )
+            return alertas
+
+        def _guardar_faltas(partido_id, df_norm, cab):
+            """Persiste en EST_FALTAS. Reescribe las filas del partido_id."""
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_FALTAS")
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sh.add_worksheet("EST_FALTAS", rows=400, cols=15)
+                ws.update(values=[["partido_id"]], range_name="A1")
+            df_all = pd.DataFrame(ws.get_all_records())
+            cols = [
+                "partido_id", "tipo", "competicion", "rival", "fecha",
+                "parte", "minuto", "minuto_mmss", "condicion", "jugador",
+                "num_falta", "genera_10m", "descripcion",
+            ]
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols)
+            else:
+                for c in cols:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
+            df_otros = df_all[df_all["partido_id"].astype(str) != str(partido_id)]
+            if df_norm is None or df_norm.empty:
+                df_nuevas = pd.DataFrame(columns=cols)
+            else:
+                df_nuevas = df_norm.copy()
+                df_nuevas["partido_id"] = partido_id
+                df_nuevas["tipo"] = cab["tipo"]
+                df_nuevas["competicion"] = cab["competicion"]
+                df_nuevas["rival"] = cab["rival"]
+                df_nuevas["fecha"] = cab["fecha"]
+                for c in cols:
+                    if c not in df_nuevas.columns:
+                        df_nuevas[c] = ""
+                df_nuevas = df_nuevas[cols]
+            df_final = pd.concat([df_otros[cols], df_nuevas], ignore_index=True).fillna("")
+            ws.clear()
+            ws.update(values=[cols] + df_final.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(df_nuevas)
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -4955,6 +5158,28 @@ with tab_editar:
                     for w in warns_rot_2:
                         st.warning(w)
 
+            # ── Faltas (iter 7) ────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🟨 Faltas")
+            st.caption(
+                "Una fila por falta. EN_CONTRA = falta que cometemos · "
+                "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
+                "parte → 10m sin barrera."
+            )
+            df_faltas_pre_cr = _df_faltas_inicial()
+            df_faltas_edit_cr = _editor_faltas(
+                plantilla, df_faltas_pre_cr, key="cr_faltas")
+            df_faltas_norm_cr_live, warns_falt_cr = _normalizar_faltas_para_guardar(
+                df_faltas_edit_cr)
+            alertas_falt_cr = _calcular_alertas_faltas(df_faltas_norm_cr_live)
+            for w in warns_falt_cr:
+                st.warning(f"⚠️ {w}")
+            for a in alertas_falt_cr:
+                if a.startswith("⚠️"):
+                    st.error(a)
+                else:
+                    st.warning(a)
+
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
                     st.error("Pon el nombre del rival.")
@@ -4969,6 +5194,8 @@ with tab_editar:
                         df_camp_edit, df_port_edit)
                     rot_dict = _normalizar_rotaciones_para_guardar(
                         df_rot_1t_edit, df_rot_2t_edit)
+                    df_faltas_norm_cr, warns_falt_save_cr = \
+                        _normalizar_faltas_para_guardar(df_faltas_edit_cr)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_cr)
@@ -4982,12 +5209,16 @@ with tab_editar:
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
+                            n_falt = _guardar_faltas(
+                                cab["partido_id"], df_faltas_norm_cr, cab)
                         st.success(
                             f"✅ Partido creado. Cabecera + {n_pl} convocados "
                             f"+ {n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos."
+                            f"+ {n_ev} eventos + {n_falt} faltas."
                         )
                         for w in warns_ev:
+                            st.warning(f"⚠️ {w}")
+                        for w in warns_falt_save_cr:
                             st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
@@ -5176,6 +5407,29 @@ with tab_editar:
                         for w in warns_rot_2:
                             st.warning(w)
 
+                # ── Faltas (iter 7) — modo Editar ──────────────────────
+                st.markdown("---")
+                st.markdown("#### 🟨 Faltas")
+                st.caption(
+                    "Una fila por falta. EN_CONTRA = falta que cometemos · "
+                    "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
+                    "parte → 10m sin barrera."
+                )
+                df_faltas_pre_ed = _df_faltas_desde_sheet(pid_sel)
+                df_faltas_edit_ed = _editor_faltas(
+                    plantilla, df_faltas_pre_ed,
+                    key=f"ed_faltas_{pid_sel}")
+                df_faltas_norm_ed_live, warns_falt_ed = \
+                    _normalizar_faltas_para_guardar(df_faltas_edit_ed)
+                alertas_falt_ed = _calcular_alertas_faltas(df_faltas_norm_ed_live)
+                for w in warns_falt_ed:
+                    st.warning(f"⚠️ {w}")
+                for a in alertas_falt_ed:
+                    if a.startswith("⚠️"):
+                        st.error(a)
+                    else:
+                        st.warning(a)
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
@@ -5183,6 +5437,8 @@ with tab_editar:
                         df_camp_edit_e, df_port_edit_e)
                     rot_dict_e = _normalizar_rotaciones_para_guardar(
                         df_rot_1t_edit_e, df_rot_2t_edit_e)
+                    df_faltas_norm_ed, warns_falt_save_ed = \
+                        _normalizar_faltas_para_guardar(df_faltas_edit_ed)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_ed)
@@ -5197,12 +5453,16 @@ with tab_editar:
                                 cab["partido_id"], cab["tipo"], cab["competicion"],
                                 cab["rival"], cab["fecha"], df_ev_norm
                             )
+                            n_falt = _guardar_faltas(
+                                cab["partido_id"], df_faltas_norm_ed, cab)
                         st.success(
                             f"✅ Guardado: cabecera + {n_pl} convocados + "
                             f"{n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos."
+                            f"+ {n_ev} eventos + {n_falt} faltas."
                         )
                         for w in warns_ev:
+                            st.warning(f"⚠️ {w}")
+                        for w in warns_falt_save_ed:
                             st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca para ver los cambios en otras pestañas.")
