@@ -966,6 +966,130 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 story.append(t_rot)
                 story.append(Spacer(1, 8))
 
+    # ── Goles por tipo de jugada (estilo página 3 del PDF Cartagena) ────────
+    if not ep.empty:
+        # Tipos canónicos (mismo orden que en el PDF de referencia).
+        TIPOS_AFAVOR = [
+            ("Banda", "BAND"), ("Córner", "COR"), ("Saque de Centro", "SC"),
+            ("Falta", "FAL"), ("2ª jugada de ABP", "ABP2"), ("10 metros", "10M"),
+            ("Penalti", "PEN"), ("Falta sin barrera", "FSB"),
+            ("Salida de presión", "SP"), ("Ataque Posicional 4x4", "4x4"),
+            ("1x1 en banda", "1xB"), ("2ª jugada", "2J"),
+            ("Incorporación del portero", "IP"),
+            ("5x4", "5x4"), ("4x3", "4x3"), ("4x5", "4x5"), ("3x4", "3x4"),
+            ("Contraataque", "CONT"), ("Robo en zona alta", "RZA"),
+            ("No calificado", "NC"),
+        ]
+
+        def _ev_goles(equipo):
+            return ep[ep.get("equipo_marca", "") == equipo].copy()
+
+        def _tabla_goles_jugada(eventos_lado, jugadores_col, header_actor):
+            """Construye la tabla [Nº · Actor · COL_PER_TIPO... · TOTAL].
+            jugadores_col: nombre de la columna en eventos_lado donde está
+            el "actor" (goleador para a favor, portero para en contra).
+            jugadores: la lista a mostrar (todos los convocados de campo o
+            todos los porteros canónicos)."""
+            rows = [["Nº", header_actor] + [c for _, c in TIPOS_AFAVOR] + ["TOT"]]
+            jp_o = jp[jp["min_total"] > 0].sort_values("dorsal", na_position="last")
+            mostrados = set()
+            for _, j in jp_o.iterrows():
+                jug = str(j.get("jugador", "") or "").upper()
+                if not jug or jug in mostrados:
+                    continue
+                fila = [
+                    int(j.get("dorsal", 0)) if j.get("dorsal", 0) else "",
+                    jug,
+                ]
+                tot = 0
+                for accion_canon, _short in TIPOS_AFAVOR:
+                    n = int((
+                        (eventos_lado[jugadores_col].astype(str).str.upper() == jug) &
+                        (eventos_lado["accion"].astype(str) == accion_canon)
+                    ).sum())
+                    fila.append(n if n > 0 else "")
+                    tot += n
+                fila.append(tot if tot > 0 else "")
+                rows.append(fila)
+                mostrados.add(jug)
+            # Fila TOTAL del equipo
+            fila_tot = ["", "TOTAL"]
+            for accion_canon, _short in TIPOS_AFAVOR:
+                n = int((eventos_lado["accion"].astype(str) == accion_canon).sum())
+                fila_tot.append(n if n > 0 else "")
+            fila_tot.append(int(len(eventos_lado)) if len(eventos_lado) > 0 else "")
+            rows.append(fila_tot)
+            return rows
+
+        ev_af = _ev_goles("INTER")
+        ev_ec = _ev_goles("RIVAL")
+
+        # Anchos compactos para que quepa en A4 (18.6 cm útiles)
+        n_cols_pares = len(TIPOS_AFAVOR) + 3  # Nº + Actor + 20 tipos + TOT
+        anchos = [0.7*cm, 2.4*cm] + [0.7*cm] * len(TIPOS_AFAVOR) + [0.8*cm]
+        # Total ≈ 0.7 + 2.4 + 0.7×20 + 0.8 = 17.9 cm ✓
+
+        story.append(PageBreak())
+        story.append(Paragraph("⚽ Goles por tipo de jugada", h_seccion))
+        story.append(Spacer(1, 4))
+        # A FAVOR
+        if not ev_af.empty:
+            story.append(Paragraph("<b>A favor</b>", p_body))
+            rows_af = _tabla_goles_jugada(ev_af, "goleador", "Goleador")
+            t_af = Table(rows_af, colWidths=anchos, repeatRows=1)
+            t_af.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BACKGROUND", (0, -1), (-1, -1), GRIS_MUY_CLARO),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, GRIS_MUY_CLARO]),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("ALIGN", (1, 1), (1, -1), "LEFT"),
+                ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+                ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+            ]))
+            story.append(t_af)
+            story.append(Spacer(1, 8))
+        else:
+            story.append(Paragraph("<i>Sin goles a favor en este partido.</i>", p_caption))
+            story.append(Spacer(1, 6))
+
+        # EN CONTRA — actor = portero del Inter en pista
+        if not ev_ec.empty:
+            story.append(Paragraph("<b>En contra (asignado al portero en pista)</b>", p_body))
+            rows_ec = _tabla_goles_jugada(ev_ec, "portero", "Portero")
+            t_ec = Table(rows_ec, colWidths=anchos, repeatRows=1)
+            t_ec.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), ROJO),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BACKGROUND", (0, -1), (-1, -1), GRIS_MUY_CLARO),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, GRIS_MUY_CLARO]),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("ALIGN", (1, 1), (1, -1), "LEFT"),
+                ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+                ("BOX", (0, 0), (-1, -1), 0.5, GRIS),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+            ]))
+            story.append(t_ec)
+
+        # Leyenda de abreviaturas
+        story.append(Spacer(1, 6))
+        leyenda = " · ".join(f"<b>{abr}</b>={canon}" for canon, abr in TIPOS_AFAVOR)
+        story.append(Paragraph(
+            f"<font size='6'>{leyenda}</font>", p_caption))
+
     # ── Mapas de zona y portería (matplotlib, sin svglib) ───────────────────
     story.append(PageBreak())
     story.append(Paragraph("🎯 Mapas de zona del partido", h_seccion))
