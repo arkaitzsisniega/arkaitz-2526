@@ -105,6 +105,17 @@
       en `src/sesiones_utils.py`. Schema de SESIONES está en
       `src/setup_gsheets.py`.
 
+      **AMPLIACIÓN (29/04/2026, antes de irse):**
+      - Añadir nuevo tipo de sesión: **MATINAL** — sesión corta que se
+        hace los días de partido por la mañana.
+      - Permitir **tipos combinados** en una misma sesión (ej. "GYM +
+        tec-tac"). Hoy `tipo` parece ser un solo valor; pasar a
+        multi-select o string libre con separador (p.ej. "GYM+TEC_TAC").
+        Revisar también el extractor / dashboard para que muestren los
+        tipos combinados sin romper agregaciones.
+      - Revisar `src/setup_gsheets.py` (donde se definen los tipos
+        canónicos) y `dashboard/app.py` (donde se filtran por tipo).
+
 ### 🔴 Reglas de dominio importantes (no olvidar)
 
 **Geometría de penaltis y 10m** (acordada 29/04/2026):
