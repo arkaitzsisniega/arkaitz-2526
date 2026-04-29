@@ -5072,6 +5072,198 @@ with tab_editar:
                        range_name="A1")
             return len(df_nuevas)
 
+        # ── Iter 8: PENALTIS y 10m ──────────────────────────────────────
+        # Esquema EST_PENALTIS_10M:
+        #   partido_id, tipo, competicion, rival, fecha,
+        #   tipo_lanzamiento (PENALTI / 10M),
+        #     PENALTI: 6m, falta dentro del área
+        #     10M: 10m, sexta falta del equipo
+        #   condicion (A_FAVOR / EN_CONTRA),
+        #   parte (1/2), minuto_mmss,
+        #   lanzador (jugador Inter si A_FAVOR; "RIVAL" si EN_CONTRA),
+        #   portero (portero Inter si EN_CONTRA; "RIVAL" si A_FAVOR),
+        #   resultado (GOL / PARADA / POSTE / FUERA),
+        #   cuadrante (P1..P9 si va a portería; vacío si FUERA),
+        #   descripcion
+        PEN_COLS_EDITOR = [
+            "tipo_lanzamiento", "condicion", "parte", "minuto_mmss",
+            "lanzador", "portero", "resultado", "cuadrante", "descripcion",
+        ]
+        PEN_TIPOS = ["", "PENALTI", "10M"]
+        PEN_RESULTADOS = ["", "GOL", "PARADA", "POSTE", "FUERA"]
+        PEN_CUADRANTES = ["", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]
+
+        def _df_penaltis_inicial():
+            return pd.DataFrame({
+                "tipo_lanzamiento": pd.Series(dtype="str"),
+                "condicion": pd.Series(dtype="str"),
+                "parte": pd.Series(dtype="str"),
+                "minuto_mmss": pd.Series(dtype="str"),
+                "lanzador": pd.Series(dtype="str"),
+                "portero": pd.Series(dtype="str"),
+                "resultado": pd.Series(dtype="str"),
+                "cuadrante": pd.Series(dtype="str"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+
+        def _df_penaltis_desde_sheet(partido_id):
+            try:
+                sh = _conexion_sheet()
+                ws = sh.worksheet("EST_PENALTIS_10M")
+                df_all = pd.DataFrame(ws.get_all_records())
+            except Exception:
+                return _df_penaltis_inicial()
+            if df_all.empty or "partido_id" not in df_all.columns:
+                return _df_penaltis_inicial()
+            df = df_all[df_all["partido_id"].astype(str) == str(partido_id)].copy()
+            if df.empty:
+                return _df_penaltis_inicial()
+            for c in PEN_COLS_EDITOR:
+                if c not in df.columns:
+                    df[c] = ""
+            return df[PEN_COLS_EDITOR].reset_index(drop=True)
+
+        def _editor_penaltis(plantilla_actual, df_pre, key):
+            if plantilla_actual:
+                jug_lanz = sorted({p["jugador"] for p in plantilla_actual
+                                     if p.get("posicion", "") == "CAMPO"})
+                jug_porteros = sorted({p["jugador"] for p in plantilla_actual
+                                          if p.get("posicion", "") == "PORTERO"})
+            else:
+                jug_lanz = jug_campo
+                jug_porteros = jug_porteros if 'jug_porteros' in dir() else \
+                                ["J.HERRERO", "J.GARCIA", "OSCAR"]
+            opciones_lanzador = [""] + jug_lanz + ["RIVAL"]
+            opciones_portero = [""] + jug_porteros + ["RIVAL"]
+            cfg = {
+                "tipo_lanzamiento": st.column_config.SelectboxColumn(
+                    "Tipo", options=PEN_TIPOS, width="small",
+                    help="PENALTI (6m, falta dentro del área) · 10M (10m, sexta falta del equipo)"),
+                "condicion": st.column_config.SelectboxColumn(
+                    "Cond.", options=["", "A_FAVOR", "EN_CONTRA"], width="small",
+                    help="A_FAVOR = lo lanzamos nosotros · EN_CONTRA = lo lanza el rival"),
+                "parte": st.column_config.SelectboxColumn(
+                    "P", options=["", "1", "2"], width="small"),
+                "minuto_mmss": st.column_config.TextColumn(
+                    "Min", help="MM:SS", max_chars=6, width="small"),
+                "lanzador": st.column_config.SelectboxColumn(
+                    "Lanzador", options=opciones_lanzador,
+                    help="Si A_FAVOR: nuestro jugador. Si EN_CONTRA: 'RIVAL'."),
+                "portero": st.column_config.SelectboxColumn(
+                    "Portero", options=opciones_portero,
+                    help="Si EN_CONTRA: nuestro portero. Si A_FAVOR: 'RIVAL'."),
+                "resultado": st.column_config.SelectboxColumn(
+                    "Resultado", options=PEN_RESULTADOS, width="small",
+                    help="GOL · PARADA · POSTE · FUERA (FUERA cuenta también como DF del lanzador)"),
+                "cuadrante": st.column_config.SelectboxColumn(
+                    "Cuadrante", options=PEN_CUADRANTES, width="small",
+                    help="A qué zona de portería va (vacío si va FUERA)"),
+                "descripcion": st.column_config.TextColumn(
+                    "Descripción", width="medium"),
+            }
+            return st.data_editor(
+                df_pre, num_rows="dynamic", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _normalizar_penaltis_para_guardar(df_edit):
+            """Limpia y valida. Devuelve (df, warns)."""
+            warns = []
+            if df_edit is None or df_edit.empty:
+                return _df_penaltis_inicial(), warns
+            df = df_edit.copy().fillna("")
+            mask = (df["tipo_lanzamiento"].astype(str).str.strip() != "") | \
+                    (df["resultado"].astype(str).str.strip() != "") | \
+                    (df["lanzador"].astype(str).str.strip() != "")
+            df = df[mask].reset_index(drop=True)
+            if df.empty:
+                return _df_penaltis_inicial(), warns
+            # Normalizar minutos
+            mmss_norm = []
+            min_int = []
+            for i, txt in enumerate(df["minuto_mmss"].astype(str)):
+                m_int, m_mmss = _parse_mmss(txt)
+                if m_int is None and txt.strip():
+                    warns.append(f"Penalti fila {i+1}: minuto '{txt}' no se pudo parsear (MM:SS).")
+                mmss_norm.append(m_mmss)
+                min_int.append(m_int if m_int is not None else 0)
+            df["minuto_mmss"] = mmss_norm
+            df["minuto"] = min_int
+            # Strings normalizados
+            for c in ("tipo_lanzamiento", "condicion", "resultado", "cuadrante",
+                       "lanzador", "portero"):
+                df[c] = df[c].astype(str).str.strip().str.upper()
+            df["parte"] = df["parte"].astype(str).str.strip()
+            # Validaciones
+            for idx, r in df.iterrows():
+                tipo = r["tipo_lanzamiento"]
+                cond = r["condicion"]
+                resu = r["resultado"]
+                cuad = r["cuadrante"]
+                lanz = r["lanzador"]
+                port = r["portero"]
+                if tipo and tipo not in ("PENALTI", "10M"):
+                    warns.append(f"Penalti fila {idx+1}: tipo '{tipo}' inválido.")
+                if cond and cond not in ("A_FAVOR", "EN_CONTRA"):
+                    warns.append(f"Penalti fila {idx+1}: condición '{cond}' inválida.")
+                if resu and resu not in ("GOL", "PARADA", "POSTE", "FUERA"):
+                    warns.append(f"Penalti fila {idx+1}: resultado '{resu}' inválido.")
+                # Cuadrante coherente con resultado
+                if resu == "FUERA" and cuad:
+                    warns.append(f"Penalti fila {idx+1}: resultado=FUERA pero cuadrante='{cuad}' "
+                                  "(deja el cuadrante vacío).")
+                if resu in ("GOL", "PARADA") and not cuad:
+                    warns.append(f"Penalti fila {idx+1}: resultado={resu} sin cuadrante.")
+                # Coherencia de lanzador/portero con condición
+                if cond == "A_FAVOR" and lanz == "RIVAL":
+                    warns.append(f"Penalti fila {idx+1}: A_FAVOR pero lanzador='RIVAL' "
+                                  "(debe ser nuestro jugador).")
+                if cond == "EN_CONTRA" and lanz and lanz != "RIVAL":
+                    warns.append(f"Penalti fila {idx+1}: EN_CONTRA pero lanzador='{lanz}' "
+                                  "(debe ser 'RIVAL').")
+            return df, warns
+
+        def _guardar_penaltis(partido_id, df_norm, cab):
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_PENALTIS_10M")
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sh.add_worksheet("EST_PENALTIS_10M", rows=200, cols=15)
+                ws.update(values=[["partido_id"]], range_name="A1")
+            df_all = pd.DataFrame(ws.get_all_records())
+            cols = [
+                "partido_id", "tipo", "competicion", "rival", "fecha",
+                "tipo_lanzamiento", "condicion", "parte", "minuto",
+                "minuto_mmss", "lanzador", "portero", "resultado",
+                "cuadrante", "descripcion",
+            ]
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols)
+            else:
+                for c in cols:
+                    if c not in df_all.columns:
+                        df_all[c] = ""
+            df_otros = df_all[df_all["partido_id"].astype(str) != str(partido_id)]
+            if df_norm is None or df_norm.empty:
+                df_nuevas = pd.DataFrame(columns=cols)
+            else:
+                df_nuevas = df_norm.copy()
+                df_nuevas["partido_id"] = partido_id
+                df_nuevas["tipo"] = cab["tipo"]
+                df_nuevas["competicion"] = cab["competicion"]
+                df_nuevas["rival"] = cab["rival"]
+                df_nuevas["fecha"] = cab["fecha"]
+                for c in cols:
+                    if c not in df_nuevas.columns:
+                        df_nuevas[c] = ""
+                df_nuevas = df_nuevas[cols]
+            df_final = pd.concat([df_otros[cols], df_nuevas], ignore_index=True).fillna("")
+            ws.clear()
+            ws.update(values=[cols] + df_final.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(df_nuevas)
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -5180,6 +5372,22 @@ with tab_editar:
                 else:
                     st.warning(a)
 
+            # ── Penaltis y 10m (iter 8) ────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🎯 Penaltis y 10m")
+            st.caption(
+                "PENALTI: 6m por falta dentro del área. "
+                "10M: 10m por la 6ª falta del equipo. "
+                "Si va FUERA, además debería sumar como DF del lanzador "
+                "en la tabla de métricas."
+            )
+            df_pen_pre_cr = _df_penaltis_inicial()
+            df_pen_edit_cr = _editor_penaltis(
+                plantilla, df_pen_pre_cr, key="cr_penaltis")
+            _, warns_pen_cr = _normalizar_penaltis_para_guardar(df_pen_edit_cr)
+            for w in warns_pen_cr:
+                st.warning(f"⚠️ {w}")
+
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
                     st.error("Pon el nombre del rival.")
@@ -5196,6 +5404,8 @@ with tab_editar:
                         df_rot_1t_edit, df_rot_2t_edit)
                     df_faltas_norm_cr, warns_falt_save_cr = \
                         _normalizar_faltas_para_guardar(df_faltas_edit_cr)
+                    df_pen_norm_cr, warns_pen_save_cr = \
+                        _normalizar_penaltis_para_guardar(df_pen_edit_cr)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_cr)
@@ -5211,14 +5421,18 @@ with tab_editar:
                             )
                             n_falt = _guardar_faltas(
                                 cab["partido_id"], df_faltas_norm_cr, cab)
+                            n_pen = _guardar_penaltis(
+                                cab["partido_id"], df_pen_norm_cr, cab)
                         st.success(
                             f"✅ Partido creado. Cabecera + {n_pl} convocados "
                             f"+ {n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas."
+                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
                         for w in warns_falt_save_cr:
+                            st.warning(f"⚠️ {w}")
+                        for w in warns_pen_save_cr:
                             st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
@@ -5430,6 +5644,20 @@ with tab_editar:
                     else:
                         st.warning(a)
 
+                # ── Penaltis y 10m (iter 8) — modo Editar ──────────────
+                st.markdown("---")
+                st.markdown("#### 🎯 Penaltis y 10m")
+                st.caption(
+                    "PENALTI: 6m por falta dentro del área. "
+                    "10M: 10m por la 6ª falta del equipo."
+                )
+                df_pen_pre_ed = _df_penaltis_desde_sheet(pid_sel)
+                df_pen_edit_ed = _editor_penaltis(
+                    plantilla, df_pen_pre_ed, key=f"ed_penaltis_{pid_sel}")
+                _, warns_pen_ed = _normalizar_penaltis_para_guardar(df_pen_edit_ed)
+                for w in warns_pen_ed:
+                    st.warning(f"⚠️ {w}")
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
@@ -5439,6 +5667,8 @@ with tab_editar:
                         df_rot_1t_edit_e, df_rot_2t_edit_e)
                     df_faltas_norm_ed, warns_falt_save_ed = \
                         _normalizar_faltas_para_guardar(df_faltas_edit_ed)
+                    df_pen_norm_ed, warns_pen_save_ed = \
+                        _normalizar_penaltis_para_guardar(df_pen_edit_ed)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_ed)
@@ -5455,14 +5685,18 @@ with tab_editar:
                             )
                             n_falt = _guardar_faltas(
                                 cab["partido_id"], df_faltas_norm_ed, cab)
+                            n_pen = _guardar_penaltis(
+                                cab["partido_id"], df_pen_norm_ed, cab)
                         st.success(
                             f"✅ Guardado: cabecera + {n_pl} convocados + "
                             f"{n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas."
+                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
                         for w in warns_falt_save_ed:
+                            st.warning(f"⚠️ {w}")
+                        for w in warns_pen_save_ed:
                             st.warning(f"⚠️ {w}")
                         st.cache_data.clear()
                         st.info("Refresca para ver los cambios en otras pestañas.")
