@@ -88,6 +88,22 @@
 - [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
       wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
       tiempo diario a Arkaitz.
+- [ ] **Bot apunta sesión por voz** (pedido 29/04/2026):
+      Antes de mandar `/enlaces_hoy`, Arkaitz quiere poder dictarle al bot
+      la sesión de entrenamiento (descripción tipo "FÍSICO + 2v2 + finalización
+      45 min total") y que el bot:
+      1. Transcriba con Whisper (ya está integrado en ambos bots).
+      2. Añada/actualice una fila en la hoja `SESIONES` (fecha = hoy,
+         descripción = lo dictado, tipo si lo detecta, etc.).
+      3. Confirme con un mensaje del estilo "✅ Sesión apuntada para hoy
+         (DD/MM): «descripción»".
+      4. Opcional: ofrecer botón inline para mandar `/enlaces_hoy` justo
+         después.
+      Implementación: comando nuevo `/sesion` (o `/apunta`) en
+      `telegram_bot/bot.py` que reciba audio o texto y use gspread para
+      escribir en `SESIONES`. Añadir helper `apuntar_sesion(texto, fecha)`
+      en `src/sesiones_utils.py`. Schema de SESIONES está en
+      `src/setup_gsheets.py`.
 
 ### 🔴 Reglas de dominio importantes (no olvidar)
 

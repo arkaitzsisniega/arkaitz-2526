@@ -404,9 +404,15 @@ y portería** por donde entra cada gol. Lo guarda en su documento
 
 Estas tareas son de otras partes del proyecto que han quedado abiertas.
 
-- [ ] Tabla de goles **por tipo de jugada** en PDF (página 3 estilo Cartagena: BANDA / CORNER / SAQUE CENTRO / FALTA / 4x4 / 5x4 ...)
+- [x] Tabla de goles **por tipo de jugada** en PDF (página 3 estilo Cartagena) — hecho 28/04/2026.
 - [ ] Disparos 1T/2T breakdown ("54 (30+24)") — requiere extraer del Excel
 - [ ] Mejorar pestaña Lesiones (días baja por zona, tiempos medios de retorno, lesiones activas con countdown)
 - [ ] Google Forms para jugadores (Borg + peso PRE/POST + wellness). El usuario ya tiene 2 forms creados, falta integrar al flujo diario
+- [ ] **Bot apunta sesión por voz** (pedido 29/04/2026):
+      Comando nuevo en `telegram_bot/bot.py` para que Arkaitz pueda dictar
+      la descripción de la sesión y que el bot la añada a la hoja
+      `SESIONES` automáticamente. Whisper ya está integrado en ambos bots.
+      Tras apuntar, ofrecer botón inline para mandar `/enlaces_hoy` justo
+      después. Helper sugerido: `src/sesiones_utils.py:apuntar_sesion()`.
 - [ ] Mac viejo como servidor 24/7 para correr bots y scripts sin tener que dejar el portátil encendido
 - [ ] Web access para cuerpo técnico (otros entrenadores) con permisos limitados
