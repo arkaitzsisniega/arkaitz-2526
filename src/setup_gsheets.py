@@ -212,7 +212,8 @@ def setup_sesiones(spreadsheet, ws, ses_df):
     n = len(ses_df) + 500
     add_dropdown(spreadsheet, sheet_id, 1, n, 2, ["M", "T", "P"])
     add_dropdown(spreadsheet, sheet_id, 1, n, 3,
-                 ["FISICO", "TEC-TAC", "GYM", "RECUP", "PARTIDO", "PORTEROS"])
+                 ["FISICO", "TEC-TAC", "GYM", "RECUP", "PARTIDO", "PORTEROS",
+                  "MATINAL", "GYM+TEC-TAC", "FISICO+TEC-TAC"])
     add_dropdown(spreadsheet, sheet_id, 1, n, 5,
                  ["LIGA", "COPA DEL REY", "COPA ESPAÑA", "COPA MOSTOLES",
                   "COPA RIBERA", "SUPERCOPA", "PRE-TEMPORADA", "AMISTOSO"])
