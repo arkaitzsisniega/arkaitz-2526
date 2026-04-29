@@ -5264,6 +5264,181 @@ with tab_editar:
                        range_name="A1")
             return len(df_nuevas)
 
+        # ── Iter 5: ZONAS (campo + portería) ────────────────────────────
+        # Schema de EST_DISPAROS_ZONAS (ya existente):
+        #   - 11 zonas de campo: G_AF_Z1..Z11 y G_EC_Z1..Z11 (solo goles)
+        #   - 9 cuadrantes de portería: D_AF_P1..P9, G_AF_P1..P9 (disparos
+        #     y goles a favor), D_EC_P1..P9, G_EC_P1..P9 (en contra)
+        # Usamos un solo data_editor con 20 filas (11 zonas campo + 9
+        # cuadrantes portería) y 6 columnas: tipo, código, gol_af, gol_ec,
+        # disp_af, disp_ec. Para zonas de campo, las cols disp_* se quedan
+        # como 0 (no se mide).
+        ZONAS_CAMPO = [f"Z{i}" for i in range(1, 12)]    # 11
+        ZONAS_PORTERIA = [f"P{i}" for i in range(1, 10)] # 9
+
+        def _df_zonas_inicial(partido_id, rival, fecha):
+            """Construye el DataFrame de zonas. Si existe fila en
+            EST_DISPAROS_ZONAS para este partido, precarga; si no, ceros."""
+            try:
+                sh = _conexion_sheet()
+                ws = sh.worksheet("EST_DISPAROS_ZONAS")
+                df_all = pd.DataFrame(ws.get_all_records())
+            except Exception:
+                df_all = pd.DataFrame()
+            fila_pre = pd.DataFrame()
+            if not df_all.empty:
+                # Match preferente por partido_id
+                if "partido_id" in df_all.columns:
+                    fila_pre = df_all[
+                        df_all["partido_id"].astype(str) == str(partido_id)
+                    ]
+                # Fallback por (rival contains, fecha exact)
+                if fila_pre.empty and "rival" in df_all.columns:
+                    df_all["_riv"] = df_all["rival"].astype(str).str.upper().str.strip()
+                    df_all["_fec"] = df_all["fecha"].astype(str).str.strip()
+                    rival_up = str(rival or "").upper().strip()
+                    fec = str(fecha or "").strip()
+                    tokens = [t for t in rival_up.replace("-", " ").split() if len(t) >= 4]
+                    for t in tokens:
+                        m = df_all[
+                            (df_all["_riv"].str.contains(t, na=False, regex=False)) &
+                            (df_all["_fec"] == fec)
+                        ]
+                        if not m.empty:
+                            fila_pre = m
+                            break
+            filas = []
+            for z in ZONAS_CAMPO:
+                idx = z[1:]
+                fila = {"tipo": "CAMPO", "zona": z,
+                         "gol_af": 0, "gol_ec": 0,
+                         "disp_af": 0, "disp_ec": 0}
+                if not fila_pre.empty:
+                    r = fila_pre.iloc[0]
+                    fila["gol_af"] = safe_int(r.get(f"G_AF_Z{idx}", 0))
+                    fila["gol_ec"] = safe_int(r.get(f"G_EC_Z{idx}", 0))
+                filas.append(fila)
+            for z in ZONAS_PORTERIA:
+                idx = z[1:]
+                fila = {"tipo": "PORTERÍA", "zona": z,
+                         "gol_af": 0, "gol_ec": 0,
+                         "disp_af": 0, "disp_ec": 0}
+                if not fila_pre.empty:
+                    r = fila_pre.iloc[0]
+                    fila["gol_af"] = safe_int(r.get(f"G_AF_P{idx}", 0))
+                    fila["gol_ec"] = safe_int(r.get(f"G_EC_P{idx}", 0))
+                    fila["disp_af"] = safe_int(r.get(f"D_AF_P{idx}", 0))
+                    fila["disp_ec"] = safe_int(r.get(f"D_EC_P{idx}", 0))
+                filas.append(fila)
+            return pd.DataFrame(filas, columns=[
+                "tipo", "zona", "gol_af", "gol_ec", "disp_af", "disp_ec"])
+
+        def _editor_zonas(df_pre, key):
+            """data_editor compacto con 20 filas. Disparos solo se editan
+            en cuadrantes de portería (en zonas de campo no se miden)."""
+            cfg = {
+                "tipo": st.column_config.TextColumn("Tipo", disabled=True, width="small"),
+                "zona": st.column_config.TextColumn("Zona", disabled=True, width="small"),
+                "gol_af": st.column_config.NumberColumn(
+                    "Goles AF", min_value=0, max_value=20, format="%d",
+                    help="Goles a FAVOR desde esta zona o en este cuadrante"),
+                "gol_ec": st.column_config.NumberColumn(
+                    "Goles EC", min_value=0, max_value=20, format="%d",
+                    help="Goles EN CONTRA en esta zona o cuadrante"),
+                "disp_af": st.column_config.NumberColumn(
+                    "Disp. AF", min_value=0, max_value=50, format="%d",
+                    help="Disparos a FAVOR (solo cuadrantes de portería)"),
+                "disp_ec": st.column_config.NumberColumn(
+                    "Disp. EC", min_value=0, max_value=50, format="%d",
+                    help="Disparos EN CONTRA (solo cuadrantes de portería)"),
+            }
+            return st.data_editor(
+                df_pre, num_rows="fixed", use_container_width=True,
+                key=key, column_config=cfg, hide_index=True,
+            )
+
+        def _guardar_zonas(partido_id, df_zonas, cab):
+            """Persiste en EST_DISPAROS_ZONAS. Reescribe la fila del partido
+            si existe (match por partido_id preferente, fallback rival+fecha).
+            Si no existe, crea una nueva fila."""
+            import gspread
+            sh = _conexion_sheet()
+            try:
+                ws = sh.worksheet("EST_DISPAROS_ZONAS")
+            except gspread.exceptions.WorksheetNotFound:
+                # Crear con cabecera completa
+                cols_full = ["competicion", "rival", "fecha", "partido_id"]
+                cols_full += [f"D_AF_P{i}" for i in range(1, 10)]
+                cols_full += [f"G_AF_P{i}" for i in range(1, 10)]
+                cols_full += [f"G_AF_Z{i}" for i in range(1, 12)]
+                cols_full += [f"D_EC_P{i}" for i in range(1, 10)]
+                cols_full += [f"G_EC_P{i}" for i in range(1, 10)]
+                cols_full += [f"G_EC_Z{i}" for i in range(1, 12)]
+                ws = sh.add_worksheet("EST_DISPAROS_ZONAS",
+                                        rows=200, cols=len(cols_full) + 5)
+                ws.update(values=[cols_full], range_name="A1")
+            df_all = pd.DataFrame(ws.get_all_records())
+            cols_existentes = list(df_all.columns) if not df_all.empty else []
+            # Construir el dict de la fila nueva
+            datos_nuevos = {
+                "competicion": cab.get("competicion", ""),
+                "rival": cab.get("rival", ""),
+                "fecha": cab.get("fecha", ""),
+                "partido_id": partido_id,
+            }
+            for _, r in df_zonas.iterrows():
+                z_num = str(r["zona"])[1:]
+                if r["tipo"] == "CAMPO":
+                    datos_nuevos[f"G_AF_Z{z_num}"] = safe_int(r.get("gol_af", 0))
+                    datos_nuevos[f"G_EC_Z{z_num}"] = safe_int(r.get("gol_ec", 0))
+                else:  # PORTERÍA
+                    datos_nuevos[f"D_AF_P{z_num}"] = safe_int(r.get("disp_af", 0))
+                    datos_nuevos[f"G_AF_P{z_num}"] = safe_int(r.get("gol_af", 0))
+                    datos_nuevos[f"D_EC_P{z_num}"] = safe_int(r.get("disp_ec", 0))
+                    datos_nuevos[f"G_EC_P{z_num}"] = safe_int(r.get("gol_ec", 0))
+            # Asegurar columnas en df_all
+            for c in datos_nuevos:
+                if c not in cols_existentes:
+                    cols_existentes.append(c)
+                    if not df_all.empty:
+                        df_all[c] = ""
+            if df_all.empty:
+                df_all = pd.DataFrame(columns=cols_existentes)
+            # Buscar fila existente del partido
+            mask = pd.Series(False, index=df_all.index)
+            if "partido_id" in df_all.columns:
+                mask = df_all["partido_id"].astype(str) == str(partido_id)
+            if not mask.any() and "rival" in df_all.columns:
+                rival_up = str(cab.get("rival", "")).upper().strip()
+                tokens = [t for t in rival_up.replace("-", " ").split() if len(t) >= 4]
+                for t in tokens:
+                    candidate = (
+                        df_all["rival"].astype(str).str.upper().str.contains(t, na=False) &
+                        (df_all["fecha"].astype(str).str.strip() == str(cab.get("fecha", "")).strip())
+                    )
+                    if candidate.any():
+                        mask = candidate
+                        break
+            if mask.any():
+                # Actualizar la fila existente
+                idx = df_all.index[mask][0]
+                for k, v in datos_nuevos.items():
+                    df_all.at[idx, k] = v
+            else:
+                # Añadir fila nueva
+                df_all = pd.concat([df_all, pd.DataFrame([datos_nuevos])],
+                                     ignore_index=True)
+            # Reescribir
+            for c in cols_existentes:
+                if c not in df_all.columns:
+                    df_all[c] = ""
+            df_out = df_all[cols_existentes].fillna("")
+            ws.clear()
+            ws.update(values=[cols_existentes] +
+                              df_out.astype(str).values.tolist(),
+                       range_name="A1")
+            return len(df_zonas)
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -5388,6 +5563,19 @@ with tab_editar:
             for w in warns_pen_cr:
                 st.warning(f"⚠️ {w}")
 
+            # ── Zonas (iter 5) ────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📍 Zonas de gol y portería")
+            st.caption(
+                "11 zonas de campo (Z1-Z11) + 9 cuadrantes de portería "
+                "(P1-P9). En las zonas de campo solo se cuentan goles. "
+                "En los cuadrantes de portería: disparos y goles."
+            )
+            df_zonas_pre_cr = _df_zonas_inicial(
+                cab["partido_id"], cab["rival"], cab["fecha"])
+            df_zonas_edit_cr = _editor_zonas(
+                df_zonas_pre_cr, key="cr_zonas")
+
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
                     st.error("Pon el nombre del rival.")
@@ -5423,10 +5611,13 @@ with tab_editar:
                                 cab["partido_id"], df_faltas_norm_cr, cab)
                             n_pen = _guardar_penaltis(
                                 cab["partido_id"], df_pen_norm_cr, cab)
+                            n_zon = _guardar_zonas(
+                                cab["partido_id"], df_zonas_edit_cr, cab)
                         st.success(
                             f"✅ Partido creado. Cabecera + {n_pl} convocados "
                             f"+ {n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m."
+                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
+                            f"+ {n_zon} zonas."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
@@ -5658,6 +5849,18 @@ with tab_editar:
                 for w in warns_pen_ed:
                     st.warning(f"⚠️ {w}")
 
+                # ── Zonas (iter 5) — modo Editar ──────────────────────
+                st.markdown("---")
+                st.markdown("#### 📍 Zonas de gol y portería")
+                st.caption(
+                    "11 zonas de campo (Z1-Z11) + 9 cuadrantes de portería "
+                    "(P1-P9). Disparos solo en cuadrantes de portería."
+                )
+                df_zonas_pre_ed = _df_zonas_inicial(
+                    pid_sel, m["rival"], str(m["fecha"]))
+                df_zonas_edit_ed = _editor_zonas(
+                    df_zonas_pre_ed, key=f"ed_zonas_{pid_sel}")
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
@@ -5687,10 +5890,13 @@ with tab_editar:
                                 cab["partido_id"], df_faltas_norm_ed, cab)
                             n_pen = _guardar_penaltis(
                                 cab["partido_id"], df_pen_norm_ed, cab)
+                            n_zon = _guardar_zonas(
+                                cab["partido_id"], df_zonas_edit_ed, cab)
                         st.success(
                             f"✅ Guardado: cabecera + {n_pl} convocados + "
                             f"{n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m."
+                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
+                            f"+ {n_zon} zonas."
                         )
                         for w in warns_ev:
                             st.warning(f"⚠️ {w}")
