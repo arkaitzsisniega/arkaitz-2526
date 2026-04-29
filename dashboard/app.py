@@ -142,6 +142,98 @@ SCOPES     = ["https://www.googleapis.com/auth/spreadsheets",
                "https://www.googleapis.com/auth/drive"]
 
 
+def _conexion_sheet_scout():
+    """Devuelve el spreadsheet abierto, para los helpers de scouting."""
+    return get_client().open(SHEET_NAME)
+
+
+def _guardar_scout_goles(sh, equipo, fecha_iso, rival, comp, df_edit):
+    """Append (no sobreescribe) en EST_SCOUTING_GOLES. Filtra filas vacías."""
+    import gspread
+    cols = ["equipo", "fecha_partido", "rival_de_ese_partido", "competicion",
+             "evento_idx", "condicion", "minuto_mmss", "minuto", "accion",
+             "zona_campo", "zona_porteria", "descripcion"]
+    try:
+        ws = sh.worksheet("EST_SCOUTING_GOLES")
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sh.add_worksheet("EST_SCOUTING_GOLES", rows=400, cols=15)
+        ws.update(values=[cols], range_name="A1")
+    df = df_edit.copy().fillna("")
+    # Filtrar vacías
+    mask = (df["condicion"].astype(str).str.strip() != "") | \
+            (df["minuto_mmss"].astype(str).str.strip() != "") | \
+            (df["accion"].astype(str).str.strip() != "")
+    df = df[mask].reset_index(drop=True)
+    if df.empty:
+        return 0
+    # Calcular minuto entero a partir de mm:ss
+    def _parse(txt):
+        s = str(txt or "").strip().replace(",", ":")
+        if ":" in s:
+            try:
+                mm, ss = s.split(":", 1)
+                return int(mm)
+            except ValueError:
+                return 0
+        try:
+            return int(s)
+        except ValueError:
+            return 0
+    df["minuto"] = df["minuto_mmss"].apply(_parse)
+    df["equipo"] = equipo
+    df["fecha_partido"] = fecha_iso
+    df["rival_de_ese_partido"] = rival
+    df["competicion"] = comp
+    # evento_idx: contar las filas existentes del mismo (equipo, fecha)
+    existentes = pd.DataFrame(ws.get_all_records())
+    if not existentes.empty:
+        n_prev = int(((existentes.get("equipo", "") == equipo) &
+                       (existentes.get("fecha_partido", "").astype(str) == fecha_iso)).sum())
+    else:
+        n_prev = 0
+    df["evento_idx"] = range(n_prev + 1, n_prev + 1 + len(df))
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+    df = df[cols]
+    # Append
+    valores = df.astype(str).values.tolist()
+    ws.append_rows(valores, value_input_option="USER_ENTERED")
+    return len(df)
+
+
+def _guardar_scout_pen(sh, equipo, fecha_iso, rival, comp, df_edit):
+    """Append en EST_SCOUTING_PEN_10M. Filtra filas vacías."""
+    import gspread
+    cols = ["equipo", "fecha_partido", "rival_de_ese_partido", "competicion",
+             "tipo_lanzamiento", "condicion", "parte", "minuto_mmss",
+             "marcador", "lanzador", "portero", "resultado", "cuadrante",
+             "descripcion"]
+    try:
+        ws = sh.worksheet("EST_SCOUTING_PEN_10M")
+    except gspread.exceptions.WorksheetNotFound:
+        ws = sh.add_worksheet("EST_SCOUTING_PEN_10M", rows=200, cols=15)
+        ws.update(values=[cols], range_name="A1")
+    df = df_edit.copy().fillna("")
+    mask = (df["tipo_lanzamiento"].astype(str).str.strip() != "") | \
+            (df["resultado"].astype(str).str.strip() != "") | \
+            (df["lanzador"].astype(str).str.strip() != "")
+    df = df[mask].reset_index(drop=True)
+    if df.empty:
+        return 0
+    df["equipo"] = equipo
+    df["fecha_partido"] = fecha_iso
+    df["rival_de_ese_partido"] = rival
+    df["competicion"] = comp
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+    df = df[cols]
+    valores = df.astype(str).values.tolist()
+    ws.append_rows(valores, value_input_option="USER_ENTERED")
+    return len(df)
+
+
 @st.cache_resource(show_spinner="Conectando con Google Sheets…")
 def get_client():
     # Streamlit Cloud: usar st.secrets
@@ -350,6 +442,15 @@ def datos():
         est_penaltis = cargar("EST_PENALTIS_10M")
     except Exception:
         est_penaltis = pd.DataFrame()
+    # Scouting de equipos rivales (iter 10, granular por gol y por penalti)
+    try:
+        scout_goles = cargar("EST_SCOUTING_GOLES")
+    except Exception:
+        scout_goles = pd.DataFrame()
+    try:
+        scout_pen = cargar("EST_SCOUTING_PEN_10M")
+    except Exception:
+        scout_pen = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -373,7 +474,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis, scout_goles, scout_pen
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -388,7 +489,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis, scout_goles, scout_pen = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -398,7 +499,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis, scout_goles, scout_pen = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -2760,9 +2861,321 @@ with tab_scout:
                             "total_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra del rival en ese partido", format="%d"),
                         },
                     )
-    
-    
-    
+
+        # ═══════════════════════════════════════════════════════════════
+        # ITER 10 — Scouting GRANULAR de equipos rivales
+        # ═══════════════════════════════════════════════════════════════
+        st.markdown("---")
+        st.markdown("### 🕵 Scouting granular (iter 10)")
+        st.caption(
+            "Datos por gol y por penalti/10m de partidos vistos de "
+            "equipos rivales. Útil para preparar enfrentamientos "
+            "(sobre todo eliminatorias)."
+        )
+
+        sg = scout_goles if not scout_goles.empty else pd.DataFrame()
+        sp = scout_pen if not scout_pen.empty else pd.DataFrame()
+        equipos_disponibles = sorted(set(
+            (sg["equipo"].astype(str).tolist() if not sg.empty else []) +
+            (sp["equipo"].astype(str).tolist() if not sp.empty else [])
+        ))
+
+        s_goles, s_pen, s_edit = st.tabs([
+            "⚽ Goles por equipo",
+            "🎯 Penaltis/10m por equipo",
+            "✏️ Editar scouting",
+        ])
+
+        # ─── Sub: GOLES por equipo ───────────────────────────────────
+        with s_goles:
+            if sg.empty:
+                st.info(
+                    "Aún no hay goles de scouting registrados. Ve a la "
+                    "sub-pestaña '✏️ Editar scouting' para empezar."
+                )
+            else:
+                st.markdown("##### Selecciona equipo")
+                equipo_sel = st.selectbox(
+                    "Equipo en scouting",
+                    options=equipos_disponibles or ["(sin datos)"],
+                    key="scout_eq_goles",
+                )
+                df_eq = sg[sg["equipo"] == equipo_sel].copy()
+                if df_eq.empty:
+                    st.caption("Sin datos para ese equipo.")
+                else:
+                    n_part = df_eq["fecha_partido"].astype(str).nunique()
+                    n_af = int((df_eq["condicion"] == "A_FAVOR").sum())
+                    n_ec = int((df_eq["condicion"] == "EN_CONTRA").sum())
+                    cols_kpi = st.columns(3)
+                    cols_kpi[0].metric("Partidos vistos", n_part)
+                    cols_kpi[1].metric("Goles A FAVOR (mete)", n_af)
+                    cols_kpi[2].metric("Goles EN CONTRA (recibe)", n_ec)
+
+                    # Mapas SVG agregados
+                    af_zona = {f"A{i}": int(((df_eq["condicion"] == "A_FAVOR") &
+                                              (df_eq["zona_campo"] == f"A{i}")).sum())
+                                for i in range(1, 12)}
+                    af_port = {f"P{i}": int(((df_eq["condicion"] == "A_FAVOR") &
+                                              (df_eq["zona_porteria"] == f"P{i}")).sum())
+                                for i in range(1, 10)}
+                    ec_zona = {f"A{i}": int(((df_eq["condicion"] == "EN_CONTRA") &
+                                              (df_eq["zona_campo"] == f"A{i}")).sum())
+                                for i in range(1, 12)}
+                    ec_port = {f"P{i}": int(((df_eq["condicion"] == "EN_CONTRA") &
+                                              (df_eq["zona_porteria"] == f"P{i}")).sum())
+                                for i in range(1, 10)}
+                    sub_af, sub_ec = st.tabs(["⚽ Cómo mete", "🥅 Cómo recibe"])
+                    with sub_af:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Zonas del campo (origen del gol)**")
+                            st.markdown(generar_svg_campo(af_zona), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Cuadrantes de portería**")
+                            st.markdown(generar_svg_porteria(af_port), unsafe_allow_html=True)
+                    with sub_ec:
+                        cA, cB = st.columns([3, 2])
+                        with cA:
+                            st.markdown("**Zonas del campo (origen del gol)**")
+                            st.markdown(generar_svg_campo(ec_zona), unsafe_allow_html=True)
+                        with cB:
+                            st.markdown("**Cuadrantes de portería**")
+                            st.markdown(generar_svg_porteria(ec_port), unsafe_allow_html=True)
+
+                    st.markdown("##### 📋 Histórico de goles")
+                    cols_hist = ["fecha_partido", "rival_de_ese_partido",
+                                  "competicion", "condicion", "minuto_mmss",
+                                  "accion", "zona_campo", "zona_porteria",
+                                  "descripcion"]
+                    cols_hist = [c for c in cols_hist if c in df_eq.columns]
+                    st.dataframe(df_eq[cols_hist].sort_values("fecha_partido",
+                                                                ascending=False),
+                                  use_container_width=True, hide_index=True)
+
+        # ─── Sub: PENALTIS por equipo ────────────────────────────────
+        with s_pen:
+            if sp.empty:
+                st.info(
+                    "Aún no hay penaltis/10m de scouting registrados. "
+                    "Ve a la sub-pestaña '✏️ Editar scouting' para empezar."
+                )
+            else:
+                equipo_sel_p = st.selectbox(
+                    "Equipo en scouting",
+                    options=equipos_disponibles or ["(sin datos)"],
+                    key="scout_eq_pen",
+                )
+                df_eq = sp[sp["equipo"] == equipo_sel_p].copy()
+                if df_eq.empty:
+                    st.caption("Sin datos para ese equipo.")
+                else:
+                    n_total = len(df_eq)
+                    n_pen = int((df_eq["tipo_lanzamiento"] == "PENALTI").sum())
+                    n_10m = int((df_eq["tipo_lanzamiento"] == "10M").sum())
+                    n_gol = int((df_eq["resultado"] == "GOL").sum())
+                    pct = round(n_gol / max(n_total, 1) * 100, 1)
+                    cols_kpi = st.columns(4)
+                    cols_kpi[0].metric("Total tiros", n_total)
+                    cols_kpi[1].metric("Penaltis", n_pen)
+                    cols_kpi[2].metric("10m", n_10m)
+                    cols_kpi[3].metric("% acierto", f"{pct}%")
+
+                    # Lanzadores y porteros más usados
+                    if not df_eq[df_eq["condicion"] == "A_FAVOR"].empty:
+                        st.markdown("##### Lanzadores del equipo (a favor)")
+                        df_lz = df_eq[df_eq["condicion"] == "A_FAVOR"]
+                        rk_lz = (df_lz.groupby("lanzador")
+                                 .agg(n=("resultado", "count"),
+                                      goles=("resultado", lambda s: (s == "GOL").sum()))
+                                 .reset_index().sort_values("n", ascending=False))
+                        rk_lz["pct"] = (rk_lz["goles"] / rk_lz["n"] * 100).round(1)
+                        st.dataframe(rk_lz, use_container_width=True,
+                                      hide_index=True,
+                                      column_config={
+                                          "lanzador": "Lanzador", "n": "Tiros",
+                                          "goles": "Goles",
+                                          "pct": st.column_config.NumberColumn(
+                                              "% acierto", format="%.1f%%"),
+                                      })
+                    # Mapa de cuadrantes preferidos por equipo
+                    cuad_pref = df_eq[df_eq["cuadrante"].astype(str).str.match(r"P[1-9]", na=False)]
+                    if not cuad_pref.empty:
+                        st.markdown("##### 🎯 Cuadrantes preferidos del equipo")
+                        cuad_dict = {f"P{i}": int((cuad_pref["cuadrante"] == f"P{i}").sum())
+                                       for i in range(1, 10)}
+                        st.markdown(generar_svg_porteria(cuad_dict),
+                                     unsafe_allow_html=True)
+
+                    st.markdown("##### 📋 Histórico de penaltis y 10m")
+                    cols_hist = ["fecha_partido", "rival_de_ese_partido",
+                                  "tipo_lanzamiento", "condicion", "parte",
+                                  "minuto_mmss", "marcador", "lanzador",
+                                  "portero", "resultado", "cuadrante",
+                                  "descripcion"]
+                    cols_hist = [c for c in cols_hist if c in df_eq.columns]
+                    st.dataframe(df_eq[cols_hist].sort_values("fecha_partido",
+                                                                ascending=False),
+                                  use_container_width=True, hide_index=True)
+
+        # ─── Sub: EDITAR SCOUTING ────────────────────────────────────
+        with s_edit:
+            st.caption(
+                "Apunta los goles y penaltis/10m que has visto de un "
+                "equipo rival. Puedes ver varios partidos del mismo "
+                "equipo (van filtrados por equipo + fecha)."
+            )
+
+            colA, colB = st.columns([1, 1])
+            with colA:
+                equipo_input = st.text_input(
+                    "Equipo en scouting",
+                    placeholder="Ej: PEÑISCOLA, JIMBEE...",
+                    key="scout_edit_eq",
+                ).strip().upper()
+                fecha_input = st.date_input(
+                    "Fecha del partido visto",
+                    value=_dt.date.today(),
+                    key="scout_edit_fecha",
+                )
+                rival_input = st.text_input(
+                    "Rival de ese partido",
+                    placeholder="Ej: BARCELONA",
+                    key="scout_edit_rival",
+                ).strip().upper()
+            with colB:
+                comp_input = st.selectbox(
+                    "Competición",
+                    ["LIGA", "COPA DEL REY", "COPA ESPAÑA", "PLAYOFF",
+                      "AMISTOSO", "OTRO"],
+                    key="scout_edit_comp",
+                )
+                st.markdown("&nbsp;")  # espacio
+                st.caption(
+                    "Solo se guarda si rellenas **equipo** y **fecha**. "
+                    "Si añades datos al mismo (equipo, fecha) se **suman** "
+                    "(no se sobreescriben los anteriores)."
+                )
+
+            # Editor de goles
+            st.markdown("##### ⚽ Goles")
+            df_goles_init = pd.DataFrame({
+                "condicion": pd.Series(dtype="str"),
+                "minuto_mmss": pd.Series(dtype="str"),
+                "accion": pd.Series(dtype="str"),
+                "zona_campo": pd.Series(dtype="str"),
+                "zona_porteria": pd.Series(dtype="str"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+            opciones_acc = ["", "Banda", "Córner", "Saque de Centro", "Falta",
+                             "2ª jugada de ABP", "10 metros", "Penalti",
+                             "Falta sin barrera", "Ataque Posicional 4x4",
+                             "1x1 en banda", "Salida de presión", "2ª jugada",
+                             "Incorporación del portero", "5x4", "4x5", "4x3",
+                             "3x4", "Contraataque", "Robo en zona alta",
+                             "No calificado"]
+            df_goles_edit = st.data_editor(
+                df_goles_init, num_rows="dynamic",
+                use_container_width=True, key="scout_goles_editor",
+                hide_index=True,
+                column_config={
+                    "condicion": st.column_config.SelectboxColumn(
+                        "Cond.", options=["", "A_FAVOR", "EN_CONTRA"],
+                        width="small"),
+                    "minuto_mmss": st.column_config.TextColumn(
+                        "Min", max_chars=6, width="small"),
+                    "accion": st.column_config.SelectboxColumn(
+                        "Acción", options=opciones_acc),
+                    "zona_campo": st.column_config.SelectboxColumn(
+                        "Zona campo",
+                        options=[""] + [f"A{i}" for i in range(1, 12)],
+                        width="small"),
+                    "zona_porteria": st.column_config.SelectboxColumn(
+                        "Cuadr. portería",
+                        options=[""] + [f"P{i}" for i in range(1, 10)],
+                        width="small"),
+                    "descripcion": st.column_config.TextColumn(
+                        "Descripción", width="medium"),
+                },
+            )
+
+            # Editor de penaltis/10m
+            st.markdown("##### 🎯 Penaltis y 10m")
+            df_pen_init = pd.DataFrame({
+                "tipo_lanzamiento": pd.Series(dtype="str"),
+                "condicion": pd.Series(dtype="str"),
+                "parte": pd.Series(dtype="str"),
+                "minuto_mmss": pd.Series(dtype="str"),
+                "marcador": pd.Series(dtype="str"),
+                "lanzador": pd.Series(dtype="str"),
+                "portero": pd.Series(dtype="str"),
+                "resultado": pd.Series(dtype="str"),
+                "cuadrante": pd.Series(dtype="str"),
+                "descripcion": pd.Series(dtype="str"),
+            })
+            df_pen_edit = st.data_editor(
+                df_pen_init, num_rows="dynamic",
+                use_container_width=True, key="scout_pen_editor",
+                hide_index=True,
+                column_config={
+                    "tipo_lanzamiento": st.column_config.SelectboxColumn(
+                        "Tipo", options=["", "PENALTI", "10M"], width="small"),
+                    "condicion": st.column_config.SelectboxColumn(
+                        "Cond.", options=["", "A_FAVOR", "EN_CONTRA"], width="small"),
+                    "parte": st.column_config.SelectboxColumn(
+                        "P", options=["", "1", "2"], width="small"),
+                    "minuto_mmss": st.column_config.TextColumn(
+                        "Min", max_chars=6, width="small"),
+                    "marcador": st.column_config.TextColumn(
+                        "Marc.", max_chars=8, width="small"),
+                    "lanzador": st.column_config.TextColumn("Lanzador"),
+                    "portero": st.column_config.TextColumn("Portero"),
+                    "resultado": st.column_config.SelectboxColumn(
+                        "Resultado",
+                        options=["", "GOL", "PARADA", "POSTE", "FUERA"],
+                        width="small"),
+                    "cuadrante": st.column_config.SelectboxColumn(
+                        "Cuadr.",
+                        options=[""] + [f"P{i}" for i in range(1, 10)],
+                        width="small"),
+                    "descripcion": st.column_config.TextColumn(
+                        "Descripción", width="medium"),
+                },
+            )
+
+            if st.button("💾 Guardar scouting", type="primary",
+                          key="scout_guardar"):
+                if not equipo_input:
+                    st.error("Pon el nombre del equipo en scouting.")
+                else:
+                    try:
+                        import gspread
+                        sh = _conexion_sheet_scout()  # helper definido más abajo
+                        # GOLES
+                        n_goles_save = 0
+                        if not df_goles_edit.empty:
+                            n_goles_save = _guardar_scout_goles(
+                                sh, equipo_input, fecha_input.isoformat(),
+                                rival_input, comp_input, df_goles_edit
+                            )
+                        # PENALTIS
+                        n_pen_save = 0
+                        if not df_pen_edit.empty:
+                            n_pen_save = _guardar_scout_pen(
+                                sh, equipo_input, fecha_input.isoformat(),
+                                rival_input, comp_input, df_pen_edit
+                            )
+                        st.success(
+                            f"✅ Scouting guardado: {n_goles_save} goles + "
+                            f"{n_pen_save} penaltis/10m."
+                        )
+                        st.cache_data.clear()
+                        st.info("Refresca para verlo en las otras sub-pestañas.")
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+                        import traceback as _tb
+                        st.expander('Detalles').code(_tb.format_exc())
+
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña 🔍 Scouting: {_e_tab}')
         import traceback as _tb
