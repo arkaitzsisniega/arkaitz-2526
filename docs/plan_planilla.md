@@ -35,7 +35,7 @@
 
 ---
 
-## 🔜 Iteración 3 — Métricas individuales (campo + portero + tarjetas)
+## ✅ Iteración 3 — Métricas individuales (campo + portero + tarjetas)
 
 **Datos por jugador convocado (todos):**
 - PF (pérdida forzada)
@@ -70,7 +70,7 @@
 
 ---
 
-## 🔜 Iteración 4 — Rotaciones variables (3-8 por parte)
+## ✅ Iteración 4 — Rotaciones variables (3-8 por parte)
 
 - Se sigue manteniendo el esquema actual (8 columnas por parte) en `EST_PARTIDOS`.
 - En el form, el usuario añade una rotación con un botón `+ Rotación`.
@@ -80,7 +80,7 @@
 
 ---
 
-## 🔜 Iteración 5 — Zonas de gol editables visual
+## ✅ Iteración 5 — Zonas de gol editables (tabla compacta; mapa SVG clicable como tarea futura)
 
 **Esquema:** la hoja `EST_DISPAROS_ZONAS` ya tiene columnas A1-A11 (campo) y P1-P9 (portería) tanto a favor como en contra.
 
@@ -92,7 +92,7 @@
 
 ---
 
-## 🔜 Iteración 6 — Totales disparos 1ª / 2ª parte
+## ✅ Iteración 6 — Totales disparos 1ª / 2ª parte
 
 - Ampliar `EST_TOTALES_PARTIDO` con: `dt_inter_1t`, `dt_inter_2t`, `dt_rival_1t`, `dt_rival_2t`, `dp_inter_1t`, `dp_inter_2t`, etc.
 - En el form: 4 número-input (DT Inter 1T/2T, DT Rival 1T/2T) o cálculo automático desde las métricas individuales.
@@ -100,7 +100,7 @@
 
 ---
 
-## 🔜 Iteración 7 — Faltas + alerta 6ª falta
+## ✅ Iteración 7 — Faltas + alerta 6ª falta
 
 **Schema nueva hoja `EST_FALTAS`:**
 | col | descripción |
@@ -118,7 +118,7 @@
 
 ---
 
-## 🔜 Iteración 8 — Penaltis y 10m
+## ✅ Iteración 8 — Penaltis y 10m
 
 **Schema nueva hoja `EST_PENALTIS_10M`:**
 | col | descripción |
