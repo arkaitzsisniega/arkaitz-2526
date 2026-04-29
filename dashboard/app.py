@@ -341,6 +341,15 @@ def datos():
         jugadores_roster = cargar("JUGADORES_ROSTER")
     except Exception:
         jugadores_roster = pd.DataFrame()
+    # Faltas y penaltis (iter 7-8, se rellenan desde form Editar partido)
+    try:
+        est_faltas = cargar("EST_FALTAS")
+    except Exception:
+        est_faltas = pd.DataFrame()
+    try:
+        est_penaltis = cargar("EST_PENALTIS_10M")
+    except Exception:
+        est_penaltis = pd.DataFrame()
 
     for df in [carga, semanal]:
         num_cols(df, ["BORG", "MINUTOS", "CARGA", "ACWR", "CARGA_AGUDA",
@@ -364,7 +373,7 @@ def datos():
             "oliver_load_ewma_ag", "oliver_load_ewma_cr", "acwr_mecanico",
         ])
 
-    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster
+    return carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -379,7 +388,7 @@ with st.sidebar:
     st.markdown("---")
 
     try:
-        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster = datos()
+        carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis = datos()
         data_ok = True
     except ValueError as e:
         # Cache obsoleto tras cambiar la firma de datos() → limpiamos y reintentamos
@@ -389,7 +398,7 @@ with st.sidebar:
             except Exception:
                 pass
             try:
-                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster = datos()
+                carga, semanal, peso, df_well, sem, rec, les, oliver, ejercicios, est_jug, est_partidos, est_eventos, est_avanz, est_cuart, est_disparos, scout_raw, scout_agr, est_tot_partido, est_disparos_zonas, jugadores_roster, est_faltas, est_penaltis = datos()
                 data_ok = True
             except Exception as e2:
                 st.error(f"Error cargando datos (tras limpiar cache): {e2}")
@@ -498,7 +507,7 @@ st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
 (tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver,
  tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp, tab_scout,
- tab_editar) = st.tabs([
+ tab_falt_pen, tab_editar) = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
@@ -513,6 +522,7 @@ st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
     "🥅 Goles",
     "🏅 Competición",
     "🔍 Scouting",
+    "🟨 Faltas/Penaltis",
     "✏️ Editar partido",
 ])
 
@@ -3118,6 +3128,83 @@ with tab_partido:
                     st.dataframe(porteros_p, use_container_width=True,
                                   hide_index=True, column_config=cc_port)
 
+            # ── Faltas del partido (iter 9) ────────────────────────────────
+            if not est_faltas.empty:
+                fal_p = est_faltas[
+                    est_faltas["partido_id"].astype(str) == str(sel_id)
+                ].copy()
+                if not fal_p.empty:
+                    st.markdown("#### 🟨 Faltas del partido")
+                    # Resumen por (parte, condicion)
+                    resumen_fal = fal_p.groupby(["parte", "condicion"]).size().reset_index(name="n")
+                    cols_n = st.columns(4)
+                    n_av_1 = int(resumen_fal[(resumen_fal["parte"].astype(str) == "1") &
+                                              (resumen_fal["condicion"] == "A_FAVOR")]["n"].sum() or 0)
+                    n_ec_1 = int(resumen_fal[(resumen_fal["parte"].astype(str) == "1") &
+                                              (resumen_fal["condicion"] == "EN_CONTRA")]["n"].sum() or 0)
+                    n_av_2 = int(resumen_fal[(resumen_fal["parte"].astype(str) == "2") &
+                                              (resumen_fal["condicion"] == "A_FAVOR")]["n"].sum() or 0)
+                    n_ec_2 = int(resumen_fal[(resumen_fal["parte"].astype(str) == "2") &
+                                              (resumen_fal["condicion"] == "EN_CONTRA")]["n"].sum() or 0)
+                    cols_n[0].metric("1ª · A favor", n_av_1,
+                                       delta="6ª llegada" if n_av_1 >= 6 else None,
+                                       delta_color="inverse" if n_av_1 >= 6 else "off")
+                    cols_n[1].metric("1ª · En contra", n_ec_1,
+                                       delta="6ª llegada" if n_ec_1 >= 6 else None,
+                                       delta_color="inverse" if n_ec_1 >= 6 else "off")
+                    cols_n[2].metric("2ª · A favor", n_av_2,
+                                       delta="6ª llegada" if n_av_2 >= 6 else None,
+                                       delta_color="inverse" if n_av_2 >= 6 else "off")
+                    cols_n[3].metric("2ª · En contra", n_ec_2,
+                                       delta="6ª llegada" if n_ec_2 >= 6 else None,
+                                       delta_color="inverse" if n_ec_2 >= 6 else "off")
+                    # Tabla detallada
+                    fal_show = fal_p[["parte", "minuto_mmss", "condicion",
+                                        "jugador", "num_falta", "genera_10m",
+                                        "descripcion"]].copy()
+                    fal_show["genera_10m"] = fal_show["genera_10m"].astype(str).str.upper().map(
+                        lambda v: "⚠️ 10M" if v == "TRUE" else "")
+                    fal_show = fal_show.sort_values(["parte", "minuto_mmss"])
+                    st.dataframe(fal_show, use_container_width=True, hide_index=True,
+                                  column_config={
+                                      "parte": "Parte", "minuto_mmss": "Min",
+                                      "condicion": "Cond.", "jugador": "Jugador",
+                                      "num_falta": "Nº",
+                                      "genera_10m": "Penaliz.",
+                                      "descripcion": st.column_config.Column("Descripción", width="medium"),
+                                  })
+
+            # ── Penaltis y 10m del partido (iter 9) ────────────────────────
+            if not est_penaltis.empty:
+                pen_p = est_penaltis[
+                    est_penaltis["partido_id"].astype(str) == str(sel_id)
+                ].copy()
+                if not pen_p.empty:
+                    st.markdown("#### 🎯 Penaltis y 10m del partido")
+                    pen_show = pen_p.copy()
+                    cols_show_pen = ["tipo_lanzamiento", "condicion", "parte",
+                                       "minuto_mmss", "marcador", "lanzador",
+                                       "portero", "resultado", "cuadrante",
+                                       "descripcion"]
+                    cols_show_pen = [c for c in cols_show_pen if c in pen_show.columns]
+                    pen_show = pen_show[cols_show_pen].copy()
+                    # Emojis para resultado
+                    pen_show["resultado"] = pen_show["resultado"].astype(str).map({
+                        "GOL": "✅ GOL", "PARADA": "🧤 PARADA",
+                        "POSTE": "📌 POSTE", "FUERA": "❌ FUERA",
+                    }).fillna(pen_show["resultado"])
+                    st.dataframe(pen_show, use_container_width=True, hide_index=True,
+                                  column_config={
+                                      "tipo_lanzamiento": "Tipo",
+                                      "condicion": "Cond.",
+                                      "parte": "P", "minuto_mmss": "Min",
+                                      "marcador": "Marc.", "lanzador": "Lanzador",
+                                      "portero": "Portero",
+                                      "resultado": "Resultado",
+                                      "cuadrante": "Cuadr.",
+                                      "descripcion": st.column_config.Column("Descripción", width="medium"),
+                                  })
+
             # ── Eventos de gol del partido (con descripción) ──────────────────
             st.markdown("#### ⚽ Goles del partido")
             if ev_p.empty:
@@ -3715,7 +3802,193 @@ with tab_comp:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 15 — ✏️ EDITAR PARTIDO (crear nuevo o editar existente)
+# TAB 15 — 🟨 FALTAS Y PENALTIS (vista global)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_falt_pen:
+    try:
+        st.markdown("### 🟨 Faltas y Penaltis — Histórico")
+        st.caption(
+            "Vista agregada de todas las faltas y penaltis/10m de la "
+            "temporada. Los datos se rellenan desde la pestaña ✏️ Editar "
+            "partido."
+        )
+
+        if est_faltas.empty and est_penaltis.empty:
+            st.info(
+                "No hay datos en `EST_FALTAS` ni `EST_PENALTIS_10M` todavía. "
+                "Para empezar a verlos aquí, ve a **✏️ Editar partido**, "
+                "selecciona un partido y rellena las secciones de Faltas y "
+                "Penaltis y guarda."
+            )
+        else:
+            sub_falt, sub_pen = st.tabs(["🟨 Faltas", "🎯 Penaltis y 10m"])
+
+            # ── SUB: FALTAS ─────────────────────────────────────────────
+            with sub_falt:
+                if est_faltas.empty:
+                    st.info("Aún no hay faltas registradas.")
+                else:
+                    df_f = est_faltas.copy()
+                    # Resumen general
+                    n_total = len(df_f)
+                    n_av = int((df_f["condicion"] == "A_FAVOR").sum())
+                    n_ec = int((df_f["condicion"] == "EN_CONTRA").sum())
+                    n_10m = int((df_f.get("genera_10m", "").astype(str).str.upper() == "TRUE").sum())
+                    cols_kpi = st.columns(4)
+                    cols_kpi[0].metric("Total faltas", n_total)
+                    cols_kpi[1].metric("A favor (rival comete)", n_av)
+                    cols_kpi[2].metric("En contra (Inter comete)", n_ec)
+                    cols_kpi[3].metric("Generaron 10m", n_10m)
+
+                    st.markdown("#### 🏃 Ranking — faltas COMETIDAS por jugador del Inter")
+                    df_ec = df_f[df_f["condicion"] == "EN_CONTRA"]
+                    if not df_ec.empty:
+                        rank_ec = (df_ec.groupby("jugador").size()
+                                   .reset_index(name="faltas_cometidas")
+                                   .sort_values("faltas_cometidas", ascending=False))
+                        st.dataframe(rank_ec, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Sin faltas en contra registradas.")
+
+                    st.markdown("#### 🤕 Ranking — faltas RECIBIDAS por jugador del Inter")
+                    df_av = df_f[df_f["condicion"] == "A_FAVOR"]
+                    if not df_av.empty:
+                        rank_av = (df_av.groupby("jugador").size()
+                                   .reset_index(name="faltas_recibidas")
+                                   .sort_values("faltas_recibidas", ascending=False))
+                        st.dataframe(rank_av, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Sin faltas a favor registradas.")
+
+                    st.markdown("#### 📋 Histórico completo")
+                    cols_show_f = ["partido_id", "rival", "fecha", "parte",
+                                    "minuto_mmss", "condicion", "jugador",
+                                    "num_falta", "genera_10m", "descripcion"]
+                    cols_show_f = [c for c in cols_show_f if c in df_f.columns]
+                    df_f_show = df_f[cols_show_f].copy()
+                    df_f_show["genera_10m"] = df_f_show["genera_10m"].astype(str).str.upper().map(
+                        lambda v: "⚠️ 10M" if v == "TRUE" else "")
+                    df_f_show = df_f_show.sort_values(["fecha", "parte", "minuto_mmss"],
+                                                        ascending=[False, True, True])
+                    st.dataframe(df_f_show, use_container_width=True, hide_index=True)
+
+            # ── SUB: PENALTIS Y 10M ─────────────────────────────────────
+            with sub_pen:
+                if est_penaltis.empty:
+                    st.info("Aún no hay penaltis/10m registrados.")
+                else:
+                    df_p = est_penaltis.copy()
+                    n_total = len(df_p)
+                    n_pen = int((df_p["tipo_lanzamiento"] == "PENALTI").sum())
+                    n_10m = int((df_p["tipo_lanzamiento"] == "10M").sum())
+                    n_av = int((df_p["condicion"] == "A_FAVOR").sum())
+                    n_ec = int((df_p["condicion"] == "EN_CONTRA").sum())
+                    n_gol = int((df_p["resultado"] == "GOL").sum())
+                    cols_kpi = st.columns(5)
+                    cols_kpi[0].metric("Total", n_total)
+                    cols_kpi[1].metric("Penaltis", n_pen)
+                    cols_kpi[2].metric("10m", n_10m)
+                    cols_kpi[3].metric("A favor", n_av)
+                    cols_kpi[4].metric("En contra", n_ec)
+
+                    # ── A favor: nuestros lanzadores ──────────────────────
+                    df_av = df_p[df_p["condicion"] == "A_FAVOR"]
+                    if not df_av.empty:
+                        st.markdown("#### ⚽ A favor — nuestros lanzadores")
+                        rank_av = (df_av.groupby("lanzador")
+                                   .agg(intentos=("resultado", "count"),
+                                        goles=("resultado", lambda s: (s == "GOL").sum()),
+                                        paradas_rec=("resultado", lambda s: (s == "PARADA").sum()),
+                                        postes=("resultado", lambda s: (s == "POSTE").sum()),
+                                        fueras=("resultado", lambda s: (s == "FUERA").sum()))
+                                   .reset_index())
+                        rank_av["pct_acierto"] = (rank_av["goles"] / rank_av["intentos"] * 100).round(1)
+                        rank_av = rank_av.sort_values("intentos", ascending=False)
+                        st.dataframe(rank_av, use_container_width=True, hide_index=True,
+                                      column_config={
+                                          "lanzador": "Lanzador",
+                                          "intentos": "Intentos",
+                                          "goles": "Goles",
+                                          "paradas_rec": "Parados",
+                                          "postes": "Postes",
+                                          "fueras": "Fueras",
+                                          "pct_acierto": st.column_config.NumberColumn(
+                                              "% acierto", format="%.1f%%"),
+                                      })
+                        # Mapa de calor de cuadrantes a favor (P1-P9)
+                        df_av_p = df_av[df_av["cuadrante"].astype(str).str.match(r"P[1-9]", na=False)]
+                        if not df_av_p.empty:
+                            st.markdown("##### 🎯 Cuadrantes preferidos (a favor)")
+                            cuad_af = df_av_p["cuadrante"].value_counts().reindex(
+                                [f"P{i}" for i in range(1, 10)], fill_value=0)
+                            mapa_af = {f"P{i}": int(cuad_af.get(f"P{i}", 0)) for i in range(1, 10)}
+                            st.markdown(
+                                generar_svg_porteria(mapa_af),
+                                unsafe_allow_html=True,
+                            )
+
+                    # ── En contra: % paradas de nuestros porteros ────────
+                    df_ec = df_p[df_p["condicion"] == "EN_CONTRA"]
+                    if not df_ec.empty:
+                        st.markdown("#### 🧤 En contra — nuestros porteros")
+                        rank_ec = (df_ec.groupby("portero")
+                                   .agg(recibidos=("resultado", "count"),
+                                        parados=("resultado", lambda s: (s == "PARADA").sum()),
+                                        goles_enc=("resultado", lambda s: (s == "GOL").sum()),
+                                        postes=("resultado", lambda s: (s == "POSTE").sum()),
+                                        fueras=("resultado", lambda s: (s == "FUERA").sum()))
+                                   .reset_index())
+                        rank_ec["pct_parados"] = (
+                            rank_ec["parados"] / rank_ec["recibidos"].clip(lower=1) * 100
+                        ).round(1)
+                        rank_ec = rank_ec.sort_values("recibidos", ascending=False)
+                        st.dataframe(rank_ec, use_container_width=True, hide_index=True,
+                                      column_config={
+                                          "portero": "Portero",
+                                          "recibidos": "Recibidos",
+                                          "parados": "Parados",
+                                          "goles_enc": "Goles enc.",
+                                          "postes": "Postes",
+                                          "fueras": "Fueras",
+                                          "pct_parados": st.column_config.NumberColumn(
+                                              "% parados", format="%.1f%%"),
+                                      })
+                        # Mapa de cuadrantes en contra
+                        df_ec_p = df_ec[df_ec["cuadrante"].astype(str).str.match(r"P[1-9]", na=False)]
+                        if not df_ec_p.empty:
+                            st.markdown("##### 🎯 Cuadrantes recibidos (en contra)")
+                            cuad_ec = df_ec_p["cuadrante"].value_counts().reindex(
+                                [f"P{i}" for i in range(1, 10)], fill_value=0)
+                            mapa_ec = {f"P{i}": int(cuad_ec.get(f"P{i}", 0)) for i in range(1, 10)}
+                            st.markdown(
+                                generar_svg_porteria(mapa_ec),
+                                unsafe_allow_html=True,
+                            )
+
+                    st.markdown("#### 📋 Histórico completo")
+                    cols_show_p = ["partido_id", "rival", "fecha",
+                                    "tipo_lanzamiento", "condicion", "parte",
+                                    "minuto_mmss", "marcador", "lanzador",
+                                    "portero", "resultado", "cuadrante",
+                                    "descripcion"]
+                    cols_show_p = [c for c in cols_show_p if c in df_p.columns]
+                    df_p_show = df_p[cols_show_p].copy()
+                    df_p_show["resultado"] = df_p_show["resultado"].astype(str).map({
+                        "GOL": "✅ GOL", "PARADA": "🧤 PARADA",
+                        "POSTE": "📌 POSTE", "FUERA": "❌ FUERA",
+                    }).fillna(df_p_show["resultado"])
+                    df_p_show = df_p_show.sort_values(["fecha", "parte", "minuto_mmss"],
+                                                        ascending=[False, True, True])
+                    st.dataframe(df_p_show, use_container_width=True, hide_index=True)
+
+    except Exception as _e_tab:
+        st.error(f'❌ Error en pestaña 🟨 Faltas/Penaltis: {_e_tab}')
+        import traceback as _tb
+        st.expander('Detalles técnicos').code(_tb.format_exc())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 16 — ✏️ EDITAR PARTIDO (crear nuevo o editar existente)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_editar:
     try:
