@@ -149,9 +149,123 @@
   - Tabla de faltas del partido.
   - Tabla de penaltis/10m.
 
+**🔴 REGLA IMPORTANTE — geometría de penaltis y 10m (acordada 29/04/2026):**
+
+Los penaltis y 10m **NO se suman a ninguna zona del campo en el mapa**
+porque sus puntos de lanzamiento están en la convergencia de 4 zonas:
+
+- **Penalti** (6m): se tira en el punto donde convergen `A1`, `A2`,
+  `A4`, `A5`.
+- **10 metros**: se tira en el punto donde convergen `A4`, `A5`,
+  `A8`, `A9`.
+
+Por tanto:
+- En el editor de zonas (campo Z1-Z11) NO meter penaltis/10m.
+- Estos eventos van solo a `EST_PENALTIS_10M` con su `cuadrante` de
+  portería (P1-P9 a donde va el disparo).
+- A futuro, en el SVG del campo aparecerán como dos **marcadores
+  especiales** (puntos discretos en la convergencia) con su contador.
+
 ---
 
-## 🔜 Iteración 10 — PWA offline (mini-app)
+## 🔜 Iteración 10 — Scouting de equipos rivales (PRIORIDAD ALTA, ANTES DE PWA)
+
+> **Reordenado el 29/04/2026.** Acordado: scouting va antes que PWA.
+
+**Contexto:** cuando Arkaitz ve un partido de dos equipos rivales,
+apunta los goles que meten/reciben + los penaltis y 10m que se
+producen. Sirve para preparar enfrentamientos (sobre todo
+eliminatorias).
+
+### 10.1 — Scouting de goles
+
+Hoja `EST_SCOUTING_GOLES` (1 fila por gol del partido visto):
+
+| col | descripción |
+|-----|-------------|
+| equipo | equipo del que se hace scouting |
+| fecha_partido | fecha del partido visto |
+| rival_de_ese_partido | el otro equipo del partido |
+| competicion | LIGA, COPA, etc. |
+| evento_idx | nº del gol dentro del partido |
+| condicion | A_FAVOR / EN_CONTRA *(desde el punto de vista del equipo en scouting)* |
+| minuto_mmss | mm:ss |
+| accion | tipo de jugada |
+| zona_campo | A1..A11 desde donde se origina |
+| zona_porteria | P1..P9 a qué cuadrante entra |
+| descripcion | texto libre |
+
+### 10.2 — Scouting de penaltis y 10m
+
+Hoja `EST_SCOUTING_PEN_10M` (1 fila por penalti/10m del partido visto):
+
+| col | descripción |
+|-----|-------------|
+| equipo | equipo en scouting |
+| fecha_partido | fecha |
+| rival_de_ese_partido | el otro equipo |
+| competicion | LIGA, COPA, etc. |
+| tipo_lanzamiento | PENALTI / 10M |
+| condicion | A_FAVOR / EN_CONTRA *(desde el equipo en scouting)* |
+| parte | 1 / 2 |
+| minuto_mmss | mm:ss |
+| marcador | marcador en ese momento (ej. "1-1") |
+| lanzador | nombre del lanzador |
+| portero | nombre del portero |
+| resultado | GOL / PARADA / POSTE / FUERA |
+| cuadrante | P1..P9 si va a portería, vacío si FUERA |
+| descripcion | texto libre |
+
+### 10.3 — Pestaña dashboard 🕵 Scouting
+
+1. Selector de equipo + lista de partidos vistos.
+2. Editores de goles + penaltis/10m.
+3. **Mapas SVG agregados** del equipo: cómo meten y reciben goles
+   (zonas + portería).
+4. **Tabla histórica de penaltis/10m del equipo**:
+   - A favor + en contra.
+   - Lanzadores más usados con %.
+   - Cuadrantes preferidos.
+   - Porteros y % paradas.
+5. **Aviso táctico** en pestaña 🎮 Partido cuando juguemos contra un
+   equipo del que tenemos scouting (lanzadores habituales, cuadrantes…).
+
+### 10.4 — Histórico de penaltis/10m de NUESTROS partidos
+
+Lo mismo que para rivales pero con `EST_PENALTIS_10M` (que ya
+existe). Visualización en pestaña Partido o en una nueva pestaña
+de histórico, con filtros por:
+- Tirador, portero, resultado, cuadrante, rival, tipo (PENALTI/10M)
+
+Permite responder a:
+- ¿% acierto de PANI en penaltis?
+- ¿Qué cuadrantes evita J.GARCIA?
+- En partidos contra ELPOZO, ¿dónde han tirado?
+
+**Cambio en `EST_PENALTIS_10M`**: añadir campo `marcador` (no estaba).
+Que se autorrellene en el form a partir de los eventos de gol del
+partido (estado del marcador en ese minuto).
+
+---
+
+## 🔜 Iteración 11 — Mejoras del form de planilla (acumuladas en sesiones)
+
+Pequeñas mejoras visuales/funcionales al form de Editar partido:
+
+- [ ] **Colores en rotaciones del form** — hoy solo se pintan en el
+  PDF. Aplicar mismo gradiente al data_editor:
+  `0=blanco · 0-1'=azul · 1-2'=verde · 2-3'=amarillo · >3'=rojo`.
+- [ ] **Tabla de zonas duplicada (1T / 2T)** — actual una sola tabla
+  con totales del partido. Pasar a dos tablas (una por parte) y
+  calcular el total automáticamente sumando.
+- [ ] **Campo `marcador` en penaltis/10m** — autorrellenado a partir
+  de los eventos del partido (estado del marcador en ese minuto).
+- [ ] **Validación pendiente del usuario**: meter 6 faltas para
+  comprobar que aparece la alerta de la 6ª = 10m.
+
+---
+
+## 🔜 Iteración 12 — PWA offline (mini-app)
 
 **Objetivo:** poder meter datos sin conexión (en el bus, en una pista
 sin wifi) desde el móvil/iPad y sincronizar cuando vuelve la red.

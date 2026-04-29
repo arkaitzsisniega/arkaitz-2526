@@ -4625,7 +4625,12 @@ with tab_editar:
 
         def _editor_rotaciones(df_pre, n_visibles, parte_label, key):
             """Renderiza el editor de rotaciones de una parte. n_visibles: 1-8.
-            Las columnas r{n+1}..r8 quedan ocultas (pero se preservan)."""
+            Las columnas r{n+1}..r8 quedan ocultas (pero se preservan).
+            Debajo del editor renderiza una VISTA PREVIA COLOREADA
+            (st.dataframe con styler) según el gradiente:
+              0=blanco · 0-1'=azul · 1-2'=verde · 2-3'=amarillo · >3'=rojo
+            (st.data_editor no acepta colores por celda en Streamlit hoy.)
+            """
             if df_pre is None or df_pre.empty:
                 st.caption("_(Selecciona la plantilla arriba para editar rotaciones.)_")
                 return df_pre
@@ -4653,10 +4658,49 @@ with tab_editar:
                 cfg[f"r{i}"] = st.column_config.TextColumn(
                     f"{i}ª", width="small", disabled=True,
                     help="Aumenta el número de rotaciones para activar esta columna.")
-            return st.data_editor(
+            df_edit = st.data_editor(
                 df_pre, num_rows="fixed", use_container_width=True,
                 key=key, column_config=cfg, hide_index=True,
             )
+            # Vista previa coloreada (no editable) — solo si hay rotaciones
+            try:
+                _vista_rotaciones_coloreada(df_edit, n_visibles)
+            except Exception:
+                pass
+            return df_edit
+
+        def _vista_rotaciones_coloreada(df_edit, n_visibles):
+            """Renderiza un st.dataframe con styler aplicando colores a
+            las celdas r1..rN según el gradiente. Se muestra como
+            "Vista previa" debajo del editor."""
+            if df_edit is None or df_edit.empty:
+                return
+            cols_show = ["dorsal", "jugador"] + \
+                          [f"r{i}" for i in range(1, n_visibles + 1)]
+            # Filtrar columnas que existen
+            cols_show = [c for c in cols_show if c in df_edit.columns]
+            df_show = df_edit[cols_show].copy()
+
+            def _bg(v):
+                # v es string mm:ss o vacío
+                if not v or str(v).strip() == "":
+                    return "background-color: #ffffff;"
+                m_int, _ = _parse_mmss(v)
+                if m_int is None or m_int <= 0:
+                    return "background-color: #ffffff;"
+                # Convertimos a minutos float (aproximado: m_int es entero)
+                # Para los rangos: usamos m_int directo.
+                if m_int < 1:
+                    return "background-color: #BBDEFB;"   # azul
+                if m_int < 2:
+                    return "background-color: #C8E6C9;"   # verde
+                if m_int < 3:
+                    return "background-color: #FFF59D;"   # amarillo
+                return "background-color: #EF9A9A;"       # rojo
+            cols_color = [c for c in cols_show if c.startswith("r")]
+            sty = df_show.style.applymap(_bg, subset=cols_color)
+            st.caption("👁️ Vista previa con colores (no editable):")
+            st.dataframe(sty, use_container_width=True, hide_index=True)
 
         def _validar_rotaciones(df_rot):
             """Avisa si la suma de rotaciones de un jugador supera el Min Parte."""
@@ -5095,7 +5139,8 @@ with tab_editar:
         #   descripcion
         PEN_COLS_EDITOR = [
             "tipo_lanzamiento", "condicion", "parte", "minuto_mmss",
-            "lanzador", "portero", "resultado", "cuadrante", "descripcion",
+            "marcador", "lanzador", "portero", "resultado", "cuadrante",
+            "descripcion",
         ]
         PEN_TIPOS = ["", "PENALTI", "10M"]
         PEN_RESULTADOS = ["", "GOL", "PARADA", "POSTE", "FUERA"]
@@ -5107,12 +5152,46 @@ with tab_editar:
                 "condicion": pd.Series(dtype="str"),
                 "parte": pd.Series(dtype="str"),
                 "minuto_mmss": pd.Series(dtype="str"),
+                "marcador": pd.Series(dtype="str"),
                 "lanzador": pd.Series(dtype="str"),
                 "portero": pd.Series(dtype="str"),
                 "resultado": pd.Series(dtype="str"),
                 "cuadrante": pd.Series(dtype="str"),
                 "descripcion": pd.Series(dtype="str"),
             })
+
+        def _calcular_marcador_en_minuto(eventos_df, minuto_int, equipo_marca):
+            """Calcula el marcador (Inter–Rival) ANTES del evento dado.
+            eventos_df: DataFrame de EST_EVENTOS del partido.
+            minuto_int: minuto del penalti/10m.
+            equipo_marca: ignorado (devolvemos el marcador del momento).
+            """
+            if eventos_df is None or eventos_df.empty:
+                return "0-0"
+            ev = eventos_df.copy()
+            ev["_min"] = pd.to_numeric(ev.get("minuto", 0), errors="coerce").fillna(99)
+            previos = ev[ev["_min"] < minuto_int]
+            gf = int((previos.get("equipo_marca", "") == "INTER").sum())
+            gc = int((previos.get("equipo_marca", "") == "RIVAL").sum())
+            return f"{gf}-{gc}"
+
+        def _autorellenar_marcador_penaltis(df_pen, eventos_df):
+            """Si una fila de penaltis tiene minuto pero NO marcador,
+            calcula el marcador a partir de los eventos previos a ese
+            minuto. No pisa los marcadores que el usuario haya escrito."""
+            if df_pen is None or df_pen.empty:
+                return df_pen
+            out = df_pen.copy()
+            for idx, r in out.iterrows():
+                marc = str(r.get("marcador", "") or "").strip()
+                if marc:
+                    continue  # ya rellenado
+                m_int, _ = _parse_mmss(r.get("minuto_mmss", ""))
+                if m_int is None:
+                    continue
+                out.at[idx, "marcador"] = _calcular_marcador_en_minuto(
+                    eventos_df, m_int, r.get("condicion", ""))
+            return out
 
         def _df_penaltis_desde_sheet(partido_id):
             try:
@@ -5154,6 +5233,11 @@ with tab_editar:
                     "P", options=["", "1", "2"], width="small"),
                 "minuto_mmss": st.column_config.TextColumn(
                     "Min", help="MM:SS", max_chars=6, width="small"),
+                "marcador": st.column_config.TextColumn(
+                    "Marc.", max_chars=8, width="small",
+                    help="Estado del marcador en ese minuto (ej. '1-0'). "
+                          "Si lo dejas vacío y rellenas el minuto, se "
+                          "autorrellena al guardar a partir de los eventos."),
                 "lanzador": st.column_config.SelectboxColumn(
                     "Lanzador", options=opciones_lanzador,
                     help="Si A_FAVOR: nuestro jugador. Si EN_CONTRA: 'RIVAL'."),
@@ -5202,6 +5286,10 @@ with tab_editar:
                        "lanzador", "portero"):
                 df[c] = df[c].astype(str).str.strip().str.upper()
             df["parte"] = df["parte"].astype(str).str.strip()
+            # Marcador como string (sin upper)
+            if "marcador" not in df.columns:
+                df["marcador"] = ""
+            df["marcador"] = df["marcador"].astype(str).str.strip()
             # Validaciones
             for idx, r in df.iterrows():
                 tipo = r["tipo_lanzamiento"]
@@ -5243,8 +5331,8 @@ with tab_editar:
             cols = [
                 "partido_id", "tipo", "competicion", "rival", "fecha",
                 "tipo_lanzamiento", "condicion", "parte", "minuto",
-                "minuto_mmss", "lanzador", "portero", "resultado",
-                "cuadrante", "descripcion",
+                "minuto_mmss", "marcador", "lanzador", "portero",
+                "resultado", "cuadrante", "descripcion",
             ]
             if df_all.empty:
                 df_all = pd.DataFrame(columns=cols)
@@ -5602,6 +5690,9 @@ with tab_editar:
                         _normalizar_faltas_para_guardar(df_faltas_edit_cr)
                     df_pen_norm_cr, warns_pen_save_cr = \
                         _normalizar_penaltis_para_guardar(df_pen_edit_cr)
+                    # Autorrellenar marcador desde df_ev_norm
+                    df_pen_norm_cr = _autorellenar_marcador_penaltis(
+                        df_pen_norm_cr, df_ev_norm)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_cr)
@@ -5880,6 +5971,9 @@ with tab_editar:
                         _normalizar_faltas_para_guardar(df_faltas_edit_ed)
                     df_pen_norm_ed, warns_pen_save_ed = \
                         _normalizar_penaltis_para_guardar(df_pen_edit_ed)
+                    # Autorrellenar marcador desde df_ev_norm
+                    df_pen_norm_ed = _autorellenar_marcador_penaltis(
+                        df_pen_norm_ed, df_ev_norm)
                     try:
                         with st.spinner("Guardando…"):
                             _guardar_cabecera_totales(cab, totales_disp_ed)

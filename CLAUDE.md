@@ -69,11 +69,35 @@
 - [x] **Integración Oliver Sports**: API + script + pestaña + recordatorio quincenal
       (abril 2026). Ver `docs/oliver_investigacion.md` y `src/oliver_sync.py`.
       Token JWT caduca cada ~24h; el usuario regenera con snippet en consola.
+- [x] **Planilla de partidos en Streamlit** (iters 1-8, abril 2026). Form
+      completo en pestaña ✏️ Editar partido: cabecera, plantilla, eventos
+      mm:ss, métricas, rotaciones variables, totales 1T/2T, faltas con
+      alerta 6ª=10m, penaltis/10m, zonas (campo+portería). Plan completo
+      en `docs/plan_planilla.md`.
+- [ ] **Iter 9 — Dashboard faltas/penaltis** (visualización de las hojas
+      `EST_FALTAS` y `EST_PENALTIS_10M`).
+- [ ] **Iter 10 — Scouting de equipos rivales** (orden cambiado el
+      29/04/2026: VA ANTES que PWA). Hojas `EST_SCOUTING_GOLES` y
+      `EST_SCOUTING_PEN_10M`. Incluye histórico de penaltis y 10m
+      (nuestros y rivales).
+- [ ] **Iter 11 — Mejoras del form** (acumuladas):
+      - Colores en rotaciones del form (hoy solo en PDF).
+      - Tabla zonas duplicada por parte (1T/2T).
+      - Campo `marcador` autorrellenado en penaltis/10m.
+- [ ] **Iter 12 — PWA offline** (mini-app para meter datos sin conexión).
 - [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
       wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
       tiempo diario a Arkaitz.
-- [ ] **Dashboard de estadísticas de partido** desde `Estadisticas_pruebas_CLAUDE.xlsx`
-      (minutos jugados, goles, asistencias, etc. por jugador).
+
+### 🔴 Reglas de dominio importantes (no olvidar)
+
+**Geometría de penaltis y 10m** (acordada 29/04/2026):
+- **Penalti** (6m) se tira en convergencia de `A1`, `A2`, `A4`, `A5`.
+- **10 metros** se tira en convergencia de `A4`, `A5`, `A8`, `A9`.
+- Por tanto NO se suman a ninguna zona del campo Z1-Z11. Van a su
+  propia hoja `EST_PENALTIS_10M` con `cuadrante` (P1-P9 portería).
+- Al pintar el SVG del campo serán dos marcadores discretos en los
+  puntos de convergencia, con su contador.
 
 ## Google Forms (PRE/POST por entreno)
 - 2 Forms creados por Arkaitz en su Google (IDs en `src/forms_config.json`).
