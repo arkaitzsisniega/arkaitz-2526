@@ -6528,31 +6528,21 @@ with tab_editar:
                             if str(_root) not in _sys.path:
                                 _sys.path.insert(0, str(_root))
                             from src.pdf_planilla_blank import generar_planilla as _gen
-                            with st.spinner("Generando planillas…"):
-                                pdf_1t = _gen("compa", "1T",
-                                                datos_directos=_datos_directos_cr)
-                                pdf_2t = _gen("compa", "2T",
-                                                datos_directos=_datos_directos_cr)
-                            st.session_state["pla_comp_1t_cr"] = pdf_1t
-                            st.session_state["pla_comp_2t_cr"] = pdf_2t
+                            with st.spinner("Generando planilla…"):
+                                # Compa: ahora 1 ÚNICO PDF con ambas partes en
+                                # A4 vertical. El parámetro 'parte' se ignora.
+                                pdf_compa = _gen("compa", "1T",
+                                                  datos_directos=_datos_directos_cr)
+                            st.session_state["pla_comp_cr"] = pdf_compa
                         except Exception as e:
                             st.error(f"Error: {e}")
-                    if st.session_state.get("pla_comp_1t_cr"):
+                    if st.session_state.get("pla_comp_cr"):
                         st.download_button(
-                            "⬇️ Compañero 1ª parte",
-                            data=st.session_state["pla_comp_1t_cr"],
-                            file_name=f"planilla_compa_1T_{cab['rival']}.pdf",
+                            "⬇️ Compañero (1ª + 2ª parte)",
+                            data=st.session_state["pla_comp_cr"],
+                            file_name=f"planilla_compa_{cab['rival']}.pdf",
                             mime="application/pdf",
-                            key="dl_comp_1t_cr",
-                            use_container_width=True,
-                        )
-                    if st.session_state.get("pla_comp_2t_cr"):
-                        st.download_button(
-                            "⬇️ Compañero 2ª parte",
-                            data=st.session_state["pla_comp_2t_cr"],
-                            file_name=f"planilla_compa_2T_{cab['rival']}.pdf",
-                            mime="application/pdf",
-                            key="dl_comp_2t_cr",
+                            key="dl_comp_cr",
                             use_container_width=True,
                         )
 
@@ -6957,31 +6947,20 @@ with tab_editar:
                                     for p in (plantilla or [])
                                 ],
                             }
-                            with st.spinner("Generando planillas…"):
-                                pdf_1t = _gen("compa", "1T",
-                                                datos_directos=_datos_directos_ed)
-                                pdf_2t = _gen("compa", "2T",
-                                                datos_directos=_datos_directos_ed)
-                            st.session_state[f"pla_comp_1t_{pid_sel}"] = pdf_1t
-                            st.session_state[f"pla_comp_2t_{pid_sel}"] = pdf_2t
+                            with st.spinner("Generando planilla…"):
+                                # Compa: 1 PDF con ambas partes en A4 vertical
+                                pdf_compa = _gen("compa", "1T",
+                                                  datos_directos=_datos_directos_ed)
+                            st.session_state[f"pla_comp_{pid_sel}"] = pdf_compa
                         except Exception as e:
                             st.error(f"Error: {e}")
-                    if st.session_state.get(f"pla_comp_1t_{pid_sel}"):
+                    if st.session_state.get(f"pla_comp_{pid_sel}"):
                         st.download_button(
-                            "⬇️ Compañero 1ª parte",
-                            data=st.session_state[f"pla_comp_1t_{pid_sel}"],
-                            file_name=f"planilla_compa_1T_{pid_sel}.pdf",
+                            "⬇️ Compañero (1ª + 2ª parte)",
+                            data=st.session_state[f"pla_comp_{pid_sel}"],
+                            file_name=f"planilla_compa_{pid_sel}.pdf",
                             mime="application/pdf",
-                            key=f"dl_comp_1t_{pid_sel}",
-                            use_container_width=True,
-                        )
-                    if st.session_state.get(f"pla_comp_2t_{pid_sel}"):
-                        st.download_button(
-                            "⬇️ Compañero 2ª parte",
-                            data=st.session_state[f"pla_comp_2t_{pid_sel}"],
-                            file_name=f"planilla_compa_2T_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_comp_2t_{pid_sel}",
+                            key=f"dl_comp_{pid_sel}",
                             use_container_width=True,
                         )
 

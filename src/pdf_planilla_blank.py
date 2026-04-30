@@ -36,7 +36,7 @@ from typing import Optional
 
 import pandas as pd
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, mm
 from reportlab.platypus import (
@@ -168,19 +168,39 @@ def _datos_partido(sh, partido_id: str) -> dict:
 
 
 # ─── Helpers de layout ──────────────────────────────────────────────────────
-def _logo(path: Path, w_cm: float, h_cm: float, proporcional: bool = True):
+def _logo(path: Path, w_cm: float, h_cm: float, proporcional: bool = True,
+           crop_borde: int = 0):
     """Devuelve una RLImage si el path existe; si no, un placeholder vacío.
 
     proporcional=True (default): mantiene el ratio original de la imagen
     (puede salir más pequeña que w×h si el ratio no encaja).
     proporcional=False: estira la imagen a w×h exacto (deformación leve).
+    crop_borde: si >0, recorta ese nº de píxeles de cada borde antes de
+    embeber (útil para PNGs que ya traen borde rojo dentro y queremos
+    poner el nuestro propio sin que se sobrepongan).
     """
     if path.exists():
         try:
+            src = str(path)
+            if crop_borde > 0:
+                # Recortar el borde con PIL → escribir a buffer en memoria
+                try:
+                    from PIL import Image as PILImage
+                    pil = PILImage.open(src)
+                    w_px, h_px = pil.size
+                    box = (crop_borde, crop_borde,
+                           w_px - crop_borde, h_px - crop_borde)
+                    pil = pil.crop(box)
+                    buf = io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    buf.seek(0)
+                    src = buf
+                except Exception:
+                    src = str(path)  # si PIL falla, embebe sin recortar
             kwargs = {"width": w_cm * cm, "height": h_cm * cm}
             if proporcional:
                 kwargs["kind"] = "proportional"
-            img = RLImage(str(path), **kwargs)
+            img = RLImage(src, **kwargs)
             img.hAlign = "CENTER"
             return img
         except Exception:
@@ -223,31 +243,30 @@ def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
 
     # 2 filas, cada una con 2 celdas (col izda 60% + col dcha 40%)
     # Usar &nbsp; para separar campos sin que se rompan.
+    # En modo compa la planilla incluye las DOS partes en una sola hoja,
+    # así que omitimos "PARTE: 1ª" en la cabecera.
+    fila2_dcha = (
+        f"<b>FECHA:</b> &nbsp;{fecha_fmt} &nbsp;&nbsp; "
+        f"<b>HORA:</b> &nbsp;{hora}"
+    )
+    if modo != "compa":
+        fila2_dcha += f" &nbsp;&nbsp; <b>PARTE:</b> &nbsp;{parte_label}"
     info = [
         [Paragraph(
             f"<b>PARTIDO:</b> &nbsp;<b>{izq}</b> &nbsp;vs&nbsp; <b>{dcha}</b>",
             p_inline),
          Paragraph(f"<b>COMPETICIÓN:</b> &nbsp;{competicion}", p_inline)],
         [Paragraph(f"<b>LUGAR:</b> &nbsp;{lugar}", p_inline),
-         Paragraph(
-             f"<b>FECHA:</b> &nbsp;{fecha_fmt} &nbsp;&nbsp; "
-             f"<b>HORA:</b> &nbsp;{hora} &nbsp;&nbsp; "
-             f"<b>PARTE:</b> &nbsp;{parte_label}",
-             p_inline)],
+         Paragraph(fila2_dcha, p_inline)],
     ]
 
-    if modo == "arkaitz":
-        # A4 vertical: ~19cm útiles → 2 logos (1.4cm) + centro 16.2cm
-        ancho_logo = 1.4*cm
-        ancho_total = 19.0*cm
-        # Dcha más ancha para que "FECHA: 02/05/2026  HORA: 12:00  PARTE: 1ª"
-        # quepa en 1 línea sin saltos.
-        col_widths = [7.2*cm, 9.0*cm]
-    else:
-        # A4 horizontal: ~28cm útiles
-        ancho_logo = 1.8*cm
-        ancho_total = 28.5*cm
-        col_widths = [12.0*cm, 12.9*cm]
+    # Tanto arkaitz como compa son A4 VERTICAL → 19cm útil
+    # 2 logos (1.4cm) + centro 16.2cm
+    ancho_logo = 1.4*cm
+    ancho_total = 19.0*cm
+    # Dcha más ancha para que "FECHA: 02/05/2026  HORA: 12:00  PARTE: 1ª"
+    # quepa en 1 línea sin saltos.
+    col_widths = [7.2*cm, 9.0*cm]
 
     t_info = Table(info, colWidths=col_widths,
                     rowHeights=[0.7*cm, 0.7*cm])
@@ -308,8 +327,8 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=7,
                                   textColor=colors.black, alignment=1, leading=8,
                                   fontName="Helvetica-Bold")
-    p_nota = ParagraphStyle("nota", parent=styles["BodyText"], fontSize=8,
-                              alignment=1, leading=10,
+    p_nota = ParagraphStyle("nota", parent=styles["BodyText"], fontSize=6.5,
+                              alignment=1, leading=8,
                               textColor=colors.HexColor("#777"),
                               fontName="Helvetica-Oblique")
 
@@ -397,15 +416,16 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     if no_p:
         primera_no_p = no_p[0]      # ej. 3 (justo debajo de los 2 porteros)
         resto_no_p = no_p[1:]       # filas 4..14 → un solo gran rectángulo
-        # 1) Fila "DISPAROS DEL PORTERO CONTRARIO": SPAN cols 8-9 con texto,
-        #    cols 10-12 quedan independientes (vacías) para apuntar.
-        style_jug.append(("SPAN", (8, primera_no_p), (9, primera_no_p)))
-        style_jug.append(("BACKGROUND", (8, primera_no_p), (9, primera_no_p),
+        # 1) Fila "DISPAROS DEL PORTERO CONTRARIO": SPAN cols 8-10 con texto
+        #    (3 cols = 4.2cm — caben 4 palabras), cols 11-12 quedan blancas
+        #    para apuntar.
+        style_jug.append(("SPAN", (8, primera_no_p), (10, primera_no_p)))
+        style_jug.append(("BACKGROUND", (8, primera_no_p), (10, primera_no_p),
                             colors.HexColor("#FFD9E0")))  # rosa claro
         rows[primera_no_p][8] = Paragraph(
-            "<b>DISPAROS DEL PORTERO<br/>CONTRARIO</b>", p_nota)
-        # Las cols 10, 11, 12 de esa fila quedan blancas con borde (para apuntar).
-        for c_i in (10, 11, 12):
+            "<b>DISPAROS DEL PORTERO CONTRARIO</b>", p_nota)
+        # Las cols 11, 12 de esa fila quedan blancas con borde (para apuntar).
+        for c_i in (11, 12):
             style_jug.append(("BACKGROUND", (c_i, primera_no_p),
                                 (c_i, primera_no_p), colors.white))
         # 2) Resto de no-porteros: SPAN entera 8..12 en blanco (notas)
@@ -466,18 +486,19 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     # Total ancho: 4 + 9 + 4 = 17cm; centrado en 19cm útil
     # ═════════════════════════════════════════════════════════════════
     # A4 vertical útil ~19cm.
-    # Bloque: portería(5.5cm) + mapa(9cm) + faltas(4cm) = 18.5cm
+    # Bloque: portería(6.5cm) + mapa(8.0cm) + faltas(4.0cm) = 18.5cm
     # Altura del bloque: 5.5cm. Mapa y portería con la MISMA altura.
-    img_inter = _logo(mapa_inter, 9.0, 5.5,
-                        proporcional=False) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
-    img_rival = _logo(mapa_rival, 9.0, 5.5,
-                        proporcional=False) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
-    # Portería: ESTIRADA a 5.5×5.5 (sin proporcional) para que ocupe TODO
-    # el espacio y tenga la misma altura que el campo. El ratio original
-    # (1.52:1) hacía que con proporcional saliera achatada.
-    img_port_af = _logo(img_porteria, 5.5, 5.5,
+    # crop_borde=4: recorta el borde rojo que el PNG ya trae para que el
+    # borde verde/rojo del TableStyle no se solape con él.
+    img_inter = _logo(mapa_inter, 8.0, 5.5,
+                        proporcional=False, crop_borde=4) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
+    img_rival = _logo(mapa_rival, 8.0, 5.5,
+                        proporcional=False, crop_borde=4) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
+    # Portería: ESTIRADA a 6.5×5.5 (más ancha que antes, sin proporcional)
+    # para que ocupe más espacio y se vea bien.
+    img_port_af = _logo(img_porteria, 6.5, 5.5,
                           proporcional=False) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
-    img_port_ec = _logo(img_porteria, 5.5, 5.5,
+    img_port_ec = _logo(img_porteria, 6.5, 5.5,
                           proporcional=False) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
 
     def _tabla_faltas(equipo_label, color_borde):
@@ -537,10 +558,12 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     bloque_af = Table([
         [Paragraph("DISPAROS / GOLES A FAVOR", p_tit_af)],
         [Table([[img_port_af, img_inter, t_faltas_inter]],
-                colWidths=[5.5*cm, 9.0*cm, 4.0*cm],
+                colWidths=[6.5*cm, 8.0*cm, 4.0*cm],
                 rowHeights=[5.5*cm],
                 style=TableStyle([
-                    # Borde verde alrededor del MAPA (col 1)
+                    # Borde verde alrededor del MAPA (col 1).
+                    # El PNG ya viene recortado (crop_borde=4) para que su
+                    # borde rojo interno no se solape con éste.
                     ("BOX", (1, 0), (1, 0), 1.5, VERDE),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ]))],
@@ -553,10 +576,12 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     bloque_ec = Table([
         [Paragraph("DISPAROS / GOLES EN CONTRA", p_tit_ec)],
         [Table([[img_port_ec, img_rival, t_faltas_rival]],
-                colWidths=[5.5*cm, 9.0*cm, 4.0*cm],
+                colWidths=[6.5*cm, 8.0*cm, 4.0*cm],
                 rowHeights=[5.5*cm],
                 style=TableStyle([
-                    # Borde rojo alrededor del MAPA (col 1)
+                    # Borde rojo alrededor del MAPA (col 1).
+                    # El PNG ya viene recortado (crop_borde=4) para que su
+                    # borde rojo interno no se solape con éste.
                     ("BOX", (1, 0), (1, 0), 1.5, ROJO),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ]))],
@@ -589,22 +614,35 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     return flowables
 
 
-# ─── Planilla "Compañero" (ALEX) — A4 horizontal ────────────────────────────
-def _planilla_compa(jugadores, parte_label) -> list:
-    """Tabla de jugadores con métricas individuales + tablas Córners y
-    Bandas a la derecha. Colores fieles al Excel original:
-       T.A amarillo, ROJ rojo, PF/PNF naranja claro, ROBOS/CORTES verde
-       claro, BDG/BDP gris claro. Filas alternas con tono más oscuro."""
+# ─── Planilla "Compañero" (ALEX) — A4 VERTICAL, ambas partes en 1 hoja ──
+def _bloque_parte_compa(jugadores, titulo_parte: str) -> Table:
+    """Genera UN bloque (1ª o 2ª parte) de la planilla del compañero.
+    Layout vertical:
+        Mini-título "1ª PARTE" / "2ª PARTE"
+        Tabla 14 jugadores + EQUIPO (cols PF/PNF/ROBOS/CORTES/BDG/BDP)
+        Tabla CÓRNERS horizontal (1 columna por tipo, 1 fila para escribir)
+        Tabla BANDAS horizontal (idem)
+    """
     styles = getSampleStyleSheet()
-    p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=9,
+    p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=8,
                                   textColor=colors.black, alignment=1,
+                                  fontName="Helvetica-Bold", leading=10)
+    p_titulo_parte = ParagraphStyle("tp", parent=styles["BodyText"], fontSize=10,
+                                       fontName="Helvetica-Bold", alignment=1,
+                                       leading=12, textColor=AZUL)
+    p_th_corn = ParagraphStyle("thc", parent=styles["BodyText"], fontSize=9,
+                                  textColor=colors.white, alignment=1,
                                   fontName="Helvetica-Bold", leading=11)
-    p_corn = ParagraphStyle("corn", parent=styles["BodyText"], fontSize=14,
-                              textColor=colors.black, alignment=1,
-                              fontName="Helvetica-Bold", leading=16)
+    p_corn_tipo = ParagraphStyle("ct", parent=styles["BodyText"], fontSize=7.5,
+                                    textColor=colors.black, alignment=1,
+                                    fontName="Helvetica-Bold", leading=9)
 
-    # ── Tabla principal: Nº | JUGADOR | T.A | ROJ | PF | PNF | ROBOS | CORTES | BDG | BDP
-    cabeceras = ["NUM", "JUGADOR", "T.A", "ROJ",
+    # ═════════════════════════════════════════════════════════════════
+    # Tabla principal jugadores: Nº | JUGADOR | T.A | T.R | PF | PNF | ROBOS | CORTES | BDG | BDP
+    # A4 vertical útil ~19cm. T.A y T.R estrechas (0.95cm), CORTES en 1 línea.
+    # Total: 1.1 + 3.5 + 0.95 + 0.95 + 6×1.92 = 18.02cm
+    # ═════════════════════════════════════════════════════════════════
+    cabeceras = ["NUM", "JUGADOR", "T.A", "T.R",
                  "PF", "PNF", "ROBOS", "CORTES", "BDG", "BDP"]
     rows = [[Paragraph(c, p_th_dark) for c in cabeceras]]
     for i in range(14):
@@ -619,94 +657,133 @@ def _planilla_compa(jugadores, parte_label) -> list:
     rows.append([Paragraph("<b>EQUIPO</b>", p_th_dark), "", "", "",
                   "", "", "", "", "", ""])
 
-    anchos = [1.2*cm, 3.5*cm, 1.5*cm, 1.5*cm,
-              1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm]
-    h_h = 0.7*cm
-    h_f = 0.65*cm
+    anchos = [1.1*cm, 3.5*cm, 0.95*cm, 0.95*cm,
+              1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm]
+    h_h = 0.5*cm
+    h_f = 0.42*cm
     rh = [h_h] + [h_f]*14 + [h_h]
     t_jug = Table(rows, colWidths=anchos, rowHeights=rh)
 
-    # Estilos
     style_compa = [
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
-        # Header amarillo en T.A, rojo en ROJ
-        ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FFEB3B")),
-        ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#D32F2F")),
+        # Headers
+        ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FFEB3B")),  # T.A amarillo
+        ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#D32F2F")),  # T.R rojo
         ("TEXTCOLOR", (3, 0), (3, 0), colors.white),
-        # Header gris claro en el resto
         ("BACKGROUND", (0, 0), (1, 0), GRIS_CLARO),
         ("BACKGROUND", (4, 0), (-1, 0), GRIS_CLARO),
         # Última fila EQUIPO en gris claro
         ("BACKGROUND", (0, -1), (-1, -1), GRIS_CLARO),
-        # SPAN para EQUIPO en cols 0-1
         ("SPAN", (0, -1), (1, -1)),
     ]
-    # Fondo amarillo para columna T.A (filas datos)
-    for r_i in range(1, 16):  # 14 filas + EQUIPO
+    # Fondos por columna en filas de datos
+    for r_i in range(1, 16):
         style_compa.append(("BACKGROUND", (2, r_i), (2, r_i),
                               colors.HexColor("#FFF59D")))
         style_compa.append(("BACKGROUND", (3, r_i), (3, r_i),
                               colors.HexColor("#FF5252")))
-        # PF/PNF naranja claro alternando
-        n_oscuro = colors.HexColor("#FFAB91")  # naranja medio
-        n_claro = colors.HexColor("#FFCCBC")   # naranja muy claro
+        n_oscuro = colors.HexColor("#FFAB91")
+        n_claro = colors.HexColor("#FFCCBC")
         col_pfpnf = n_oscuro if r_i % 2 == 1 else n_claro
         style_compa.append(("BACKGROUND", (4, r_i), (5, r_i), col_pfpnf))
-        # ROBOS/CORTES verde claro alternando
         v_oscuro = colors.HexColor("#A5D6A7")
         v_claro = colors.HexColor("#C8E6C9")
         col_rc = v_oscuro if r_i % 2 == 1 else v_claro
         style_compa.append(("BACKGROUND", (6, r_i), (7, r_i), col_rc))
-        # BDG/BDP gris alternando
         g_oscuro = colors.HexColor("#BDBDBD")
         g_claro = colors.HexColor("#E0E0E0")
         col_bd = g_oscuro if r_i % 2 == 1 else g_claro
         style_compa.append(("BACKGROUND", (8, r_i), (9, r_i), col_bd))
     t_jug.setStyle(TableStyle(style_compa))
 
-    # ── Tablas CÓRNERS y BANDAS a la derecha ──────────────────────
-    # Estilo: header negro grande, filas grandes con texto centrado
-    rows_corn = [[Paragraph("CÓRNERS", p_corn)]]
-    for t in TIPOS_CORNERS:
-        rows_corn.append([t])
-    t_corn = Table(rows_corn, colWidths=[4.5*cm],
-                    rowHeights=[1.0*cm] + [0.8*cm]*len(TIPOS_CORNERS))
+    # ═════════════════════════════════════════════════════════════════
+    # Tabla CÓRNERS horizontal:
+    #   [CÓRNERS]  ← header SPAN todas las cols, centrado
+    #   [VOLEA 1 | VOLEA 2 | 3-1 | 3-2 | CAPITÁN 1 | CAPITÁN 2 | CORTA]  ← centrado
+    #   [        |         |     |     |           |           |       ]  ← celda escritura (izquierda)
+    # ═════════════════════════════════════════════════════════════════
+    n_corn = len(TIPOS_CORNERS)  # 7
+    ancho_col_corn = 18.0*cm / n_corn  # ≈2.57cm
+    rows_corn = [
+        [Paragraph("CÓRNERS", p_th_corn)] + [""] * (n_corn - 1),
+        [Paragraph(t, p_corn_tipo) for t in TIPOS_CORNERS],
+        [""] * n_corn,  # fila para escribir
+    ]
+    t_corn = Table(rows_corn, colWidths=[ancho_col_corn] * n_corn,
+                    rowHeights=[0.45*cm, 0.4*cm, 0.7*cm])
     t_corn.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 11),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("SPAN", (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("BACKGROUND", (0, 1), (-1, 1), GRIS_CLARO),
+        ("ALIGN", (0, 0), (-1, 1), "CENTER"),    # título y header tipos centrados
+        ("ALIGN", (0, 2), (-1, 2), "LEFT"),      # fila de escritura → izquierda
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
+        ("LEFTPADDING", (0, 2), (-1, 2), 4),
+        ("RIGHTPADDING", (0, 2), (-1, 2), 2),
     ]))
 
-    rows_band = [[Paragraph("BANDAS", p_corn)]]
-    for t in TIPOS_BANDAS:
-        rows_band.append([t])
-    t_band = Table(rows_band, colWidths=[4.5*cm],
-                    rowHeights=[1.0*cm] + [0.8*cm]*len(TIPOS_BANDAS))
+    # ═════════════════════════════════════════════════════════════════
+    # Tabla BANDAS horizontal (11 tipos)
+    # ═════════════════════════════════════════════════════════════════
+    n_band = len(TIPOS_BANDAS)  # 11
+    ancho_col_band = 18.0*cm / n_band  # ≈1.64cm
+    rows_band = [
+        [Paragraph("BANDAS", p_th_corn)] + [""] * (n_band - 1),
+        [Paragraph(t, p_corn_tipo) for t in TIPOS_BANDAS],
+        [""] * n_band,
+    ]
+    t_band = Table(rows_band, colWidths=[ancho_col_band] * n_band,
+                    rowHeights=[0.45*cm, 0.4*cm, 0.7*cm])
     t_band.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 11),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("SPAN", (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("BACKGROUND", (0, 1), (-1, 1), GRIS_CLARO),
+        ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+        ("ALIGN", (0, 2), (-1, 2), "LEFT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
+        ("LEFTPADDING", (0, 2), (-1, 2), 4),
+        ("RIGHTPADDING", (0, 2), (-1, 2), 2),
     ]))
 
-    # Layout horizontal: tabla jug | córners | bandas
-    layout = Table([
-        [t_jug, t_corn, t_band],
-    ], colWidths=[18.0*cm, 4.7*cm, 4.7*cm])
-    layout.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+    # ═════════════════════════════════════════════════════════════════
+    # Empaquetar en una tabla externa con mini-título
+    # ═════════════════════════════════════════════════════════════════
+    bloque = Table([
+        [Paragraph(f"<b>{titulo_parte}</b>", p_titulo_parte)],
+        [t_jug],
+        [Spacer(1, 3)],
+        [t_corn],
+        [Spacer(1, 2)],
+        [t_band],
+    ], colWidths=[18.02*cm])
+    bloque.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
     ]))
+    return bloque
 
-    return [layout]
+
+def _planilla_compa(jugadores) -> list:
+    """Planilla del compañero — A4 VERTICAL · UNA HOJA con 1ª y 2ª parte
+    apiladas. Cabecera común arriba (la pone generar_planilla)."""
+    bloque_1 = _bloque_parte_compa(jugadores, "1ª PARTE")
+    bloque_2 = _bloque_parte_compa(jugadores, "2ª PARTE")
+    return [
+        bloque_1,
+        Spacer(1, 8),
+        bloque_2,
+    ]
 
 
 # ─── Generador principal ────────────────────────────────────────────────────
@@ -751,16 +828,18 @@ def generar_planilla(modo: str, parte: str,
 
     parte_label = "1ª PARTE" if parte == "1T" else "2ª PARTE"
 
-    # Buffer del PDF. Orientación según modo:
-    #   - arkaitz: A4 VERTICAL (fiel al Excel original)
-    #   - compa:   A4 HORIZONTAL
+    # Buffer del PDF. Ahora AMBOS modos son A4 VERTICAL:
+    #   - arkaitz: 1 PDF por parte (1T y 2T separadas, con su mapa).
+    #   - compa:   1 ÚNICO PDF con las dos partes apiladas (parte se ignora).
     buf = io.BytesIO()
-    pagesize = A4 if modo == "arkaitz" else landscape(A4)
+    pagesize = A4
+    titulo = (f"Planilla {modo} {parte}"
+              if modo == "arkaitz" else f"Planilla {modo}")
     doc = SimpleDocTemplate(
         buf, pagesize=pagesize,
         leftMargin=0.7*cm, rightMargin=0.7*cm,
         topMargin=0.7*cm, bottomMargin=0.7*cm,
-        title=f"Planilla {modo} {parte}",
+        title=titulo,
     )
 
     story = []
@@ -781,8 +860,8 @@ def generar_planilla(modo: str, parte: str,
             datos["jugadores"], parte_label,
             mapa_inter, mapa_rival, img_porteria,
         ))
-    else:  # compa
-        story.extend(_planilla_compa(datos["jugadores"], parte_label))
+    else:  # compa — vertical con 1ª y 2ª parte en la misma hoja
+        story.extend(_planilla_compa(datos["jugadores"]))
 
     doc.build(story)
     buf.seek(0)
