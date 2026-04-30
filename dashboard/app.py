@@ -623,7 +623,7 @@ st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
     "🥅 Goles",
     "🏅 Competición",
     "🔍 Scouting",
-    "🟨 Faltas / 10m",
+    "🎯 10 metros / Penaltis",
     "✏️ Editar partido",
 ])
 
@@ -4222,7 +4222,7 @@ with tab_comp:
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_falt_pen:
     try:
-        st.markdown("### 🟨 Faltas y Penaltis — Histórico")
+        st.markdown("### 🎯 10 metros / Penaltis — Histórico")
         st.caption(
             "Vista agregada de todas las faltas y penaltis/10m de la "
             "temporada. Los datos se rellenan desde la pestaña ✏️ Editar "
@@ -4398,7 +4398,7 @@ with tab_falt_pen:
                     st.dataframe(df_p_show, use_container_width=True, hide_index=True)
 
     except Exception as _e_tab:
-        st.error(f'❌ Error en pestaña 🟨 Faltas / 10m: {_e_tab}')
+        st.error(f'❌ Error en pestaña 🎯 10 metros / Penaltis: {_e_tab}')
         import traceback as _tb
         st.expander('Detalles técnicos').code(_tb.format_exc())
 
