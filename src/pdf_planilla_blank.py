@@ -182,21 +182,20 @@ def _logo(path: Path, w_cm: float, h_cm: float):
 
 
 def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
-    """Cabecera estilo Excel original. Layout:
-        [logo Inter] PARTIDO: MOVISTAR INTER vs RIVAL    COMPETICIÓN: ___    [logo Movistar]
-                    LUGAR: ___          FECHA: ___      HORA: ___           PARTE: 1ª
+    """Cabecera estilo Excel original. Layout 2 filas con celdas anchas
+    (no 6 columnas estrechas — eso rompía las palabras en 2 líneas):
 
-    Adaptable al ancho disponible:
-      - modo='arkaitz': A4 VERTICAL → ancho útil ~19.6cm
-      - modo='compa':   A4 HORIZONTAL → ancho útil ~28cm
+      [logo Inter]  PARTIDO: MOVISTAR INTER vs RIVAL  | COMPETICIÓN: ___  [logo dorado]
+                    LUGAR: ___    FECHA: ___    HORA: ___    PARTE: 1ª
+
+    Cada fila usa 1 sola Paragraph con todo el contenido (label+valor+...)
+    para que el motor pueda envolver naturalmente si hace falta.
     """
     styles = getSampleStyleSheet()
-    p_lbl = ParagraphStyle("lbl", parent=styles["BodyText"], fontSize=9,
-                             textColor=colors.black, alignment=0, leading=11,
-                             fontName="Helvetica")
-    p_val = ParagraphStyle("val", parent=styles["BodyText"], fontSize=10,
-                             textColor=colors.black, alignment=0, leading=12,
-                             fontName="Helvetica-Bold")
+    p_inline = ParagraphStyle("hd_inline", parent=styles["BodyText"],
+                                 fontSize=10, alignment=0, leading=13,
+                                 fontName="Helvetica", textColor=colors.black,
+                                 spaceAfter=0, spaceBefore=0)
     rival = datos.get("rival") or "_____________"
     competicion = datos.get("competicion") or "_____________"
     lugar = datos.get("lugar") or "_____________"
@@ -209,50 +208,51 @@ def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
         pass
     hora = datos.get("hora") or "____"
 
-    # Layout 2 filas, similar al original:
-    #   F1: PARTIDO: MOVISTAR INTER  vs  RIVAL          | COMPETICIÓN: ___
-    #   F2: LUGAR: ___       FECHA: ___      HORA: ___  | PARTE: 1ª
+    lv = (datos.get("local_visitante") or "").upper()
+    if lv == "VISITANTE":
+        izq, dcha = rival, "MOVISTAR INTER"
+    else:
+        izq, dcha = "MOVISTAR INTER", rival
+
+    # 2 filas, cada una con 2 celdas (col izda 60% + col dcha 40%)
+    # Usar &nbsp; para separar campos sin que se rompan.
     info = [
-        [Paragraph("<b>PARTIDO:</b>", p_lbl),
-         Paragraph(f"<b>MOVISTAR INTER</b>", p_val),
-         Paragraph("<b>VS</b>", p_lbl),
-         Paragraph(f"<b>{rival}</b>", p_val),
-         Paragraph("<b>COMPETICIÓN:</b>", p_lbl),
-         Paragraph(competicion, p_val)],
-        [Paragraph("<b>LUGAR:</b>", p_lbl),
-         Paragraph(lugar, p_val),
-         Paragraph("<b>FECHA:</b>", p_lbl),
-         Paragraph(fecha_fmt, p_val),
-         Paragraph("<b>HORA:</b>", p_lbl),
-         Paragraph(f"{hora}    <b>PARTE:</b> {parte_label}", p_val)],
+        [Paragraph(
+            f"<b>PARTIDO:</b> &nbsp;<b>{izq}</b> &nbsp;vs&nbsp; <b>{dcha}</b>",
+            p_inline),
+         Paragraph(f"<b>COMPETICIÓN:</b> &nbsp;{competicion}", p_inline)],
+        [Paragraph(f"<b>LUGAR:</b> &nbsp;{lugar}", p_inline),
+         Paragraph(
+             f"<b>FECHA:</b> &nbsp;{fecha_fmt} &nbsp;&nbsp; "
+             f"<b>HORA:</b> &nbsp;{hora} &nbsp;&nbsp; "
+             f"<b>PARTE:</b> &nbsp;{parte_label}",
+             p_inline)],
     ]
-    # Anchos según modo
+
     if modo == "arkaitz":
-        # A4 vertical: 19cm útiles → cabecera ocupa 16cm (resto logos)
-        col_widths = [1.6*cm, 3.0*cm, 0.8*cm, 3.2*cm, 2.4*cm, 5.0*cm]
+        # A4 vertical: ~19cm útiles → 2 logos (1.5cm) + centro 16cm
         ancho_logo = 1.5*cm
         ancho_total = 19.0*cm
+        col_widths = [10.0*cm, 6.0*cm]   # izda 10cm, dcha 6cm
     else:
-        # A4 horizontal: 28cm útiles → cabecera 25cm
-        col_widths = [2.0*cm, 4.5*cm, 1.0*cm, 5.0*cm, 3.0*cm, 9.5*cm]
+        # A4 horizontal: ~28cm útiles
         ancho_logo = 1.8*cm
         ancho_total = 28.5*cm
+        col_widths = [16.0*cm, 8.9*cm]
 
     t_info = Table(info, colWidths=col_widths,
-                    rowHeights=[0.55*cm, 0.55*cm])
+                    rowHeights=[0.7*cm, 0.7*cm])
     t_info.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 1),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
 
     centro_w = ancho_total - 2 * ancho_logo
     cab = Table(
-        [[_logo(LOGOS / "inter_verde.png", ancho_logo / cm * 0.8,
-                  1.5),
+        [[_logo(LOGOS / "inter_verde.png", 1.3, 1.5),
           t_info,
-          _logo(LOGOS / "inter_dorado.png", ancho_logo / cm * 0.8,
-                  1.5)]],
+          _logo(LOGOS / "inter_dorado.png", 1.3, 1.5)]],
         colWidths=[ancho_logo, centro_w, ancho_logo],
     )
     cab.setStyle(TableStyle([
@@ -312,9 +312,10 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     # NUM(0.7) JUG(2.6) TA(0.7) ROJ(0.7) DP(0.9) DPalo(1.0) DB(0.9) DF(0.9) | FUERA(2.0) POSTE(2.0) BLOQ(2.5) PARADA(2.0) GOL(1.6)
     # Total: 0.7+2.6+0.7+0.7+0.9+1.0+0.9+0.9 + 2.0+2.0+2.5+2.0+1.6 = 18.5cm
     # ═════════════════════════════════════════════════════════════════
-    cabeceras = ["NUM", "JUGADOR", "T.A", "ROJ",
-                 "DP", "D.PALO", "DB", "DF",
-                 "FUERA", "POSTE", "BLOQUEADO", "PARADA", "GOL"]
+    # Headers cortos para que NO se rompan en 2 líneas en columnas estrechas
+    cabeceras = ["Nº", "JUGADOR", "T.A", "T.R",
+                 "DP", "DPalo", "DB", "DF",
+                 "FUERA", "POSTE", "BLOQ.", "PARADA", "GOL"]
     cabeceras_p = []
     for i, c in enumerate(cabeceras):
         if c == "T.A":
@@ -408,13 +409,15 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     # Cols: EQUIPO(1.6) Nº JUG(1.0) RESULTADO(1.6) MIN(1.0) ASIST(2.4) ACCIÓN(8.6) ROTACIÓN(2.8)
     # Total: 1.6+1.0+1.6+1.0+2.4+8.6+2.8 = 19cm
     # ═════════════════════════════════════════════════════════════════
-    cabeceras_g = ["EQUIPO", "Nº JUG", "RESULTADO", "MIN", "ASIST",
+    # Headers más cortos para evitar quiebres en 2 líneas
+    cabeceras_g = ["EQUIPO", "Nº", "MARCADOR", "MIN", "ASIST",
                     "ACCIÓN", "ROTACIÓN"]
     rows_g = [[Paragraph(c, p_th_dark) for c in cabeceras_g]]
     for _ in range(10):
         rows_g.append([""] * 7)
-    # Total 18.1cm (mismo ancho que tabla jugadores)
-    anchos_g = [1.6*cm, 1.0*cm, 1.6*cm, 1.0*cm, 2.4*cm, 8.0*cm, 2.5*cm]
+    # Total 18.1cm (mismo ancho que tabla jugadores). MARCADOR un poco más
+    # ancho (2.0cm) para que el header no se rompa.
+    anchos_g = [1.5*cm, 0.8*cm, 2.0*cm, 1.0*cm, 2.4*cm, 7.9*cm, 2.5*cm]
     h_g = 0.42*cm
     t_goles = Table(rows_g, colWidths=anchos_g,
                      rowHeights=[0.5*cm] + [h_g] * 10)
@@ -448,14 +451,15 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     #   [portería 4cm × 4.5cm] [mapa 9cm × 4.5cm] [tabla faltas 4cm × 4.5cm]
     # Total ancho: 4 + 9 + 4 = 17cm; centrado en 19cm útil
     # ═════════════════════════════════════════════════════════════════
-    # A4 vertical útil 19cm. Bloque: portería(4cm) + mapa(9cm) + faltas(4cm) = 17cm
-    # Altura: 4.2cm cada uno
-    img_inter = _logo(mapa_inter, 9.0, 4.2) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
-    img_rival = _logo(mapa_rival, 9.0, 4.2) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
-    # Portería: alto = ancho del campo (~4cm), ancho ajustado al ratio 311:204 → 4×1.52 = 6.1cm. Más realista 4×0.5 = 2cm
-    # En el original se ve la portería bastante alta. Dimensiones 4×4 cm (cuadrada).
-    img_port_af = _logo(img_porteria, 4.0, 4.2) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
-    img_port_ec = _logo(img_porteria, 4.0, 4.2) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
+    # A4 vertical útil 19cm.
+    # Bloque: portería(5cm) + mapa(9cm) + faltas(4cm) = 18cm
+    # Altura del bloque: 5cm. Mapa y portería con la MISMA altura.
+    img_inter = _logo(mapa_inter, 9.0, 5.0) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
+    img_rival = _logo(mapa_rival, 9.0, 5.0) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
+    # Portería con altura igual al alto del campo (5cm). Anchura
+    # similar (~5cm) para que se vea bien grande.
+    img_port_af = _logo(img_porteria, 5.0, 5.0) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
+    img_port_ec = _logo(img_porteria, 5.0, 5.0) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
 
     def _tabla_faltas(equipo_label, color_borde):
         """Tabla de faltas estilo original: titulito + cabecera Nº/TIEMPO/JUG.
@@ -507,15 +511,14 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                                  fontName="Helvetica-Bold", textColor=ROJO,
                                  alignment=1, leading=12)
 
-    # Mapa con borde verde (Inter) o rojo (rival): los PNG ya lo traen.
-    # Layout: portería (4cm) | mapa (9cm) | tabla faltas (4cm). Total 17cm.
-    # Altura del bloque: 4.5cm
+    # Layout: portería (5cm) | mapa (9cm) | tabla faltas (4cm). Total 18cm.
+    # Altura del bloque: 5.0cm (igual a portería y mapa)
     bloque_af = Table([
         [Paragraph("DISPAROS / GOLES A FAVOR", p_tit_af)],
         [Table([[img_port_af, img_inter, t_faltas_inter]],
-                colWidths=[4.0*cm, 9.0*cm, 4.0*cm],
-                rowHeights=[4.5*cm])],
-    ], colWidths=[17.0*cm])
+                colWidths=[5.0*cm, 9.0*cm, 4.0*cm],
+                rowHeights=[5.0*cm])],
+    ], colWidths=[18.0*cm])
     bloque_af.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -524,9 +527,9 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     bloque_ec = Table([
         [Paragraph("DISPAROS / GOLES EN CONTRA", p_tit_ec)],
         [Table([[img_port_ec, img_rival, t_faltas_rival]],
-                colWidths=[4.0*cm, 9.0*cm, 4.0*cm],
-                rowHeights=[4.5*cm])],
-    ], colWidths=[17.0*cm])
+                colWidths=[5.0*cm, 9.0*cm, 4.0*cm],
+                rowHeights=[5.0*cm])],
+    ], colWidths=[18.0*cm])
     bloque_ec.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
