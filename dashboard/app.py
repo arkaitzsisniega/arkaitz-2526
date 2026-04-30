@@ -6885,10 +6885,27 @@ with tab_editar:
                             if str(_root) not in _sys.path:
                                 _sys.path.insert(0, str(_root))
                             from src.pdf_planilla_blank import generar_planilla as _gen
+                            # Usar datos directos del form (sin abrir Sheet
+                            # de nuevo → evita 429 quota exceeded)
+                            _datos_directos_ed = {
+                                "rival": cab.get("rival", ""),
+                                "fecha": cab.get("fecha", ""),
+                                "lugar": cab.get("lugar", ""),
+                                "hora": cab.get("hora", ""),
+                                "competicion": cab.get("competicion", ""),
+                                "local_visitante": cab.get("local_visitante", ""),
+                                "jugadores": [
+                                    {"dorsal": p.get("dorsal", ""),
+                                     "jugador": p.get("jugador", ""),
+                                     "posicion": p.get("posicion", "")}
+                                    for p in (plantilla or [])
+                                ],
+                            }
                             with st.spinner("Generando planillas…"):
-                                _sh = get_client().open(SHEET_NAME)
-                                pdf_1t = _gen("arkaitz", "1T", pid_sel, sh=_sh)
-                                pdf_2t = _gen("arkaitz", "2T", pid_sel, sh=_sh)
+                                pdf_1t = _gen("arkaitz", "1T",
+                                                datos_directos=_datos_directos_ed)
+                                pdf_2t = _gen("arkaitz", "2T",
+                                                datos_directos=_datos_directos_ed)
                             st.session_state[f"pla_ark_1t_{pid_sel}"] = pdf_1t
                             st.session_state[f"pla_ark_2t_{pid_sel}"] = pdf_2t
                         except Exception as e:
@@ -6926,10 +6943,25 @@ with tab_editar:
                             if str(_root) not in _sys.path:
                                 _sys.path.insert(0, str(_root))
                             from src.pdf_planilla_blank import generar_planilla as _gen
+                            _datos_directos_ed = {
+                                "rival": cab.get("rival", ""),
+                                "fecha": cab.get("fecha", ""),
+                                "lugar": cab.get("lugar", ""),
+                                "hora": cab.get("hora", ""),
+                                "competicion": cab.get("competicion", ""),
+                                "local_visitante": cab.get("local_visitante", ""),
+                                "jugadores": [
+                                    {"dorsal": p.get("dorsal", ""),
+                                     "jugador": p.get("jugador", ""),
+                                     "posicion": p.get("posicion", "")}
+                                    for p in (plantilla or [])
+                                ],
+                            }
                             with st.spinner("Generando planillas…"):
-                                _sh = get_client().open(SHEET_NAME)
-                                pdf_1t = _gen("compa", "1T", pid_sel, sh=_sh)
-                                pdf_2t = _gen("compa", "2T", pid_sel, sh=_sh)
+                                pdf_1t = _gen("compa", "1T",
+                                                datos_directos=_datos_directos_ed)
+                                pdf_2t = _gen("compa", "2T",
+                                                datos_directos=_datos_directos_ed)
                             st.session_state[f"pla_comp_1t_{pid_sel}"] = pdf_1t
                             st.session_state[f"pla_comp_2t_{pid_sel}"] = pdf_2t
                         except Exception as e:
