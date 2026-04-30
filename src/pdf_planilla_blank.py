@@ -241,23 +241,23 @@ def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
     else:
         izq, dcha = "MOVISTAR INTER", rival
 
-    # 2 filas, cada una con 2 celdas (col izda 60% + col dcha 40%)
-    # Usar &nbsp; para separar campos sin que se rompan.
-    # En modo compa la planilla incluye las DOS partes en una sola hoja,
-    # así que omitimos "PARTE: 1ª" en la cabecera.
-    fila2_dcha = (
+    # 3 filas:
+    #   Fila 1: PARTIDO (SPAN ambas cols, en 1 línea)
+    #   Fila 2: LUGAR | COMPETICIÓN
+    #   Fila 3: FECHA · HORA · PARTE  (compa omite PARTE)
+    fila3 = (
         f"<b>FECHA:</b> &nbsp;{fecha_fmt} &nbsp;&nbsp; "
         f"<b>HORA:</b> &nbsp;{hora}"
     )
     if modo != "compa":
-        fila2_dcha += f" &nbsp;&nbsp; <b>PARTE:</b> &nbsp;{parte_label}"
+        fila3 += f" &nbsp;&nbsp; <b>PARTE:</b> &nbsp;{parte_label}"
     info = [
         [Paragraph(
             f"<b>PARTIDO:</b> &nbsp;<b>{izq}</b> &nbsp;vs&nbsp; <b>{dcha}</b>",
-            p_inline),
-         Paragraph(f"<b>COMPETICIÓN:</b> &nbsp;{competicion}", p_inline)],
+            p_inline), ""],
         [Paragraph(f"<b>LUGAR:</b> &nbsp;{lugar}", p_inline),
-         Paragraph(fila2_dcha, p_inline)],
+         Paragraph(f"<b>COMPETICIÓN:</b> &nbsp;{competicion}", p_inline)],
+        [Paragraph(fila3, p_inline), ""],
     ]
 
     # Tanto arkaitz como compa son A4 VERTICAL → 19cm útil
@@ -269,8 +269,12 @@ def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
     col_widths = [7.2*cm, 9.0*cm]
 
     t_info = Table(info, colWidths=col_widths,
-                    rowHeights=[0.7*cm, 0.7*cm])
+                    rowHeights=[0.55*cm, 0.55*cm, 0.55*cm])
     t_info.setStyle(TableStyle([
+        # PARTIDO ocupa toda la anchura → SPAN cols 0-1 en fila 0
+        ("SPAN", (0, 0), (1, 0)),
+        # FECHA·HORA·PARTE ocupa toda la anchura → SPAN cols 0-1 en fila 2
+        ("SPAN", (0, 2), (1, 2)),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
@@ -278,9 +282,9 @@ def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
 
     centro_w = ancho_total - 2 * ancho_logo
     cab = Table(
-        [[_logo(LOGOS / "inter_verde.png", 1.3, 1.5),
+        [[_logo(LOGOS / "inter_verde.png", 1.3, 1.65),
           t_info,
-          _logo(LOGOS / "inter_dorado.png", 1.3, 1.5)]],
+          _logo(LOGOS / "inter_dorado.png", 1.3, 1.65)]],
         colWidths=[ancho_logo, centro_w, ancho_logo],
     )
     cab.setStyle(TableStyle([
@@ -327,9 +331,9 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=7,
                                   textColor=colors.black, alignment=1, leading=8,
                                   fontName="Helvetica-Bold")
-    p_nota = ParagraphStyle("nota", parent=styles["BodyText"], fontSize=6.5,
-                              alignment=1, leading=8,
-                              textColor=colors.HexColor("#777"),
+    p_nota = ParagraphStyle("nota", parent=styles["BodyText"], fontSize=8,
+                              alignment=1, leading=10,
+                              textColor=colors.HexColor("#666"),
                               fontName="Helvetica-Oblique")
 
     # ═════════════════════════════════════════════════════════════════
@@ -416,18 +420,17 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     if no_p:
         primera_no_p = no_p[0]      # ej. 3 (justo debajo de los 2 porteros)
         resto_no_p = no_p[1:]       # filas 4..14 → un solo gran rectángulo
-        # 1) Fila "DISPAROS DEL PORTERO CONTRARIO": SPAN cols 8-10 con texto
-        #    (3 cols = 4.2cm — caben 4 palabras), cols 11-12 quedan blancas
-        #    para apuntar.
-        style_jug.append(("SPAN", (8, primera_no_p), (10, primera_no_p)))
-        style_jug.append(("BACKGROUND", (8, primera_no_p), (10, primera_no_p),
+        # 1) Fila "DISPAROS DEL PORTERO CONTRARIO": SPAN cols 8-11 con texto
+        #    (4 cols = 5.6cm — texto cómodo en 1 línea con fuente normal),
+        #    solo col 12 (GOL) queda blanca para apuntar.
+        style_jug.append(("SPAN", (8, primera_no_p), (11, primera_no_p)))
+        style_jug.append(("BACKGROUND", (8, primera_no_p), (11, primera_no_p),
                             colors.HexColor("#FFD9E0")))  # rosa claro
         rows[primera_no_p][8] = Paragraph(
             "<b>DISPAROS DEL PORTERO CONTRARIO</b>", p_nota)
-        # Las cols 11, 12 de esa fila quedan blancas con borde (para apuntar).
-        for c_i in (11, 12):
-            style_jug.append(("BACKGROUND", (c_i, primera_no_p),
-                                (c_i, primera_no_p), colors.white))
+        # Solo la col 12 (GOL) queda blanca con borde para apuntar.
+        style_jug.append(("BACKGROUND", (12, primera_no_p),
+                            (12, primera_no_p), colors.white))
         # 2) Resto de no-porteros: SPAN entera 8..12 en blanco (notas)
         if resto_no_p:
             style_jug.append(("SPAN", (8, resto_no_p[0]), (12, resto_no_p[-1])))
@@ -491,9 +494,9 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     # crop_borde=4: recorta el borde rojo que el PNG ya trae para que el
     # borde verde/rojo del TableStyle no se solape con él.
     img_inter = _logo(mapa_inter, 8.0, 5.5,
-                        proporcional=False, crop_borde=4) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
+                        proporcional=False, crop_borde=8) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
     img_rival = _logo(mapa_rival, 8.0, 5.5,
-                        proporcional=False, crop_borde=4) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
+                        proporcional=False, crop_borde=8) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
     # Portería: ESTIRADA a 6.5×5.5 (más ancha que antes, sin proporcional)
     # para que ocupe más espacio y se vea bien.
     img_port_af = _logo(img_porteria, 6.5, 5.5,
@@ -562,10 +565,14 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                 rowHeights=[5.5*cm],
                 style=TableStyle([
                     # Borde verde alrededor del MAPA (col 1).
-                    # El PNG ya viene recortado (crop_borde=4) para que su
-                    # borde rojo interno no se solape con éste.
-                    ("BOX", (1, 0), (1, 0), 1.5, VERDE),
+                    # El PNG ya viene recortado (crop_borde=8) para que su
+                    # borde rojo/verde interno no se solape con éste.
+                    ("BOX", (1, 0), (1, 0), 2.0, VERDE),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (1, 0), (1, 0), 1),
+                    ("RIGHTPADDING", (1, 0), (1, 0), 1),
+                    ("TOPPADDING", (1, 0), (1, 0), 1),
+                    ("BOTTOMPADDING", (1, 0), (1, 0), 1),
                 ]))],
     ], colWidths=[18.5*cm])
     bloque_af.setStyle(TableStyle([
@@ -580,10 +587,14 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                 rowHeights=[5.5*cm],
                 style=TableStyle([
                     # Borde rojo alrededor del MAPA (col 1).
-                    # El PNG ya viene recortado (crop_borde=4) para que su
-                    # borde rojo interno no se solape con éste.
-                    ("BOX", (1, 0), (1, 0), 1.5, ROJO),
+                    # El PNG ya viene recortado (crop_borde=8) para que su
+                    # borde rojo/verde interno no se solape con éste.
+                    ("BOX", (1, 0), (1, 0), 2.0, ROJO),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (1, 0), (1, 0), 1),
+                    ("RIGHTPADDING", (1, 0), (1, 0), 1),
+                    ("TOPPADDING", (1, 0), (1, 0), 1),
+                    ("BOTTOMPADDING", (1, 0), (1, 0), 1),
                 ]))],
     ], colWidths=[18.5*cm])
     bloque_ec.setStyle(TableStyle([

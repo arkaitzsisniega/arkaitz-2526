@@ -1,8 +1,18 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-04-27`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-04-30`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
 qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
+
+---
+
+## 🔔 RECORDATORIOS PROGRAMADOS
+
+> Si hoy **lunes 4 de mayo 2026 o posterior** y el usuario aún no ha
+> mencionado **Oliver auto-refresh token**, recordárselo en cuanto
+> arranquemos: el plan es script Playwright + LaunchAgent macOS para que
+> al encender el Mac cada mañana se renueve el token sin intervención
+> manual. Estimación: 3-4h. (Apuntado el 30/04/2026, a petición suya.)
 
 ---
 
