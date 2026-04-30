@@ -4594,14 +4594,18 @@ with tab_editar:
                 if dp_r_glob > 0:
                     datos_cab["dp_rival"] = dp_r_glob
             mask = df_all["partido_id"].astype(str) == cab["partido_id"]
+            # Convertir todas las columnas a object/string para evitar
+            # "Invalid value 'X' for dtype 'str'" de pandas 3.x al asignar
+            df_all = df_all.astype(object)
             if mask.any():
                 # Actualizar campos de cabecera, conservar el resto
                 for k, v in datos_cab.items():
-                    df_all.loc[mask, k] = v
+                    df_all.loc[mask, k] = str(v) if v not in ("", None) else ""
             else:
                 # Nueva fila — rellenar con vacío en columnas que no toco
                 fila = {c: "" for c in cols_completas}
-                fila.update(datos_cab)
+                fila.update({k: str(v) if v not in ("", None) else ""
+                             for k, v in datos_cab.items()})
                 df_all = pd.concat([df_all, pd.DataFrame([fila])],
                                      ignore_index=True)
             df_out = df_all[cols_completas].fillna("")
@@ -5449,11 +5453,13 @@ with tab_editar:
             df_all = pd.DataFrame(ws.get_all_records())
             if df_all.empty:
                 return 0
+            # pandas 3.x: forzar object para evitar "Invalid value for dtype"
+            df_all = df_all.astype(object)
             # Asegurar que existen las columnas rot
             cols_rot = [f"rot_{p}_{i}" for p in ("1t", "2t") for i in range(1, 9)]
             for c in cols_rot:
                 if c not in df_all.columns:
-                    df_all[c] = 0
+                    df_all[c] = ""
             # Aplicar rotaciones
             mask_part = df_all["partido_id"].astype(str) == partido_id
             for jug, vals in rotaciones_por_jug.items():
@@ -5461,7 +5467,7 @@ with tab_editar:
                 if not mask.any():
                     continue
                 for col, val in vals.items():
-                    df_all.loc[mask, col] = val
+                    df_all.loc[mask, col] = str(val) if val not in ("", None) else ""
             # Reescribir
             cols_orden = list(df_all.columns)
             df_out = df_all.fillna("")
@@ -6263,14 +6269,19 @@ with tab_editar:
                     if candidate.any():
                         mask = candidate
                         break
+            # pandas 3.x: forzar object para asignaciones mixtas
+            if not df_all.empty:
+                df_all = df_all.astype(object)
             if mask.any():
                 # Actualizar la fila existente
                 idx = df_all.index[mask][0]
                 for k, v in datos_nuevos.items():
-                    df_all.at[idx, k] = v
+                    df_all.at[idx, k] = str(v) if v not in ("", None) else ""
             else:
-                # Añadir fila nueva
-                df_all = pd.concat([df_all, pd.DataFrame([datos_nuevos])],
+                # Añadir fila nueva (todo como string)
+                fila_str = {k: (str(v) if v not in ("", None) else "")
+                            for k, v in datos_nuevos.items()}
+                df_all = pd.concat([df_all, pd.DataFrame([fila_str])],
                                      ignore_index=True)
             # Reescribir
             for c in cols_existentes:
