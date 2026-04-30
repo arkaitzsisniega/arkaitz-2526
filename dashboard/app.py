@@ -6743,6 +6743,97 @@ with tab_editar:
                         )
                     st.dataframe(_df_total_ed, use_container_width=True, hide_index=True)
 
+                # ── Planillas imprimibles (papel/boli) ─────────────────────
+                st.markdown("---")
+                st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
+                st.caption(
+                    "Genera planillas A4 horizontal en blanco para apuntar "
+                    "a boli durante el partido. Cabecera y plantilla "
+                    "pre-rellenadas con los datos de este partido. "
+                    "Se imprimen 2 hojas iguales por planilla (1ª y 2ª "
+                    "parte) para usar una en cada parte."
+                )
+                cpla1, cpla2 = st.columns(2)
+                with cpla1:
+                    if st.button("🖨 Planilla Arkaitz (4 PDFs)",
+                                  key="pla_ark", use_container_width=True,
+                                  help="Tu planilla: disparos, mapas Inter/rival, "
+                                        "portería, goles, faltas. 1T + 2T."):
+                        try:
+                            import sys as _sys
+                            from pathlib import Path as _Path
+                            _root = _Path(__file__).resolve().parent.parent
+                            if str(_root) not in _sys.path:
+                                _sys.path.insert(0, str(_root))
+                            from src.pdf_planilla_blank import generar_planilla as _gen
+                            with st.spinner("Generando planillas…"):
+                                _sh = get_client().open(SHEET_NAME)
+                                pdf_1t = _gen("arkaitz", "1T", pid_sel, sh=_sh)
+                                pdf_2t = _gen("arkaitz", "2T", pid_sel, sh=_sh)
+                            st.session_state[f"pla_ark_1t_{pid_sel}"] = pdf_1t
+                            st.session_state[f"pla_ark_2t_{pid_sel}"] = pdf_2t
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                            import traceback as _tb
+                            st.expander("Detalles").code(_tb.format_exc())
+                    if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
+                        st.download_button(
+                            "⬇️ Arkaitz 1ª parte",
+                            data=st.session_state[f"pla_ark_1t_{pid_sel}"],
+                            file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_ark_1t_{pid_sel}",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
+                        st.download_button(
+                            "⬇️ Arkaitz 2ª parte",
+                            data=st.session_state[f"pla_ark_2t_{pid_sel}"],
+                            file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_ark_2t_{pid_sel}",
+                            use_container_width=True,
+                        )
+                with cpla2:
+                    if st.button("🖨 Planilla Compañero (4 PDFs)",
+                                  key="pla_comp", use_container_width=True,
+                                  help="Para el compañero: PF/PNF/Robos/Cortes/"
+                                        "BDG/BDP por jugador + córners + bandas. "
+                                        "1T + 2T."):
+                        try:
+                            import sys as _sys
+                            from pathlib import Path as _Path
+                            _root = _Path(__file__).resolve().parent.parent
+                            if str(_root) not in _sys.path:
+                                _sys.path.insert(0, str(_root))
+                            from src.pdf_planilla_blank import generar_planilla as _gen
+                            with st.spinner("Generando planillas…"):
+                                _sh = get_client().open(SHEET_NAME)
+                                pdf_1t = _gen("compa", "1T", pid_sel, sh=_sh)
+                                pdf_2t = _gen("compa", "2T", pid_sel, sh=_sh)
+                            st.session_state[f"pla_comp_1t_{pid_sel}"] = pdf_1t
+                            st.session_state[f"pla_comp_2t_{pid_sel}"] = pdf_2t
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    if st.session_state.get(f"pla_comp_1t_{pid_sel}"):
+                        st.download_button(
+                            "⬇️ Compañero 1ª parte",
+                            data=st.session_state[f"pla_comp_1t_{pid_sel}"],
+                            file_name=f"planilla_compa_1T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_comp_1t_{pid_sel}",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get(f"pla_comp_2t_{pid_sel}"):
+                        st.download_button(
+                            "⬇️ Compañero 2ª parte",
+                            data=st.session_state[f"pla_comp_2t_{pid_sel}"],
+                            file_name=f"planilla_compa_2T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_comp_2t_{pid_sel}",
+                            use_container_width=True,
+                        )
+
                 if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
                     df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                         df_ev_edit)
