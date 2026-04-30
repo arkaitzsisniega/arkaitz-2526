@@ -65,19 +65,40 @@ def _to_date(x):
     return ts
 
 
-def leer_hoja(ss, nombre, parse_dates=None):
-    ws = ss.worksheet(nombre)
-    # value_render_option unformatted → números como float puro, sin formato de locale
-    # (evita que Google Sheets en locale español devuelva "71,5" en vez de 71.5)
-    data = ws.get_all_records(
-        value_render_option=gspread.utils.ValueRenderOption.unformatted
-    )
-    df = pd.DataFrame(data)
-    if parse_dates:
-        for col in parse_dates:
-            if col in df.columns:
-                df[col] = df[col].apply(_to_date)
-    return df
+def leer_hoja(ss, nombre, parse_dates=None, max_reintentos=5):
+    """Lee una hoja con reintento exponencial ante 429 Quota exceeded.
+    Espera 30s, 60s, 90s, 120s, 150s entre reintentos (la cuota es por
+    minuto, así que con 1 espera ya suele bastar)."""
+    for intento in range(max_reintentos):
+        try:
+            ws = ss.worksheet(nombre)
+            # value_render_option unformatted → números como float puro,
+            # sin formato de locale (evita que Google Sheets en locale
+            # español devuelva "71,5" en vez de 71.5)
+            data = ws.get_all_records(
+                value_render_option=gspread.utils.ValueRenderOption.unformatted
+            )
+            df = pd.DataFrame(data)
+            if parse_dates:
+                for col in parse_dates:
+                    if col in df.columns:
+                        df[col] = df[col].apply(_to_date)
+            # Pausita entre lecturas para no saturar la cuota
+            time.sleep(1.0)
+            return df
+        except gspread.exceptions.APIError as e:
+            msg = str(e)
+            if "429" in msg or "Quota exceeded" in msg:
+                espera = 30 * (intento + 1)
+                print(f"⏳ 429 en {nombre}, esperando {espera}s "
+                      f"(intento {intento+1}/{max_reintentos})...",
+                      flush=True)
+                time.sleep(espera)
+                continue
+            raise
+    # Si tras todos los reintentos sigue fallando, re-lanzar
+    raise RuntimeError(f"No se pudo leer la hoja {nombre} tras "
+                        f"{max_reintentos} reintentos por 429")
 
 # ── Escritura de vista en Google Sheets ──────────────────────────────────────
 
