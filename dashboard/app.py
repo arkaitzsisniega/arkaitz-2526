@@ -6437,6 +6437,114 @@ with tab_editar:
                     )
                 st.dataframe(_df_total_cr, use_container_width=True, hide_index=True)
 
+            # ── Planillas imprimibles (papel/boli) — modo Crear ─────────
+            st.markdown("---")
+            st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
+            st.caption(
+                "**Genera las planillas ANTES del partido** sin necesidad de "
+                "guardarlo todavía. Usa la cabecera y plantilla de arriba. "
+                "Imprime, lleva al partido, apunta a boli, y luego "
+                "transcribes los datos en este mismo form."
+            )
+            if not cab.get("rival") or not plantilla:
+                st.info(
+                    "💡 Rellena al menos el **rival** (cabecera) y la "
+                    "**plantilla** para generar la planilla."
+                )
+            else:
+                cpla1_cr, cpla2_cr = st.columns(2)
+                # Construir datos directos a partir del form
+                _datos_directos_cr = {
+                    "rival": cab["rival"],
+                    "fecha": cab.get("fecha", ""),
+                    "lugar": cab.get("lugar", ""),
+                    "hora": cab.get("hora", ""),
+                    "competicion": cab.get("competicion", ""),
+                    "local_visitante": cab.get("local_visitante", ""),
+                    "jugadores": [
+                        {"dorsal": p.get("dorsal", ""),
+                         "jugador": p.get("jugador", ""),
+                         "posicion": p.get("posicion", "")}
+                        for p in plantilla
+                    ],
+                }
+                with cpla1_cr:
+                    if st.button("🖨 Planilla Arkaitz",
+                                  key="pla_ark_cr", use_container_width=True):
+                        try:
+                            import sys as _sys
+                            from pathlib import Path as _Path
+                            _root = _Path(__file__).resolve().parent.parent
+                            if str(_root) not in _sys.path:
+                                _sys.path.insert(0, str(_root))
+                            from src.pdf_planilla_blank import generar_planilla as _gen
+                            with st.spinner("Generando planillas…"):
+                                pdf_1t = _gen("arkaitz", "1T",
+                                                datos_directos=_datos_directos_cr)
+                                pdf_2t = _gen("arkaitz", "2T",
+                                                datos_directos=_datos_directos_cr)
+                            st.session_state["pla_ark_1t_cr"] = pdf_1t
+                            st.session_state["pla_ark_2t_cr"] = pdf_2t
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                            import traceback as _tb
+                            st.expander("Detalles").code(_tb.format_exc())
+                    if st.session_state.get("pla_ark_1t_cr"):
+                        st.download_button(
+                            "⬇️ Arkaitz 1ª parte",
+                            data=st.session_state["pla_ark_1t_cr"],
+                            file_name=f"planilla_arkaitz_1T_{cab['rival']}.pdf",
+                            mime="application/pdf",
+                            key="dl_ark_1t_cr",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get("pla_ark_2t_cr"):
+                        st.download_button(
+                            "⬇️ Arkaitz 2ª parte",
+                            data=st.session_state["pla_ark_2t_cr"],
+                            file_name=f"planilla_arkaitz_2T_{cab['rival']}.pdf",
+                            mime="application/pdf",
+                            key="dl_ark_2t_cr",
+                            use_container_width=True,
+                        )
+                with cpla2_cr:
+                    if st.button("🖨 Planilla Compañero",
+                                  key="pla_comp_cr", use_container_width=True):
+                        try:
+                            import sys as _sys
+                            from pathlib import Path as _Path
+                            _root = _Path(__file__).resolve().parent.parent
+                            if str(_root) not in _sys.path:
+                                _sys.path.insert(0, str(_root))
+                            from src.pdf_planilla_blank import generar_planilla as _gen
+                            with st.spinner("Generando planillas…"):
+                                pdf_1t = _gen("compa", "1T",
+                                                datos_directos=_datos_directos_cr)
+                                pdf_2t = _gen("compa", "2T",
+                                                datos_directos=_datos_directos_cr)
+                            st.session_state["pla_comp_1t_cr"] = pdf_1t
+                            st.session_state["pla_comp_2t_cr"] = pdf_2t
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    if st.session_state.get("pla_comp_1t_cr"):
+                        st.download_button(
+                            "⬇️ Compañero 1ª parte",
+                            data=st.session_state["pla_comp_1t_cr"],
+                            file_name=f"planilla_compa_1T_{cab['rival']}.pdf",
+                            mime="application/pdf",
+                            key="dl_comp_1t_cr",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get("pla_comp_2t_cr"):
+                        st.download_button(
+                            "⬇️ Compañero 2ª parte",
+                            data=st.session_state["pla_comp_2t_cr"],
+                            file_name=f"planilla_compa_2T_{cab['rival']}.pdf",
+                            mime="application/pdf",
+                            key="dl_comp_2t_cr",
+                            use_container_width=True,
+                        )
+
             if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
                 if not cab["rival"]:
                     st.error("Pon el nombre del rival.")

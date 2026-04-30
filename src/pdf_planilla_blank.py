@@ -462,18 +462,36 @@ def _planilla_compa(jugadores, parte_label) -> list:
 # ─── Generador principal ────────────────────────────────────────────────────
 def generar_planilla(modo: str, parte: str,
                        partido_id: Optional[str] = None,
-                       sh=None) -> bytes:
+                       sh=None,
+                       datos_directos: Optional[dict] = None) -> bytes:
     """Genera el PDF en memoria.
 
     modo: 'arkaitz' o 'compa'.
     parte: '1T' o '2T' (cambia el sentido del campo en planilla arkaitz).
-    partido_id: opcional. Si se da, pre-rellena cabecera y plantilla.
-    sh: opcional, gspread Spreadsheet ya abierto. Si None se conecta.
+    partido_id: opcional. Si se da, pre-rellena cabecera y plantilla
+                leyendo de Google Sheets.
+    sh: opcional, gspread Spreadsheet ya abierto.
+    datos_directos: opcional, dict con keys {rival, fecha, lugar, hora,
+                    competicion, local_visitante, jugadores: [{dorsal,
+                    jugador, posicion}, ...]}. Si se pasa, IGNORA
+                    partido_id y sh (usado para generar antes de guardar
+                    desde el form).
     """
     assert modo in ("arkaitz", "compa"), f"modo desconocido: {modo}"
     assert parte in ("1T", "2T"), f"parte desconocida: {parte}"
 
-    if partido_id:
+    if datos_directos is not None:
+        # Datos pasados directamente del form (no leemos Sheet)
+        datos = {
+            "rival": datos_directos.get("rival", ""),
+            "fecha": datos_directos.get("fecha", ""),
+            "lugar": datos_directos.get("lugar", ""),
+            "hora": datos_directos.get("hora", ""),
+            "competicion": datos_directos.get("competicion", ""),
+            "local_visitante": datos_directos.get("local_visitante", ""),
+            "jugadores": list(datos_directos.get("jugadores", [])),
+        }
+    elif partido_id:
         if sh is None:
             sh = _connect()
         datos = _datos_partido(sh, partido_id)
