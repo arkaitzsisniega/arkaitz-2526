@@ -181,14 +181,21 @@ def _logo(path: Path, w_cm: float, h_cm: float):
     return Paragraph("", ParagraphStyle("blank"))
 
 
-def _cabecera(datos: dict, parte_label: str, ancho_cm: float = 27.0) -> Table:
-    """Tabla de cabecera: [logo Inter] [PARTIDO ... vs ... · COMP · LUGAR ·
-    FECHA · HORA · 1ª/2ª] [logo dorado]."""
+def _cabecera(datos: dict, parte_label: str, modo: str = "arkaitz") -> Table:
+    """Cabecera estilo Excel original. Layout:
+        [logo Inter] PARTIDO: MOVISTAR INTER vs RIVAL    COMPETICIÓN: ___    [logo Movistar]
+                    LUGAR: ___          FECHA: ___      HORA: ___           PARTE: 1ª
+
+    Adaptable al ancho disponible:
+      - modo='arkaitz': A4 VERTICAL → ancho útil ~19.6cm
+      - modo='compa':   A4 HORIZONTAL → ancho útil ~28cm
+    """
     styles = getSampleStyleSheet()
-    p_lbl = ParagraphStyle("lbl", parent=styles["BodyText"], fontSize=8,
-                             textColor=GRIS, alignment=1, leading=10)
-    p_val = ParagraphStyle("val", parent=styles["BodyText"], fontSize=11,
-                             textColor=AZUL, alignment=1, leading=13,
+    p_lbl = ParagraphStyle("lbl", parent=styles["BodyText"], fontSize=9,
+                             textColor=colors.black, alignment=0, leading=11,
+                             fontName="Helvetica")
+    p_val = ParagraphStyle("val", parent=styles["BodyText"], fontSize=10,
+                             textColor=colors.black, alignment=0, leading=12,
                              fontName="Helvetica-Bold")
     rival = datos.get("rival") or "_____________"
     competicion = datos.get("competicion") or "_____________"
@@ -202,43 +209,51 @@ def _cabecera(datos: dict, parte_label: str, ancho_cm: float = 27.0) -> Table:
         pass
     hora = datos.get("hora") or "____"
 
-    # Decidir orden por local/visitante (si Inter es visitante, rival a la izda)
-    lv = (datos.get("local_visitante") or "").upper()
-    if lv == "VISITANTE":
-        izq, dcha = rival, "MOVISTAR INTER"
-    else:
-        izq, dcha = "MOVISTAR INTER", rival
-
+    # Layout 2 filas, similar al original:
+    #   F1: PARTIDO: MOVISTAR INTER  vs  RIVAL          | COMPETICIÓN: ___
+    #   F2: LUGAR: ___       FECHA: ___      HORA: ___  | PARTE: 1ª
     info = [
-        [Paragraph("PARTIDO", p_lbl),
-         Paragraph("CATEGORÍA", p_lbl),
-         Paragraph("LUGAR", p_lbl),
-         Paragraph("FECHA", p_lbl),
-         Paragraph("HORA", p_lbl),
-         Paragraph("PARTE", p_lbl)],
-        [Paragraph(f"<b>{izq}</b>&nbsp;vs&nbsp;<b>{dcha}</b>", p_val),
-         Paragraph(competicion, p_val),
+        [Paragraph("<b>PARTIDO:</b>", p_lbl),
+         Paragraph(f"<b>MOVISTAR INTER</b>", p_val),
+         Paragraph("<b>VS</b>", p_lbl),
+         Paragraph(f"<b>{rival}</b>", p_val),
+         Paragraph("<b>COMPETICIÓN:</b>", p_lbl),
+         Paragraph(competicion, p_val)],
+        [Paragraph("<b>LUGAR:</b>", p_lbl),
          Paragraph(lugar, p_val),
+         Paragraph("<b>FECHA:</b>", p_lbl),
          Paragraph(fecha_fmt, p_val),
-         Paragraph(hora, p_val),
-         Paragraph(f"<b>{parte_label}</b>", p_val)],
+         Paragraph("<b>HORA:</b>", p_lbl),
+         Paragraph(f"{hora}    <b>PARTE:</b> {parte_label}", p_val)],
     ]
-    t_info = Table(info,
-                    colWidths=[6.5*cm, 4.0*cm, 4.0*cm, 3.0*cm, 2.0*cm, 1.6*cm],
-                    rowHeights=[0.55*cm, 0.85*cm])
+    # Anchos según modo
+    if modo == "arkaitz":
+        # A4 vertical: 19cm útiles → cabecera ocupa 16cm (resto logos)
+        col_widths = [1.6*cm, 3.0*cm, 0.8*cm, 3.2*cm, 2.4*cm, 5.0*cm]
+        ancho_logo = 1.5*cm
+        ancho_total = 19.0*cm
+    else:
+        # A4 horizontal: 28cm útiles → cabecera 25cm
+        col_widths = [2.0*cm, 4.5*cm, 1.0*cm, 5.0*cm, 3.0*cm, 9.5*cm]
+        ancho_logo = 1.8*cm
+        ancho_total = 28.5*cm
+
+    t_info = Table(info, colWidths=col_widths,
+                    rowHeights=[0.55*cm, 0.55*cm])
     t_info.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
-        ("BACKGROUND", (0, 1), (-1, 1), GRIS_CLARO),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.lightgrey),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 1),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 1),
     ]))
 
+    centro_w = ancho_total - 2 * ancho_logo
     cab = Table(
-        [[_logo(LOGOS / "inter_verde.png", 1.7, 1.6),
+        [[_logo(LOGOS / "inter_verde.png", ancho_logo / cm * 0.8,
+                  1.5),
           t_info,
-          _logo(LOGOS / "inter_dorado.png", 1.7, 1.6)]],
-        colWidths=[1.9*cm, 21.1*cm, 1.9*cm],
+          _logo(LOGOS / "inter_dorado.png", ancho_logo / cm * 0.8,
+                  1.5)]],
+        colWidths=[ancho_logo, centro_w, ancho_logo],
     )
     cab.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -248,155 +263,316 @@ def _cabecera(datos: dict, parte_label: str, ancho_cm: float = 27.0) -> Table:
     return cab
 
 
-# ─── Planilla "Arkaitz" ─────────────────────────────────────────────────────
+# ─── Planilla "Arkaitz" (A4 VERTICAL, fiel al Excel original) ────────────
 def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                        img_porteria) -> list:
-    """Devuelve lista de Flowables para la planilla de Arkaitz."""
+    """Planilla A4 VERTICAL · UNA HOJA. Layout fiel al Excel original:
+
+    ┌─────────────────────────────────────────────────┐
+    │ Cabecera: PARTIDO Inter vs ___ · COMP · LUGAR   │
+    │ FECHA · HORA  (logos a los lados)               │
+    ├─────────────────────────────────────────────────┤
+    │ Tabla 14 jugadores. Cols:                        │
+    │ NUM JUG TA ROJ DP DPalo DB DF | FUERA POSTE     │
+    │ BLOQ PARADA GOL (cols portería solo en filas    │
+    │ porteros; resto = gran rectángulo "DISPAROS DEL │
+    │ PORTERO CONTRARIO")                              │
+    ├─────────────────────────────────────────────────┤
+    │ Tabla GOLES (10 filas, ancho completo)          │
+    │ EQUIPO Nº JUG RESULTADO MIN ASIST ACCIÓN ROT.   │
+    ├─────────────────────────────────────────────────┤
+    │ DISPAROS / GOLES A FAVOR (verde)                │
+    │ [portería] [mapa Inter (verde)] [faltas Inter]  │
+    ├─────────────────────────────────────────────────┤
+    │ DISPAROS / GOLES EN CONTRA (rojo)               │
+    │ [portería] [mapa rival (rojo)] [faltas Rival]   │
+    │                                                  │
+    │ Leyenda: ✗ FUERA · ⊙ A PUERTA · ⊗ GOL           │
+    └─────────────────────────────────────────────────┘
+
+    A4 vertical = 21cm × 29.7cm (útil ~19.6 × 28.3).
+    """
     styles = getSampleStyleSheet()
     p_th = ParagraphStyle("th", parent=styles["BodyText"], fontSize=7,
-                            textColor=colors.white, alignment=1, leading=9,
+                            textColor=colors.white, alignment=1, leading=8,
                             fontName="Helvetica-Bold")
-    p_td = ParagraphStyle("td", parent=styles["BodyText"], fontSize=8,
-                            textColor=AZUL, alignment=0, leading=10)
+    p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=7,
+                                  textColor=colors.black, alignment=1, leading=8,
+                                  fontName="Helvetica-Bold")
+    p_nota = ParagraphStyle("nota", parent=styles["BodyText"], fontSize=8,
+                              alignment=1, leading=10,
+                              textColor=colors.HexColor("#777"),
+                              fontName="Helvetica-Oblique")
 
-    # ── Tabla de jugadores (NUM | JUG | T.A | ROJ | DP | DPalo | DB | DF
-    #    | FUERA | POSTE | BLOQUEADO | PARADA | GOL)
-    cabeceras = ["Nº", "JUGADOR", "T.A", "ROJ",
-                 "DP", "DPalo", "DB", "DF",
-                 "FUERA", "POSTE", "BLOQ.", "PARADA", "GOL"]
-    rows = [[Paragraph(c, p_th) for c in cabeceras]]
-    # 14 filas (rellenas las que tengamos, vacías el resto)
-    for i in range(14):
+    # ═════════════════════════════════════════════════════════════════
+    # 1) TABLA DE JUGADORES
+    # 13 cols: NUM | JUGADOR | T.A | ROJ | DP | DPalo | DB | DF
+    #        | FUERA | POSTE | BLOQUEADO | PARADA | GOL
+    # Anchos para 19cm útil:
+    # NUM(0.7) JUG(2.6) TA(0.7) ROJ(0.7) DP(0.9) DPalo(1.0) DB(0.9) DF(0.9) | FUERA(2.0) POSTE(2.0) BLOQ(2.5) PARADA(2.0) GOL(1.6)
+    # Total: 0.7+2.6+0.7+0.7+0.9+1.0+0.9+0.9 + 2.0+2.0+2.5+2.0+1.6 = 18.5cm
+    # ═════════════════════════════════════════════════════════════════
+    cabeceras = ["NUM", "JUGADOR", "T.A", "ROJ",
+                 "DP", "D.PALO", "DB", "DF",
+                 "FUERA", "POSTE", "BLOQUEADO", "PARADA", "GOL"]
+    cabeceras_p = []
+    for i, c in enumerate(cabeceras):
+        if c == "T.A":
+            cabeceras_p.append(Paragraph(c, p_th_dark))
+        else:
+            cabeceras_p.append(Paragraph(c, p_th))
+    rows = [cabeceras_p]
+    n_filas = 14
+    es_portero_idx = []  # 1-indexed
+    for i in range(n_filas):
         if i < len(jugadores):
             j = jugadores[i]
             d = str(j["dorsal"]) if j["dorsal"] is not None else ""
             n = j["jugador"]
+            if (j.get("posicion", "") or "").upper() == "PORTERO":
+                es_portero_idx.append(i + 1)
         else:
             d, n = "", ""
         rows.append([d, n, "", "", "", "", "", "", "", "", "", "", ""])
-    anchos = [0.7*cm, 2.6*cm] + [0.95*cm]*4 + [1.15*cm]*5 + [1.0*cm]*2
-    t_jug = Table(rows, colWidths=anchos,
-                   rowHeights=[0.55*cm] + [0.5*cm]*14)
-    t_jug.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+
+    # A4 vertical útil ~19cm
+    # NUM(0.65) JUG(2.5) TA(0.6) ROJ(0.6) DP(0.85) DPalo(0.95) DB(0.85) DF(0.85)
+    # FUERA(2.0) POSTE(2.1) BLOQ(2.5) PARADA(2.0) GOL(1.65) = 18.1cm
+    anchos_jug = [0.65*cm, 2.5*cm, 0.6*cm, 0.6*cm,
+                   0.85*cm, 0.95*cm, 0.85*cm, 0.85*cm,
+                   2.0*cm, 2.1*cm, 2.5*cm, 2.0*cm, 1.65*cm]
+    h_header = 0.55*cm
+    h_fila = 0.45*cm
+    rh_jug = [h_header] + [h_fila] * n_filas
+
+    style_jug = [
+        # Header en azul oscuro (excepto T.A amarillo y ROJ rojo)
+        ("BACKGROUND", (0, 0), (1, 0), AZUL),
+        ("BACKGROUND", (4, 0), (7, 0), AZUL),
+        ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FFEB3B")),  # TA header amarillo
+        ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#D32F2F")),  # ROJ header rojo
+        ("BACKGROUND", (8, 0), (12, 0), colors.HexColor("#E91E63")),  # Cols portería header rosa
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("ALIGN", (1, 1), (1, -1), "LEFT"),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
-        # Distinguir grupo "campo" (cols 4-7) de "portería" (cols 8-12)
-        ("BACKGROUND", (8, 0), (12, 0), colors.HexColor("#7F1010")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
         ("LEFTPADDING", (0, 0), (-1, -1), 2),
         ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-    ]))
+    ]
+    # Coloreado de columnas TA y ROJ en filas de datos
+    for r_i in range(1, n_filas + 1):
+        style_jug.append(("BACKGROUND", (2, r_i), (2, r_i),
+                           colors.HexColor("#FFF59D")))   # TA amarillo claro
+        style_jug.append(("BACKGROUND", (3, r_i), (3, r_i),
+                           colors.HexColor("#FF5252")))   # ROJ rojo medio (fiel al original)
+    # Coloreado de columnas DP, DPalo, DB, DF en filas de datos: azul claro
+    for r_i in range(1, n_filas + 1):
+        for c_i in (4, 5, 6, 7):
+            style_jug.append(("BACKGROUND", (c_i, r_i), (c_i, r_i),
+                               colors.HexColor("#D6E5F4")))
+    # Coloreado de columnas portería para PORTEROS (filas 1-2): rosa claro
+    for r_i in es_portero_idx:
+        for c_i in range(8, 13):
+            style_jug.append(("BACKGROUND", (c_i, r_i), (c_i, r_i),
+                               colors.HexColor("#FFD9E0")))
 
-    # ── Tabla de goles (10 filas vacías)
-    rows_goles = [[Paragraph(c, p_th) for c in
-                    ["EQUIPO", "Nº", "RESULTADO", "MIN", "ASIST", "ACCIÓN", "ROTACIÓN"]]]
+    # FUSIONAR las celdas de portería para los NO porteros en bloques contiguos.
+    no_p = [i for i in range(1, n_filas + 1) if i not in es_portero_idx]
+    bloques_no_p = []
+    if no_p:
+        ini = no_p[0]; prev = ini
+        for i in no_p[1:]:
+            if i == prev + 1:
+                prev = i
+            else:
+                bloques_no_p.append((ini, prev)); ini = i; prev = i
+        bloques_no_p.append((ini, prev))
+    # En el original, el bloque grande tiene texto "DISPAROS DEL PORTERO CONTRARIO"
+    # arriba. Hago un solo gran rectángulo (8..12) × bloque entero, con título.
+    for (ini, fin) in bloques_no_p:
+        if fin - ini >= 0:
+            style_jug.append(("SPAN", (8, ini), (12, fin)))
+            style_jug.append(("BACKGROUND", (8, ini), (12, fin), colors.white))
+            # Texto central
+            rows[ini][8] = Paragraph(
+                "<b>DISPAROS DEL PORTERO<br/>CONTRARIO</b>", p_nota)
+
+    t_jug = Table(rows, colWidths=anchos_jug, rowHeights=rh_jug)
+    t_jug.setStyle(TableStyle(style_jug))
+
+    # ═════════════════════════════════════════════════════════════════
+    # 2) TABLA DE GOLES (10 filas, ancho completo ~19cm)
+    # Cols: EQUIPO(1.6) Nº JUG(1.0) RESULTADO(1.6) MIN(1.0) ASIST(2.4) ACCIÓN(8.6) ROTACIÓN(2.8)
+    # Total: 1.6+1.0+1.6+1.0+2.4+8.6+2.8 = 19cm
+    # ═════════════════════════════════════════════════════════════════
+    cabeceras_g = ["EQUIPO", "Nº JUG", "RESULTADO", "MIN", "ASIST",
+                    "ACCIÓN", "ROTACIÓN"]
+    rows_g = [[Paragraph(c, p_th_dark) for c in cabeceras_g]]
     for _ in range(10):
-        rows_goles.append(["", "", "", "", "", "", ""])
-    t_goles = Table(rows_goles,
-                     colWidths=[1.5*cm, 0.8*cm, 1.6*cm, 1.0*cm, 1.5*cm, 2.5*cm, 2.0*cm],
-                     rowHeights=[0.55*cm] + [0.45*cm]*10)
+        rows_g.append([""] * 7)
+    # Total 18.1cm (mismo ancho que tabla jugadores)
+    anchos_g = [1.6*cm, 1.0*cm, 1.6*cm, 1.0*cm, 2.4*cm, 8.0*cm, 2.5*cm]
+    h_g = 0.42*cm
+    t_goles = Table(rows_g, colWidths=anchos_g,
+                     rowHeights=[0.5*cm] + [h_g] * 10)
     t_goles.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
+        ("BACKGROUND", (0, 0), (-1, 0), GRIS_CLARO),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-BoldOblique"),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
     ]))
 
-    # ── Tabla de faltas (Inter): Nº · TIEMPO · JUG. — 6 filas
-    def _tabla_faltas(titulo, color_titulo):
-        h = [[Paragraph(titulo, p_th)] * 3]
-        h.append([Paragraph("Nº", p_th), Paragraph("TIEMPO", p_th),
-                   Paragraph("JUG.", p_th)])
+    # Título "GOLES" sobre la tabla (estilo barra gris fina)
+    p_tit_goles = ParagraphStyle("tg", parent=styles["BodyText"], fontSize=9,
+                                    fontName="Helvetica-BoldOblique",
+                                    alignment=1, leading=10,
+                                    textColor=colors.black)
+    barra_goles = Table([[Paragraph("GOLES", p_tit_goles)]],
+                          colWidths=[18.1*cm], rowHeights=[0.42*cm])
+    barra_goles.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GRIS_CLARO),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    # ═════════════════════════════════════════════════════════════════
+    # 3) BLOQUES MAPAS (A FAVOR / EN CONTRA)
+    # Cada bloque: título + 3 columnas:
+    #   [portería 4cm × 4.5cm] [mapa 9cm × 4.5cm] [tabla faltas 4cm × 4.5cm]
+    # Total ancho: 4 + 9 + 4 = 17cm; centrado en 19cm útil
+    # ═════════════════════════════════════════════════════════════════
+    # A4 vertical útil 19cm. Bloque: portería(4cm) + mapa(9cm) + faltas(4cm) = 17cm
+    # Altura: 4.2cm cada uno
+    img_inter = _logo(mapa_inter, 9.0, 4.2) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
+    img_rival = _logo(mapa_rival, 9.0, 4.2) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
+    # Portería: alto = ancho del campo (~4cm), ancho ajustado al ratio 311:204 → 4×1.52 = 6.1cm. Más realista 4×0.5 = 2cm
+    # En el original se ve la portería bastante alta. Dimensiones 4×4 cm (cuadrada).
+    img_port_af = _logo(img_porteria, 4.0, 4.2) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
+    img_port_ec = _logo(img_porteria, 4.0, 4.2) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
+
+    def _tabla_faltas(equipo_label, color_borde):
+        """Tabla de faltas estilo original: titulito + cabecera Nº/TIEMPO/JUG.
+        + 6 filas. La 6ª en rojo claro."""
+        h = []
+        # Título "INTER MOVISTAR" o "RIVAL"
+        h.append([Paragraph(equipo_label, p_th_dark), "", ""])
+        # T.M.: ___
+        h.append([Paragraph("T.M.: ____", p_th_dark), "", ""])
+        # FALTAS
+        h.append([Paragraph("FALTAS", p_th_dark), "", ""])
+        # Cabecera
+        h.append([Paragraph("Nº", p_th_dark),
+                   Paragraph("TIEMPO", p_th_dark),
+                   Paragraph("JUG.", p_th_dark)])
         for i in range(1, 7):
             h.append([str(i), "", ""])
-        t = Table(h, colWidths=[0.8*cm, 1.4*cm, 1.6*cm],
-                   rowHeights=[0.4*cm, 0.4*cm] + [0.4*cm]*6)
+        t = Table(h, colWidths=[0.7*cm, 1.7*cm, 1.4*cm],
+                   rowHeights=[0.4*cm]*4 + [0.35*cm]*6)
         t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), color_titulo),
-            ("BACKGROUND", (0, 1), (-1, 1), AZUL),
-            ("SPAN", (0, 0), (-1, 0)),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("SPAN", (0, 0), (2, 0)),
+            ("SPAN", (0, 1), (2, 1)),
+            ("SPAN", (0, 2), (2, 2)),
+            ("BACKGROUND", (0, 0), (-1, 0), GRIS_CLARO),
+            ("BACKGROUND", (0, 1), (-1, 1), GRIS_CLARO),
+            ("BACKGROUND", (0, 2), (-1, 2), GRIS_CLARO),
+            ("BACKGROUND", (0, 3), (-1, 3), GRIS_CLARO),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+            # Borde principal del color del equipo
+            ("BOX", (0, 0), (-1, -1), 1.2, color_borde),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
+            # 6ª falta en rojo claro
+            ("BACKGROUND", (0, 9), (-1, 9), colors.HexColor("#FF5252")),
+            ("TEXTCOLOR", (0, 9), (0, 9), colors.white),
+            ("FONTNAME", (0, 9), (0, 9), "Helvetica-Bold"),
         ]))
         return t
 
-    t_faltas_inter = _tabla_faltas("FALTAS · MOVISTAR INTER (TM:____)", VERDE)
-    t_faltas_rival = _tabla_faltas("FALTAS · RIVAL (TM:____)", ROJO)
+    t_faltas_inter = _tabla_faltas("INTER MOVISTAR", VERDE)
+    t_faltas_rival = _tabla_faltas("RIVAL", ROJO)
 
-    # ── Mapas de campo (Inter borde verde, rival borde rojo)
-    img_inter = _logo(mapa_inter, 9.5, 4.8) if mapa_inter and mapa_inter.exists() else Paragraph("(falta mapa)", p_td)
-    img_rival = _logo(mapa_rival, 9.5, 4.8) if mapa_rival and mapa_rival.exists() else Paragraph("(falta mapa)", p_td)
-    img_port_af = _logo(img_porteria, 3.0, 2.0) if img_porteria and img_porteria.exists() else Paragraph("", p_td)
-    img_port_ec = _logo(img_porteria, 3.0, 2.0) if img_porteria and img_porteria.exists() else Paragraph("", p_td)
+    # Título de cada bloque
+    p_tit_af = ParagraphStyle("af", parent=styles["BodyText"], fontSize=10,
+                                 fontName="Helvetica-Bold", textColor=VERDE,
+                                 alignment=1, leading=12)
+    p_tit_ec = ParagraphStyle("ec", parent=styles["BodyText"], fontSize=10,
+                                 fontName="Helvetica-Bold", textColor=ROJO,
+                                 alignment=1, leading=12)
 
-    # ── Layout principal: 2 columnas
-    # Columna izquierda: Tabla jugadores arriba + mapa Inter + porteria AF + faltas Inter
-    # Columna derecha: Tabla goles + mapa rival + porteria EC + faltas rival
+    # Mapa con borde verde (Inter) o rojo (rival): los PNG ya lo traen.
+    # Layout: portería (4cm) | mapa (9cm) | tabla faltas (4cm). Total 17cm.
+    # Altura del bloque: 4.5cm
+    bloque_af = Table([
+        [Paragraph("DISPAROS / GOLES A FAVOR", p_tit_af)],
+        [Table([[img_port_af, img_inter, t_faltas_inter]],
+                colWidths=[4.0*cm, 9.0*cm, 4.0*cm],
+                rowHeights=[4.5*cm])],
+    ], colWidths=[17.0*cm])
+    bloque_af.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    bloque_ec = Table([
+        [Paragraph("DISPAROS / GOLES EN CONTRA", p_tit_ec)],
+        [Table([[img_port_ec, img_rival, t_faltas_rival]],
+                colWidths=[4.0*cm, 9.0*cm, 4.0*cm],
+                rowHeights=[4.5*cm])],
+    ], colWidths=[17.0*cm])
+    bloque_ec.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
 
-    # Bloque de mapas+porteria+faltas: 3 sub-elementos lado a lado por equipo
-    def _bloque_mapa(titulo, color, img_campo, img_port, t_faltas):
-        """Devuelve un mini-Table con: título + (mapa | porteria | faltas)."""
-        styles = getSampleStyleSheet()
-        p_titulo = ParagraphStyle("blq_t", parent=styles["BodyText"],
-                                    fontSize=9, fontName="Helvetica-Bold",
-                                    textColor=color, alignment=0)
-        return Table([
-            [Paragraph(titulo, p_titulo)],
-            [Table([[img_campo, img_port, t_faltas]],
-                    colWidths=[10*cm, 3.4*cm, 4.0*cm])],
-        ], colWidths=[17.4*cm])
-
-    bloque_inter = _bloque_mapa(
-        "⚽ DISPAROS / GOLES A FAVOR · ataca: " + parte_label,
-        VERDE, img_inter, img_port_af, t_faltas_inter)
-    bloque_rival = _bloque_mapa(
-        "🥅 DISPAROS / GOLES EN CONTRA · ataca rival",
-        ROJO, img_rival, img_port_ec, t_faltas_rival)
+    # Leyenda
+    p_leyenda = ParagraphStyle("ley", parent=styles["BodyText"], fontSize=9,
+                                  fontName="Helvetica-Bold", alignment=1,
+                                  leading=11)
 
     flowables = [
         t_jug,
-        Spacer(1, 6),
-        # Tabla goles + leyenda
-        Table([[t_goles, Paragraph(
-            "<b>Leyenda:</b><br/>"
-            "▢ DISPARO FUERA<br/>"
-            "△ DISPARO A PUERTA<br/>"
-            "● GOL<br/><br/>"
-            "<b>RESULTADO</b>: marcador en el gol (ej. 2-1)<br/>"
-            "<b>ROTACIÓN</b>: nº de la rotación cuando ocurre",
-            ParagraphStyle("ley", parent=styles["BodyText"], fontSize=7,
-                            leading=10, textColor=GRIS))]],
-            colWidths=[12.0*cm, 6.0*cm])
-        ,
-        Spacer(1, 6),
-        bloque_inter,
         Spacer(1, 4),
-        bloque_rival,
+        barra_goles,
+        t_goles,
+        Spacer(1, 4),
+        bloque_af,
+        Spacer(1, 2),
+        bloque_ec,
+        Spacer(1, 3),
+        Paragraph("✗ DISPARO FUERA &nbsp;&nbsp;&nbsp;&nbsp; "
+                   "⊙ DISPARO A PUERTA &nbsp;&nbsp;&nbsp;&nbsp; "
+                   "⊗ GOL", p_leyenda),
     ]
     return flowables
 
 
-# ─── Planilla "Compañero" (ALEX) ────────────────────────────────────────────
+# ─── Planilla "Compañero" (ALEX) — A4 horizontal ────────────────────────────
 def _planilla_compa(jugadores, parte_label) -> list:
-    """Tabla de acciones individuales por jugador + tabla córners + bandas."""
+    """Tabla de jugadores con métricas individuales + tablas Córners y
+    Bandas a la derecha. Colores fieles al Excel original:
+       T.A amarillo, ROJ rojo, PF/PNF naranja claro, ROBOS/CORTES verde
+       claro, BDG/BDP gris claro. Filas alternas con tono más oscuro."""
     styles = getSampleStyleSheet()
-    p_th = ParagraphStyle("th", parent=styles["BodyText"], fontSize=8,
-                            textColor=colors.white, alignment=1,
-                            fontName="Helvetica-Bold")
+    p_th_dark = ParagraphStyle("th_d", parent=styles["BodyText"], fontSize=9,
+                                  textColor=colors.black, alignment=1,
+                                  fontName="Helvetica-Bold", leading=11)
+    p_corn = ParagraphStyle("corn", parent=styles["BodyText"], fontSize=14,
+                              textColor=colors.black, alignment=1,
+                              fontName="Helvetica-Bold", leading=16)
 
-    cabeceras = ["Nº", "JUGADOR", "T.A", "ROJ",
+    # ── Tabla principal: Nº | JUGADOR | T.A | ROJ | PF | PNF | ROBOS | CORTES | BDG | BDP
+    cabeceras = ["NUM", "JUGADOR", "T.A", "ROJ",
                  "PF", "PNF", "ROBOS", "CORTES", "BDG", "BDP"]
-    rows = [[Paragraph(c, p_th) for c in cabeceras]]
+    rows = [[Paragraph(c, p_th_dark) for c in cabeceras]]
     for i in range(14):
         if i < len(jugadores):
             j = jugadores[i]
@@ -405,55 +581,95 @@ def _planilla_compa(jugadores, parte_label) -> list:
         else:
             d, n = "", ""
         rows.append([d, n] + [""] * 8)
-    anchos = [1.0*cm, 3.5*cm] + [1.4*cm]*8
-    t_jug = Table(rows, colWidths=anchos,
-                   rowHeights=[0.7*cm] + [0.95*cm]*14)
-    t_jug.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("ALIGN", (1, 1), (1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
-    ]))
+    # Fila final EQUIPO (totales del equipo)
+    rows.append([Paragraph("<b>EQUIPO</b>", p_th_dark), "", "", "",
+                  "", "", "", "", "", ""])
 
-    # Tabla CÓRNERS (tipos × cuenta)
-    rows_corn = [[Paragraph("CÓRNERS", p_th), Paragraph("Nº", p_th)]]
+    anchos = [1.2*cm, 3.5*cm, 1.5*cm, 1.5*cm,
+              1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm, 1.7*cm]
+    h_h = 0.7*cm
+    h_f = 0.65*cm
+    rh = [h_h] + [h_f]*14 + [h_h]
+    t_jug = Table(rows, colWidths=anchos, rowHeights=rh)
+
+    # Estilos
+    style_compa = [
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
+        # Header amarillo en T.A, rojo en ROJ
+        ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FFEB3B")),
+        ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#D32F2F")),
+        ("TEXTCOLOR", (3, 0), (3, 0), colors.white),
+        # Header gris claro en el resto
+        ("BACKGROUND", (0, 0), (1, 0), GRIS_CLARO),
+        ("BACKGROUND", (4, 0), (-1, 0), GRIS_CLARO),
+        # Última fila EQUIPO en gris claro
+        ("BACKGROUND", (0, -1), (-1, -1), GRIS_CLARO),
+        # SPAN para EQUIPO en cols 0-1
+        ("SPAN", (0, -1), (1, -1)),
+    ]
+    # Fondo amarillo para columna T.A (filas datos)
+    for r_i in range(1, 16):  # 14 filas + EQUIPO
+        style_compa.append(("BACKGROUND", (2, r_i), (2, r_i),
+                              colors.HexColor("#FFF59D")))
+        style_compa.append(("BACKGROUND", (3, r_i), (3, r_i),
+                              colors.HexColor("#FF5252")))
+        # PF/PNF naranja claro alternando
+        n_oscuro = colors.HexColor("#FFAB91")  # naranja medio
+        n_claro = colors.HexColor("#FFCCBC")   # naranja muy claro
+        col_pfpnf = n_oscuro if r_i % 2 == 1 else n_claro
+        style_compa.append(("BACKGROUND", (4, r_i), (5, r_i), col_pfpnf))
+        # ROBOS/CORTES verde claro alternando
+        v_oscuro = colors.HexColor("#A5D6A7")
+        v_claro = colors.HexColor("#C8E6C9")
+        col_rc = v_oscuro if r_i % 2 == 1 else v_claro
+        style_compa.append(("BACKGROUND", (6, r_i), (7, r_i), col_rc))
+        # BDG/BDP gris alternando
+        g_oscuro = colors.HexColor("#BDBDBD")
+        g_claro = colors.HexColor("#E0E0E0")
+        col_bd = g_oscuro if r_i % 2 == 1 else g_claro
+        style_compa.append(("BACKGROUND", (8, r_i), (9, r_i), col_bd))
+    t_jug.setStyle(TableStyle(style_compa))
+
+    # ── Tablas CÓRNERS y BANDAS a la derecha ──────────────────────
+    # Estilo: header negro grande, filas grandes con texto centrado
+    rows_corn = [[Paragraph("CÓRNERS", p_corn)]]
     for t in TIPOS_CORNERS:
-        rows_corn.append([t, ""])
-    t_corn = Table(rows_corn, colWidths=[3.0*cm, 1.5*cm],
-                    rowHeights=[0.6*cm] + [0.7*cm]*len(TIPOS_CORNERS))
+        rows_corn.append([t])
+    t_corn = Table(rows_corn, colWidths=[4.5*cm],
+                    rowHeights=[1.0*cm] + [0.8*cm]*len(TIPOS_CORNERS))
     t_corn.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
     ]))
 
-    rows_band = [[Paragraph("BANDAS", p_th), Paragraph("Nº", p_th)]]
+    rows_band = [[Paragraph("BANDAS", p_corn)]]
     for t in TIPOS_BANDAS:
-        rows_band.append([t, ""])
-    t_band = Table(rows_band, colWidths=[3.0*cm, 1.5*cm],
-                    rowHeights=[0.6*cm] + [0.7*cm]*len(TIPOS_BANDAS))
+        rows_band.append([t])
+    t_band = Table(rows_band, colWidths=[4.5*cm],
+                    rowHeights=[1.0*cm] + [0.8*cm]*len(TIPOS_BANDAS))
     t_band.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), AZUL),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.6, GRIS),
-        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
     ]))
 
-    # Layout: tabla jugadores izda + (córners arriba, bandas abajo) dcha
+    # Layout horizontal: tabla jug | córners | bandas
     layout = Table([
-        [t_jug, Table([[t_corn], [Spacer(1, 4)], [t_band]],
-                       colWidths=[5.0*cm])],
-    ], colWidths=[19.0*cm, 5.5*cm])
+        [t_jug, t_corn, t_band],
+    ], colWidths=[18.0*cm, 4.7*cm, 4.7*cm])
     layout.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
     ]))
 
     return [layout]
@@ -501,17 +717,20 @@ def generar_planilla(modo: str, parte: str,
 
     parte_label = "1ª PARTE" if parte == "1T" else "2ª PARTE"
 
-    # Buffer del PDF
+    # Buffer del PDF. Orientación según modo:
+    #   - arkaitz: A4 VERTICAL (fiel al Excel original)
+    #   - compa:   A4 HORIZONTAL
     buf = io.BytesIO()
+    pagesize = A4 if modo == "arkaitz" else landscape(A4)
     doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
+        buf, pagesize=pagesize,
         leftMargin=0.7*cm, rightMargin=0.7*cm,
         topMargin=0.7*cm, bottomMargin=0.7*cm,
         title=f"Planilla {modo} {parte}",
     )
 
     story = []
-    story.append(_cabecera(datos, parte_label))
+    story.append(_cabecera(datos, parte_label, modo=modo))
     story.append(Spacer(1, 5))
 
     if modo == "arkaitz":
