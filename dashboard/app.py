@@ -32,12 +32,25 @@ st.set_page_config(
 def _check_password():
     """Bloquea el dashboard hasta que el usuario introduzca la contraseña.
     Devuelve True si está autenticado o si no hay contraseña configurada."""
+    pwd_correct = None
+    err_secret = None
     try:
-        pwd_correct = st.secrets.get("APP_PASSWORD", None)
-    except Exception:
-        pwd_correct = None
+        # Probar varias formas por si una falla
+        if "APP_PASSWORD" in st.secrets:
+            pwd_correct = st.secrets["APP_PASSWORD"]
+        else:
+            pwd_correct = st.secrets.get("APP_PASSWORD", None)
+    except Exception as e:
+        err_secret = f"{type(e).__name__}: {e}"
     # Si no hay contraseña configurada → acceso libre (útil en local)
     if not pwd_correct:
+        st.warning(
+            "⚠️ **APP_PASSWORD no se está leyendo de `st.secrets`.** "
+            "El dashboard está accesible sin contraseña. "
+            "Configura el secret en Streamlit Cloud → Settings → Secrets, "
+            "y haz **Reboot** de la app."
+            + (f"\n\n_Error técnico:_ `{err_secret}`" if err_secret else "")
+        )
         return True
     # Ya autenticado en esta sesión
     if st.session_state.get("auth_ok"):
