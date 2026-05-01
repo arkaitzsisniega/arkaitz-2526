@@ -26,6 +26,70 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Gate de contraseña (cuerpo técnico) ──────────────────────────────────────
+# Para activar: define APP_PASSWORD en st.secrets (Streamlit Cloud → Settings →
+# Secrets). Si no está definido, el dashboard arranca sin login (modo dev local).
+def _check_password():
+    """Bloquea el dashboard hasta que el usuario introduzca la contraseña.
+    Devuelve True si está autenticado o si no hay contraseña configurada."""
+    try:
+        pwd_correct = st.secrets.get("APP_PASSWORD", None)
+    except Exception:
+        pwd_correct = None
+    # Si no hay contraseña configurada → acceso libre (útil en local)
+    if not pwd_correct:
+        return True
+    # Ya autenticado en esta sesión
+    if st.session_state.get("auth_ok"):
+        return True
+    # Pantalla de login
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] { background: #1B3A6B; }
+    [data-testid="stSidebar"] { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Logo central
+    import base64 as _b64
+    _logo_path = (Path(__file__).resolve().parent.parent
+                   / "assets" / "logos" / "inter_verde.png")
+    logo_html = ""
+    try:
+        if _logo_path.exists():
+            logo_html = (f'<img src="data:image/png;base64,'
+                         f'{_b64.b64encode(_logo_path.read_bytes()).decode()}" '
+                         f'style="height:120px; margin-bottom:18px;"/>')
+    except Exception:
+        pass
+
+    st.markdown(f"""
+    <div style="text-align:center; padding: 80px 0 30px 0;">
+        {logo_html}
+        <h1 style="color:white; font-size:2rem; margin:0;">Arkaitz · Movistar Inter FS</h1>
+        <p style="color:#BBCDE8; font-size:1rem; margin:6px 0 30px 0;">
+            Panel de la temporada 25/26 · Acceso restringido al cuerpo técnico
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    cols = st.columns([1, 1, 1])
+    with cols[1]:
+        pwd = st.text_input("🔐 Contraseña", type="password",
+                              key="pwd_input", label_visibility="visible")
+        if st.button("Entrar", use_container_width=True, type="primary"):
+            if pwd == pwd_correct:
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta")
+    return False
+
+
+if not _check_password():
+    st.stop()
+
+
 # ── Colores globales ──────────────────────────────────────────────────────────
 VERDE   = "#2E7D32"
 NARANJA = "#E65100"
@@ -574,6 +638,16 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
     st.caption("Datos en tiempo real desde Google Sheets")
+
+    # Cerrar sesión (solo aparece si hay contraseña configurada)
+    try:
+        _has_pwd = bool(st.secrets.get("APP_PASSWORD", None))
+    except Exception:
+        _has_pwd = False
+    if _has_pwd and st.session_state.get("auth_ok"):
+        if st.button("🔒 Cerrar sesión", use_container_width=True):
+            st.session_state["auth_ok"] = False
+            st.rerun()
 
 
 # ── Filtros helpers ───────────────────────────────────────────────────────────
