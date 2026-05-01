@@ -478,14 +478,43 @@ def datos():
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+import base64 as _base64
+def _img_b64(path: Path) -> str | None:
+    """Devuelve un PNG como string base64, o None si no existe."""
+    try:
+        if path.exists():
+            return _base64.b64encode(path.read_bytes()).decode()
+    except Exception:
+        pass
+    return None
+
+_LOGOS_DIR = Path(__file__).resolve().parent.parent / "assets" / "logos"
+_LOGO_VERDE_B64 = _img_b64(_LOGOS_DIR / "inter_verde.png")
+_LOGO_DORADO_B64 = _img_b64(_LOGOS_DIR / "inter_dorado.png")
+
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding: 18px 0 10px 0;">
-        <div style="font-size:2.2rem; font-weight:900; color:#4CAF50; letter-spacing:2px;">INTER</div>
-        <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:-4px;">FUTSAL SALA</div>
-        <div style="width:60px; height:3px; background:#4CAF50; margin:8px auto 0 auto; border-radius:2px;"></div>
-    </div>
-    """, unsafe_allow_html=True)
+    if _LOGO_VERDE_B64 and _LOGO_DORADO_B64:
+        st.markdown(f"""
+        <div style="text-align:center; padding: 14px 0 10px 0;">
+            <div style="display:flex; justify-content:center; align-items:center; gap:14px;">
+                <img src="data:image/png;base64,{_LOGO_VERDE_B64}"
+                     style="height:64px; width:auto;" alt="Inter verde"/>
+                <img src="data:image/png;base64,{_LOGO_DORADO_B64}"
+                     style="height:64px; width:auto;" alt="Inter dorado"/>
+            </div>
+            <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:8px;">FUTBOL SALA</div>
+            <div style="width:60px; height:3px; background:#4CAF50; margin:8px auto 0 auto; border-radius:2px;"></div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Fallback al estilo anterior si los logos no se encuentran
+        st.markdown("""
+        <div style="text-align:center; padding: 18px 0 10px 0;">
+            <div style="font-size:2.2rem; font-weight:900; color:#4CAF50; letter-spacing:2px;">INTER</div>
+            <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:-4px;">FUTBOL SALA</div>
+            <div style="width:60px; height:3px; background:#4CAF50; margin:8px auto 0 auto; border-radius:2px;"></div>
+        </div>
+        """, unsafe_allow_html=True)
     st.markdown("---")
 
     try:
@@ -663,7 +692,34 @@ with tab_sem:
     st.markdown("")
 
     # ── Tarjetas por jugador ──
-    sem_ordenado = sem_f.sort_values("ALERTAS_ACTIVAS", ascending=False)
+    # Orden custom solicitado:
+    #  Grupo 1: Porteros 1er equipo  → J.HERRERO, J.GARCIA
+    #  Grupo 2: Campo 1er equipo     → CECILIO, CHAGUINHA, RAUL, HARRISON,
+    #                                   RAYA, JAVI, PANI, PIRATA, BARONA, CARLOS
+    #  Grupo 3: Portero filial        → OSCAR
+    #  Grupo 4: Campo filial          → RUBIO, JAIME, SEGO, DANI, NACHO + resto
+    GRUPO_PORT_1ER = ["J.HERRERO", "J.GARCIA"]
+    GRUPO_CAMPO_1ER = ["CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
+                        "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"]
+    GRUPO_PORT_FIL = ["OSCAR"]
+    GRUPO_CAMPO_FIL_PRIO = ["RUBIO", "JAIME", "SEGO", "DANI", "NACHO"]
+
+    def _grupo_de(nombre: str) -> tuple[int, int]:
+        """(idx_grupo, idx_dentro_del_grupo). Cuanto menor mejor."""
+        n = (nombre or "").upper().strip()
+        if n in GRUPO_PORT_1ER:
+            return (1, GRUPO_PORT_1ER.index(n))
+        if n in GRUPO_CAMPO_1ER:
+            return (2, GRUPO_CAMPO_1ER.index(n))
+        if n in GRUPO_PORT_FIL:
+            return (3, GRUPO_PORT_FIL.index(n))
+        if n in GRUPO_CAMPO_FIL_PRIO:
+            return (4, GRUPO_CAMPO_FIL_PRIO.index(n))
+        return (5, 0)  # filial resto, alfabético después
+
+    sem_f["_g"] = sem_f["JUGADOR"].apply(lambda j: _grupo_de(j)[0])
+    sem_f["_p"] = sem_f["JUGADOR"].apply(lambda j: _grupo_de(j)[1])
+    sem_ordenado = sem_f.sort_values(["_g", "_p", "JUGADOR"]).reset_index(drop=True)
 
     CARD_COLORS = {
         "ROJO":    ("rgba(183,28,28,0.92)",  "#FFCDD2", "#B71C1C"),
@@ -674,62 +730,88 @@ with tab_sem:
         "GRIS":    ("rgba(97,97,97,0.80)",   "#F5F5F5", "#424242"),
     }
 
+    # Etiquetas de grupo para mostrar como cabeceras de sección
+    GRUPO_LABELS = {
+        1: "🥅 Porteros · Primer equipo",
+        2: "⚽ Jugadores · Primer equipo",
+        3: "🥅 Portero · Filial",
+        4: "⚽ Jugadores · Filial",
+        5: "👥 Otros",
+    }
+
     n_cols = 4
-    rows_cards = [sem_ordenado.iloc[i:i+n_cols] for i in range(0, len(sem_ordenado), n_cols)]
 
-    for row_group in rows_cards:
-        cols_sem = st.columns(n_cols)
-        for i, (_, row) in enumerate(row_group.iterrows()):
-            estado      = row.get("SEMAFORO_GLOBAL", "GRIS")
-            bg, _, txt  = CARD_COLORS.get(estado, CARD_COLORS["GRIS"])
-            emoji, _    = MAP_SEMAFORO.get(estado, ("⚫", GRIS))
+    # Renderizar por grupos con separación visual
+    for grupo_idx in [1, 2, 3, 4, 5]:
+        grupo_df = sem_ordenado[sem_ordenado["_g"] == grupo_idx]
+        if grupo_df.empty:
+            continue
+        # Cabecera de sección
+        st.markdown(
+            f'<div style="margin: 18px 0 8px 0; padding: 6px 12px; '
+            f'background: rgba(27,58,107,0.07); border-left: 4px solid #1B3A6B; '
+            f'border-radius: 4px; font-weight: 700; color: #1B3A6B; '
+            f'font-size: 0.95rem;">'
+            f'{GRUPO_LABELS[grupo_idx]} '
+            f'<span style="color:#888; font-weight:400; font-size:0.8rem;">'
+            f'· {len(grupo_df)} jugador{"es" if len(grupo_df) != 1 else ""}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        rows_cards = [grupo_df.iloc[i:i+n_cols] for i in range(0, len(grupo_df), n_cols)]
+        for row_group in rows_cards:
+            cols_sem = st.columns(n_cols)
+            for i, (_, row) in enumerate(row_group.iterrows()):
+                estado      = row.get("SEMAFORO_GLOBAL", "GRIS")
+                bg, _, txt  = CARD_COLORS.get(estado, CARD_COLORS["GRIS"])
+                emoji, _    = MAP_SEMAFORO.get(estado, ("⚫", GRIS))
 
-            jugador_nom = row["JUGADOR"]
-            acwr        = row.get("ACWR")
-            peso_desv   = row.get("PESO_PRE_DESV_KG")
-            alertas     = safe_int(row.get("ALERTAS_ACTIVAS", 0))
-            # Wellness dinámico del período seleccionado
-            _ws = _well_stats[_well_stats["JUGADOR"] == jugador_nom]
-            well_med   = float(_ws["well_mean"].iloc[0])  if not _ws.empty else float("nan")
-            well_below = int(_ws["well_below"].iloc[0])   if not _ws.empty else 0
-            well_total = int(_ws["well_total"].iloc[0])   if not _ws.empty else 0
+                jugador_nom = row["JUGADOR"]
+                acwr        = row.get("ACWR")
+                peso_desv   = row.get("PESO_PRE_DESV_KG")
+                alertas     = safe_int(row.get("ALERTAS_ACTIVAS", 0))
+                # Wellness dinámico del período seleccionado
+                _ws = _well_stats[_well_stats["JUGADOR"] == jugador_nom]
+                well_med   = float(_ws["well_mean"].iloc[0])  if not _ws.empty else float("nan")
+                well_below = int(_ws["well_below"].iloc[0])   if not _ws.empty else 0
+                well_total = int(_ws["well_total"].iloc[0])   if not _ws.empty else 0
 
-            acwr_txt  = f"{acwr:.2f}" if pd.notna(acwr) else "—"
-            well_txt  = (f"{well_med:.1f}/20" if pd.notna(well_med) else "—")
-            below_txt = (f" ({well_below}/{well_total} bajo 15)"
-                         if well_total > 0 and well_below > 0 else "")
-            well_full = well_txt + below_txt
-            peso_txt  = f"{peso_desv:+.1f} kg" if pd.notna(peso_desv) else "—"
-            alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
+                acwr_txt  = f"{acwr:.2f}" if pd.notna(acwr) else "—"
+                well_txt  = (f"{well_med:.1f}/20" if pd.notna(well_med) else "—")
+                below_txt = (f" ({well_below}/{well_total} bajo 15)"
+                             if well_total > 0 and well_below > 0 else "")
+                well_full = well_txt + below_txt
+                peso_txt  = f"{peso_desv:+.1f} kg" if pd.notna(peso_desv) else "—"
+                alert_txt = "⚠ " * alertas if alertas else "✓ Sin alertas"
 
-            # Barra de ACWR (0 a 2, zona ok 0.8-1.3 marcada)
-            acwr_pct = min(max(float(acwr) / 2.0, 0), 1) * 100 if pd.notna(acwr) else 0
-            bar_color = ("#EF9A9A" if (pd.notna(acwr) and float(acwr) > 1.3)
-                         else "#A5D6A7")
+                # Barra de ACWR (0 a 2, zona ok 0.8-1.3 marcada)
+                acwr_pct = min(max(float(acwr) / 2.0, 0), 1) * 100 if pd.notna(acwr) else 0
+                bar_color = ("#EF9A9A" if (pd.notna(acwr) and float(acwr) > 1.3)
+                             else "#A5D6A7")
 
-            # Semáforos individuales de cada métrica
-            s_acwr = ("🔴" if pd.notna(acwr) and float(acwr) > 1.5 else
-                      "🟠" if pd.notna(acwr) and float(acwr) > 1.3 else
-                      "🔵" if pd.notna(acwr) and float(acwr) < 0.8 else "🟢")
-            s_well = ("🔴" if pd.notna(well_med) and float(well_med) < 10 else
-                      "🟠" if pd.notna(well_med) and float(well_med) < 13 else "🟢")
-            s_peso = ("🔴" if pd.notna(peso_desv) and float(peso_desv) < -3.0 else
-                      "🟠" if pd.notna(peso_desv) and float(peso_desv) < -1.5 else "🟢")
+                # Semáforos individuales de cada métrica
+                s_acwr = ("🔴" if pd.notna(acwr) and float(acwr) > 1.5 else
+                          "🟠" if pd.notna(acwr) and float(acwr) > 1.3 else
+                          "🔵" if pd.notna(acwr) and float(acwr) < 0.8 else "🟢")
+                s_well = ("🔴" if pd.notna(well_med) and float(well_med) < 10 else
+                          "🟠" if pd.notna(well_med) and float(well_med) < 13 else "🟢")
+                s_peso = ("🔴" if pd.notna(peso_desv) and float(peso_desv) < -3.0 else
+                          "🟠" if pd.notna(peso_desv) and float(peso_desv) < -1.5 else "🟢")
 
-            cols_sem[i].markdown(f"""
-            <div class="player-card" style="background:{bg}; color:white;">
-                <div class="player-name">{emoji} {row['JUGADOR']}</div>
-                <div class="player-stats">
-                    {s_acwr} ACWR: <b>{acwr_txt}</b><br>
-                    {s_well} Wellness: <b>{well_full}</b><br>
-                    {s_peso} Δ Peso PRE: <b>{peso_txt}</b>
+                cols_sem[i].markdown(f"""
+                <div class="player-card" style="background:{bg}; color:white;">
+                    <div class="player-name">{emoji} {row['JUGADOR']}</div>
+                    <div class="player-stats">
+                        {s_acwr} ACWR: <b>{acwr_txt}</b><br>
+                        {s_well} Wellness: <b>{well_full}</b><br>
+                        {s_peso} Δ Peso PRE: <b>{peso_txt}</b>
+                    </div>
+                    <div class="acwr-bar-bg">
+                        <div class="acwr-bar-fill" style="width:{acwr_pct:.0f}%; background:{bar_color};"></div>
+                    </div>
+                    <div style="font-size:0.75rem; margin-top:6px; opacity:0.9;">{alert_txt}</div>
                 </div>
-                <div class="acwr-bar-bg">
-                    <div class="acwr-bar-fill" style="width:{acwr_pct:.0f}%; background:{bar_color};"></div>
-                </div>
-                <div style="font-size:0.75rem; margin-top:6px; opacity:0.9;">{alert_txt}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
     st.markdown("---")
 

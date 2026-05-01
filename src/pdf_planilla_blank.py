@@ -62,9 +62,9 @@ GRIS_CLARO = colors.HexColor("#F5F5F5")
 # Tipos canónicos de córners y bandas (sacados de la pestaña ALEX/Txubas)
 TIPOS_CORNERS = ["VOLEA 1", "VOLEA 2", "3 -- 1", "3 -- 2",
                   "CAPITÁN 1", "CAPITÁN 2", "CORTA"]
-TIPOS_BANDAS = ["MANOS", "TRIÁN. 1", "TRIÁN. 2", "CAM-SAC", "VERTICAL",
-                 "TALAVERA", "PEGA", "SPORTING", "1 x 1", "JOKIC",
-                 "VALDEPEÑ."]
+TIPOS_BANDAS = ["MANOS", "TRIÁN. 1", "TRIÁN. 2", "CAMSAC", "VERT.",
+                 "TALAVERA", "PEGA", "SPORT.", "1 x 1", "JOKIC",
+                 "VALDE."]
 
 
 # ─── Conexión Sheet ─────────────────────────────────────────────────────────
