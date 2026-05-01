@@ -16,6 +16,38 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
+## 🔐 ROLES Y PERMISOS — pendiente para más adelante
+
+Hoy 1/5/2026 hemos activado **una contraseña única** (st.secrets
+`APP_PASSWORD`) para que el cuerpo técnico vea el dashboard. Cuando
+quiera diferenciar accesos, montar **opción A: múltiples contraseñas
+con roles**:
+
+- **Admin (solo Arkaitz)**: lo único que puede hacer es **editar
+  partidos** (todos los botones "💾 Guardar partido / cambios" del
+  módulo Estadísticas). El resto de usuarios deben verlos en modo
+  lectura — botón oculto o deshabilitado. Razón: Arkaitz quiere
+  evitar que toquen donde no deben.
+- **Cuerpo técnico**: ve todo en lectura, no edita partidos.
+- **Fisios / médicos**: pestaña 🏥 Lesiones con datos
+  **anonimizados por dorsal**. En vez de "RAYA se ha lesionado",
+  debe mostrar "El 8 se ha lesionado". Razón: protección de datos
+  de salud — los nombres no pueden aparecer asociados a lesiones
+  para terceros distintos del cuerpo médico-fisio.
+- **Jugadores (futuro)**: cada uno solo se ve a sí mismo
+  (filtro auto-aplicado por su contraseña/rol).
+
+Implementación cuando toque (estimación: 2-3h):
+1. En `st.secrets` definir `APP_USERS = {"clave1": "admin", ...}`.
+2. En el gate, asignar `st.session_state["rol"]` según la clave.
+3. Pestaña Editar partido: `if rol != "admin": ocultar botón guardar`.
+4. Pestaña Lesiones: `if rol in ("fisio","medico","admin"): mostrar
+   nombres; else: mostrar dorsal en su lugar`. Hay que cambiar
+   las queries de `_VISTA_LESIONES` o filtrar a posteriori — añadir
+   columna `dorsal` si no la tiene.
+
+---
+
 ## 🏗 Arquitectura general
 
 ```
