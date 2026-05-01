@@ -496,13 +496,14 @@ with st.sidebar:
     if _LOGO_VERDE_B64 and _LOGO_DORADO_B64:
         st.markdown(f"""
         <div style="text-align:center; padding: 14px 0 10px 0;">
-            <div style="display:flex; justify-content:center; align-items:center; gap:14px;">
+            <div style="display:flex; justify-content:center; align-items:center; gap:18px;">
                 <img src="data:image/png;base64,{_LOGO_VERDE_B64}"
-                     style="height:64px; width:auto;" alt="Inter verde"/>
+                     style="height:128px; width:auto;" alt="Inter verde"/>
                 <img src="data:image/png;base64,{_LOGO_DORADO_B64}"
-                     style="height:64px; width:auto;" alt="Inter dorado"/>
+                     style="height:128px; width:auto;" alt="Inter dorado"/>
             </div>
-            <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:8px;">FUTBOL SALA</div>
+            <div style="font-size:1.4rem; font-weight:900; color:#4CAF50; letter-spacing:2px; margin-top:14px;">INTER</div>
+            <div style="font-size:0.75rem; color:#BBCDE8; letter-spacing:4px; margin-top:-2px;">FUTBOL SALA</div>
             <div style="width:60px; height:3px; background:#4CAF50; margin:8px auto 0 auto; border-radius:2px;"></div>
         </div>
         """, unsafe_allow_html=True)
@@ -698,11 +699,14 @@ with tab_sem:
     #                                   RAYA, JAVI, PANI, PIRATA, BARONA, CARLOS
     #  Grupo 3: Portero filial        → OSCAR
     #  Grupo 4: Campo filial          → RUBIO, JAIME, SEGO, DANI, NACHO + resto
-    GRUPO_PORT_1ER = ["J.HERRERO", "J.GARCIA"]
+    # Aliases por si el nombre llega con/sin prefijo "J." (la vista usa
+    # "HERRERO"/"GARCIA" pero el roster guarda "J.HERRERO"/"J.GARCIA").
+    GRUPO_PORT_1ER = ["HERRERO", "J.HERRERO", "GARCIA", "J.GARCIA"]
     GRUPO_CAMPO_1ER = ["CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
                         "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"]
     GRUPO_PORT_FIL = ["OSCAR"]
-    GRUPO_CAMPO_FIL_PRIO = ["RUBIO", "JAIME", "SEGO", "DANI", "NACHO"]
+    GRUPO_CAMPO_FIL_PRIO = ["RUBIO", "JAIME", "SEGO", "DANI", "NACHO",
+                              "GONZALO", "GONZA", "PABLO", "GABRI"]
 
     def _grupo_de(nombre: str) -> tuple[int, int]:
         """(idx_grupo, idx_dentro_del_grupo). Cuanto menor mejor."""
