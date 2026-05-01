@@ -4143,14 +4143,23 @@ with tab_goles:
     
             # Filtros
             c1, c2 = st.columns(2)
-            comp_op = ["TODAS"] + sorted(ev["tipo"].dropna().unique().tolist())
-            sel_comp = c1.selectbox("Competición", comp_op, key="g_comp")
+            comp_op = sorted(ev["tipo"].dropna().unique().tolist())
+            sel_comp = c1.multiselect(
+                "Competiciones", comp_op,
+                default=comp_op,
+                key="g_comp_multi",
+                help="Puedes elegir varias. Por defecto se muestran todas. "
+                     "Deselecciona las que no quieras ver.",
+            )
             eq_op = ["TODOS", "A FAVOR (INTER)", "EN CONTRA (RIVAL)"]
             sel_eq = c2.selectbox("Equipo", eq_op, key="g_eq")
-    
+
             ev_f = ev.copy()
-            if sel_comp != "TODAS":
-                ev_f = ev_f[ev_f["tipo"] == sel_comp]
+            if sel_comp:
+                ev_f = ev_f[ev_f["tipo"].isin(sel_comp)]
+            else:
+                # Sin ninguna competición seleccionada → vacío (no mostrar nada)
+                ev_f = ev_f.iloc[0:0]
             if sel_eq == "A FAVOR (INTER)":
                 ev_f = ev_f[ev_f["equipo_marca"] == "INTER"]
             elif sel_eq == "EN CONTRA (RIVAL)":
