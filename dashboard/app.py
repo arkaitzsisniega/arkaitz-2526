@@ -34,15 +34,36 @@ def _check_password():
     Devuelve True si está autenticado o si no hay contraseña configurada."""
     pwd_correct = None
     err_secret = None
+    debug_top = []
+    debug_gcp = []
     try:
-        # Probar varias formas por si una falla
+        # 1) Buscar al nivel raíz de secrets
         if "APP_PASSWORD" in st.secrets:
             pwd_correct = st.secrets["APP_PASSWORD"]
         else:
             pwd_correct = st.secrets.get("APP_PASSWORD", None)
+        # 2) Si no está al nivel raíz, probar dentro de [gcp_service_account]
+        #    (caso típico: la línea APP_PASSWORD se coló dentro del bloque)
+        if not pwd_correct and "gcp_service_account" in st.secrets:
+            sub = st.secrets["gcp_service_account"]
+            try:
+                if "APP_PASSWORD" in sub:
+                    pwd_correct = sub["APP_PASSWORD"]
+            except Exception:
+                pass
+        # Recoger nombres de claves visibles (NO sus valores) para debug
+        try:
+            debug_top = list(st.secrets.keys())
+        except Exception:
+            debug_top = ["<no disponible>"]
+        try:
+            if "gcp_service_account" in st.secrets:
+                debug_gcp = list(st.secrets["gcp_service_account"].keys())
+        except Exception:
+            debug_gcp = []
     except Exception as e:
         err_secret = f"{type(e).__name__}: {e}"
-    # Si no hay contraseña configurada → acceso libre (útil en local)
+    # Si no hay contraseña configurada → acceso libre con debug visible
     if not pwd_correct:
         st.warning(
             "⚠️ **APP_PASSWORD no se está leyendo de `st.secrets`.** "
@@ -50,6 +71,9 @@ def _check_password():
             "Configura el secret en Streamlit Cloud → Settings → Secrets, "
             "y haz **Reboot** de la app."
             + (f"\n\n_Error técnico:_ `{err_secret}`" if err_secret else "")
+            + f"\n\n_Claves visibles a nivel raíz:_ `{debug_top}`"
+            + (f"\n\n_Claves dentro de `gcp_service_account`:_ `{debug_gcp}`"
+               if debug_gcp else "")
         )
         return True
     # Ya autenticado en esta sesión
