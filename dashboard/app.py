@@ -345,10 +345,12 @@ def cargar(hoja: str) -> pd.DataFrame:
         # Usar la segunda fila como cabecera real (la primera son grupos de color)
         headers = rows[1] if len(rows) > 1 else rows[0]
         # Desduplicar cabeceras vacías
+        # ⚠️ str(h) primero: si la cabecera viene como int (ej. "8" como dorsal
+        # o "2026" como año), .strip() pelea sin convertir antes a string.
         seen = {}
         clean = []
         for h in headers:
-            h = h.strip()
+            h = str(h).strip() if h is not None else ""
             if h == "":
                 h = "_VACÍO"
             if h in seen:
