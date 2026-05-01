@@ -63,7 +63,7 @@ GRIS_CLARO = colors.HexColor("#F5F5F5")
 TIPOS_CORNERS = ["VOLEA 1", "VOLEA 2", "3 -- 1", "3 -- 2",
                   "CAPITÁN 1", "CAPITÁN 2", "CORTA"]
 TIPOS_BANDAS = ["MANOS", "TRIÁN. 1", "TRIÁN. 2", "CAMSAC", "VERT.",
-                 "TALAVERA", "PEGA", "SPORT.", "1 x 1", "JOKIC",
+                 "TALAV.", "PEGA", "SPORT.", "1 x 1", "JOKIC",
                  "VALDE."]
 
 
