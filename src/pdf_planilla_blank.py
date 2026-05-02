@@ -615,16 +615,19 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                                   fontName="Helvetica-Bold", alignment=1,
                                   leading=11)
 
+    # Spacers entre bloques. Iterado para encontrar el máximo que cabe
+    # en 1 página A4 vertical: (20,20,18,12). Con (25,25,22,14) ya se
+    # desborda a 2 páginas. Da aire visual entre las 4 grandes secciones.
     flowables = [
         t_jug,
-        Spacer(1, 4),
+        Spacer(1, 20),
         barra_goles,
         t_goles,
-        Spacer(1, 4),
+        Spacer(1, 20),
         bloque_af,
-        Spacer(1, 2),
+        Spacer(1, 18),
         bloque_ec,
-        Spacer(1, 3),
+        Spacer(1, 12),
         Paragraph("✗ DISPARO FUERA &nbsp;&nbsp;&nbsp;&nbsp; "
                    "⊙ DISPARO A PUERTA &nbsp;&nbsp;&nbsp;&nbsp; "
                    "⊗ GOL", p_leyenda),
