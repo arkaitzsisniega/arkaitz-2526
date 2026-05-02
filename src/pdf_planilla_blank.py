@@ -677,10 +677,10 @@ def _bloque_parte_compa(jugadores, titulo_parte: str) -> Table:
 
     anchos = [1.1*cm, 3.5*cm, 0.95*cm, 0.95*cm,
               1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm]
-    # Filas más altas: hay margen abajo en A4 vertical y deja más espacio
-    # para escribir números a mano cómodamente.
-    h_h = 0.62*cm
-    h_f = 0.62*cm
+    # Filas aún más altas: hay margen abajo en A4 vertical y deja mucho
+    # más espacio para escribir números a mano cómodamente.
+    h_h = 0.75*cm
+    h_f = 0.75*cm
     rh = [h_h] + [h_f]*14 + [h_h]
     t_jug = Table(rows, colWidths=anchos, rowHeights=rh)
 
@@ -801,7 +801,8 @@ def _planilla_compa(jugadores) -> list:
     bloque_2 = _bloque_parte_compa(jugadores, "2ª PARTE")
     return [
         bloque_1,
-        Spacer(1, 8),
+        # Más separación entre BANDAS de 1ª parte y mini-título 2ª parte.
+        Spacer(1, 22),
         bloque_2,
     ]
 

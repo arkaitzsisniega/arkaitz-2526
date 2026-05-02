@@ -4167,9 +4167,16 @@ with tab_goles:
     
             # ── Goles por intervalos de 5 min — LADO A LADO ─────────────────────
             st.markdown("#### Goles por intervalo de 5 minutos")
+            # Respeta el filtro de competiciones (sel_comp) pero no el de
+            # equipo, porque el chart muestra A favor + En contra a la vez.
+            ev_chart = ev.copy()
+            if sel_comp:
+                ev_chart = ev_chart[ev_chart["tipo"].isin(sel_comp)]
+            else:
+                ev_chart = ev_chart.iloc[0:0]
             orden_ints = ["0-5", "5-10", "10-15", "15-20",
                           "20-25", "25-30", "30-35", "35-40"]
-            piv5 = (ev.groupby(["intervalo_5min", "equipo_marca"]).size()
+            piv5 = (ev_chart.groupby(["intervalo_5min", "equipo_marca"]).size()
                     .unstack(fill_value=0).reindex(orden_ints, fill_value=0))
             for col in ("INTER", "RIVAL"):
                 if col not in piv5.columns:
