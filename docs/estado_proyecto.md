@@ -9,10 +9,26 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 ## 🔔 RECORDATORIOS PROGRAMADOS
 
 > Si hoy **lunes 4 de mayo 2026 o posterior** y el usuario aún no ha
-> mencionado **Oliver auto-refresh token**, recordárselo en cuanto
-> arranquemos: el plan es script Playwright + LaunchAgent macOS para que
-> al encender el Mac cada mañana se renueve el token sin intervención
-> manual. Estimación: 3-4h. (Apuntado el 30/04/2026, a petición suya.)
+> mencionado los temas de abajo, recordárselos en cuanto arranquemos.
+> Apuntados el 30/04 y 02/05/2026 a petición suya.
+>
+> **1. Oliver auto-refresh token** — script Playwright + LaunchAgent
+> macOS para que al encender el Mac cada mañana se renueve el token
+> sin intervención manual. Estimación: 3-4h.
+>
+> **2. Planillas de Lesiones + Tratamientos para fisios** — DESPUÉS de
+> Oliver. Objetivo: que los fisios metan datos directamente (sin pasar
+> por Arkaitz como intermediario). Considerar:
+> - Pestaña dentro del dashboard con permisos de fisio (form de
+>   creación/edición de lesiones y tratamientos), o
+> - Form separado (Google Forms, similar al sistema PRE/POST que ya
+>   existe), o
+> - Bot de Telegram dedicado a fisios.
+> - Importante: cuando un usuario que NO sea fisio/médico/admin acceda
+>   a la info de lesiones, los nombres deben aparecer **anonimizados
+>   por dorsal** ("el 8" en vez de "RAYA"). Esto está apuntado en la
+>   sección "🔐 ROLES Y PERMISOS — pendiente para más adelante" de
+>   este mismo documento.
 
 ---
 
