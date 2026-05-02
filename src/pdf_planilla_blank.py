@@ -368,10 +368,12 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
             d, n = "", ""
         rows.append([d, n, "", "", "", "", "", "", "", "", "", "", ""])
 
-    # A4 vertical útil ~19cm. Las 11 columnas de métricas (TA, ROJ, DP,
-    # DPalo, DB, DF, FUERA, POSTE, BLOQ, PARADA, GOL) iguales: 1.4cm.
-    # NUM(0.7) + JUG(2.6) + 11×1.4 = 18.7cm
-    anchos_jug = [0.7*cm, 2.6*cm] + [1.4*cm] * 11
+    # A4 vertical útil ~19cm.
+    # T.A y T.R (cols 2,3) más estrechas (0.7cm cada una): solo se escribe X.
+    # El resto de 9 cols métricas (DP, DPalo, DB, DF, FUERA, POSTE, BLOQ,
+    # PARADA, GOL) ganan ancho: 1.55cm cada una.
+    # NUM(0.7) + JUG(2.6) + T.A(0.7) + T.R(0.7) + 9×1.55 = 18.65cm ≈ 18.7cm
+    anchos_jug = [0.7*cm, 2.6*cm, 0.7*cm, 0.7*cm] + [1.55*cm] * 9
     h_header = 0.55*cm
     h_fila = 0.45*cm
     rh_jug = [h_header] + [h_fila] * n_filas
@@ -452,9 +454,11 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     for _ in range(10):
         rows_g.append([""] * 7)
     # Total 18.7cm (mismo ancho que tabla jugadores).
-    # ROTACIÓN ancha para escribir 4-5 jugadores en pista. ACCIÓN
-    # estrecha porque solo va el tipo (Banda, Córner, 4x4...).
-    anchos_g = [1.5*cm, 0.8*cm, 1.9*cm, 1.0*cm, 2.4*cm, 4.0*cm, 7.1*cm]
+    # MIN ancha (2.4cm) porque va el minuto MM:SS. ASIST estrecha
+    # (1.0cm) porque solo va el dorsal del asistente (2 cifras).
+    # ROTACIÓN ancha para 4-5 jugadores en pista. ACCIÓN estrecha
+    # porque solo va el tipo (Banda, Córner, 4x4...).
+    anchos_g = [1.5*cm, 0.8*cm, 1.9*cm, 2.4*cm, 1.0*cm, 4.0*cm, 7.1*cm]
     h_g = 0.42*cm
     t_goles = Table(rows_g, colWidths=anchos_g,
                      rowHeights=[0.5*cm] + [h_g] * 10)
@@ -489,24 +493,26 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     # Total ancho: 4 + 9 + 4 = 17cm; centrado en 19cm útil
     # ═════════════════════════════════════════════════════════════════
     # A4 vertical útil ~19cm.
-    # Bloque: portería(6.5cm) + mapa(8.0cm) + faltas(4.0cm) = 18.5cm
-    # Altura del bloque: 5.5cm. Mapa y portería con la MISMA altura.
-    # crop_borde=4: recorta el borde rojo que el PNG ya trae para que el
-    # borde verde/rojo del TableStyle no se solape con él.
-    img_inter = _logo(mapa_inter, 8.0, 5.5,
+    # Layout interior: portería(6.0) | sep(0.5) | mapa(7.5) | sep(0.5)
+    #                  | faltas(4.0) = 18.5cm
+    # Altura del bloque reducida 20%: de 5.5cm → 4.4cm (mismo alto en
+    # portería, mapa y faltas).
+    # crop_borde=8: recorta el borde rojo/verde que el PNG ya trae para
+    # que el borde del TableStyle no se solape con él.
+    img_inter = _logo(mapa_inter, 7.5, 4.4,
                         proporcional=False, crop_borde=8) if mapa_inter and mapa_inter.exists() else Paragraph("", p_th)
-    img_rival = _logo(mapa_rival, 8.0, 5.5,
+    img_rival = _logo(mapa_rival, 7.5, 4.4,
                         proporcional=False, crop_borde=8) if mapa_rival and mapa_rival.exists() else Paragraph("", p_th)
-    # Portería: ESTIRADA a 6.5×5.5 (más ancha que antes, sin proporcional)
-    # para que ocupe más espacio y se vea bien.
-    img_port_af = _logo(img_porteria, 6.5, 5.5,
+    # Portería: 6.0×4.4 (sin proporcional, estirada ligeramente).
+    img_port_af = _logo(img_porteria, 6.0, 4.4,
                           proporcional=False) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
-    img_port_ec = _logo(img_porteria, 6.5, 5.5,
+    img_port_ec = _logo(img_porteria, 6.0, 4.4,
                           proporcional=False) if img_porteria and img_porteria.exists() else Paragraph("", p_th)
 
     def _tabla_faltas(equipo_label, color_borde):
         """Tabla de faltas estilo original: titulito + cabecera Nº/TIEMPO/JUG.
-        + 6 filas. La 6ª en rojo claro."""
+        + 8 filas (8 faltas posibles). La 6ª en rojo claro (la del 'doble
+        penalti'). Filas más altas para escribir cómodamente a boli."""
         h = []
         # Título "INTER MOVISTAR" o "RIVAL"
         h.append([Paragraph(equipo_label, p_th_dark), "", ""])
@@ -518,10 +524,12 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
         h.append([Paragraph("Nº", p_th_dark),
                    Paragraph("TIEMPO", p_th_dark),
                    Paragraph("JUG.", p_th_dark)])
-        for i in range(1, 7):
+        for i in range(1, 9):  # 8 faltas
             h.append([str(i), "", ""])
+        # 4 filas de cabecera + 8 de datos = 12 filas
+        # Filas de cabecera: 0.4cm. Filas de datos: 0.45cm (más altas).
         t = Table(h, colWidths=[0.7*cm, 1.7*cm, 1.4*cm],
-                   rowHeights=[0.4*cm]*4 + [0.35*cm]*6)
+                   rowHeights=[0.4*cm]*4 + [0.45*cm]*8)
         t.setStyle(TableStyle([
             ("SPAN", (0, 0), (2, 0)),
             ("SPAN", (0, 1), (2, 1)),
@@ -536,7 +544,7 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
             # Borde principal del color del equipo
             ("BOX", (0, 0), (-1, -1), 1.2, color_borde),
             ("INNERGRID", (0, 0), (-1, -1), 0.3, GRIS),
-            # 6ª falta en rojo claro
+            # 6ª falta en rojo claro (4 filas cabecera + 5 = índice 9 → fila 6 visible)
             ("BACKGROUND", (0, 9), (-1, 9), colors.HexColor("#FF5252")),
             ("TEXTCOLOR", (0, 9), (0, 9), colors.white),
             ("FONTNAME", (0, 9), (0, 9), "Helvetica-Bold"),
@@ -554,25 +562,26 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
                                  fontName="Helvetica-Bold", textColor=ROJO,
                                  alignment=1, leading=12)
 
-    # Layout: portería (5.5cm) | mapa (9cm) | tabla faltas (4cm). Total 18.5cm.
-    # Altura del bloque: 5.5cm (mismo alto en portería, mapa y faltas)
-    # BORDE del bloque: VERDE para A FAVOR, ROJO para EN CONTRA (siempre
-    # coincide con el título). El borde lo añadimos al Table, no al PNG.
+    # Layout: portería (6.0cm) | sep (0.5cm) | mapa (7.5cm) | sep (0.5cm)
+    #         | tabla faltas (4.0cm). Total 18.5cm.
+    # Las celdas separadoras de 0.5cm dan AIRE entre la portería y el
+    # mapa (antes estaban pegados) y entre el mapa y las faltas.
+    # Altura del bloque: 4.4cm (20% menos que antes).
+    # BORDE del bloque: VERDE para A FAVOR, ROJO para EN CONTRA. Va en
+    # la col 2 (mapa), no en la col 1 (separador).
     bloque_af = Table([
         [Paragraph("DISPAROS / GOLES A FAVOR", p_tit_af)],
-        [Table([[img_port_af, img_inter, t_faltas_inter]],
-                colWidths=[6.5*cm, 8.0*cm, 4.0*cm],
-                rowHeights=[5.5*cm],
+        [Table([[img_port_af, "", img_inter, "", t_faltas_inter]],
+                colWidths=[6.0*cm, 0.5*cm, 7.5*cm, 0.5*cm, 4.0*cm],
+                rowHeights=[4.4*cm],
                 style=TableStyle([
-                    # Borde verde alrededor del MAPA (col 1).
-                    # El PNG ya viene recortado (crop_borde=8) para que su
-                    # borde rojo/verde interno no se solape con éste.
-                    ("BOX", (1, 0), (1, 0), 2.0, VERDE),
+                    # Borde verde alrededor del MAPA (col 2).
+                    ("BOX", (2, 0), (2, 0), 2.0, VERDE),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEFTPADDING", (1, 0), (1, 0), 1),
-                    ("RIGHTPADDING", (1, 0), (1, 0), 1),
-                    ("TOPPADDING", (1, 0), (1, 0), 1),
-                    ("BOTTOMPADDING", (1, 0), (1, 0), 1),
+                    ("LEFTPADDING", (2, 0), (2, 0), 1),
+                    ("RIGHTPADDING", (2, 0), (2, 0), 1),
+                    ("TOPPADDING", (2, 0), (2, 0), 1),
+                    ("BOTTOMPADDING", (2, 0), (2, 0), 1),
                 ]))],
     ], colWidths=[18.5*cm])
     bloque_af.setStyle(TableStyle([
@@ -582,19 +591,17 @@ def _planilla_arkaitz(jugadores, parte_label, mapa_inter, mapa_rival,
     ]))
     bloque_ec = Table([
         [Paragraph("DISPAROS / GOLES EN CONTRA", p_tit_ec)],
-        [Table([[img_port_ec, img_rival, t_faltas_rival]],
-                colWidths=[6.5*cm, 8.0*cm, 4.0*cm],
-                rowHeights=[5.5*cm],
+        [Table([[img_port_ec, "", img_rival, "", t_faltas_rival]],
+                colWidths=[6.0*cm, 0.5*cm, 7.5*cm, 0.5*cm, 4.0*cm],
+                rowHeights=[4.4*cm],
                 style=TableStyle([
-                    # Borde rojo alrededor del MAPA (col 1).
-                    # El PNG ya viene recortado (crop_borde=8) para que su
-                    # borde rojo/verde interno no se solape con éste.
-                    ("BOX", (1, 0), (1, 0), 2.0, ROJO),
+                    # Borde rojo alrededor del MAPA (col 2).
+                    ("BOX", (2, 0), (2, 0), 2.0, ROJO),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEFTPADDING", (1, 0), (1, 0), 1),
-                    ("RIGHTPADDING", (1, 0), (1, 0), 1),
-                    ("TOPPADDING", (1, 0), (1, 0), 1),
-                    ("BOTTOMPADDING", (1, 0), (1, 0), 1),
+                    ("LEFTPADDING", (2, 0), (2, 0), 1),
+                    ("RIGHTPADDING", (2, 0), (2, 0), 1),
+                    ("TOPPADDING", (2, 0), (2, 0), 1),
+                    ("BOTTOMPADDING", (2, 0), (2, 0), 1),
                 ]))],
     ], colWidths=[18.5*cm])
     bloque_ec.setStyle(TableStyle([
@@ -670,8 +677,10 @@ def _bloque_parte_compa(jugadores, titulo_parte: str) -> Table:
 
     anchos = [1.1*cm, 3.5*cm, 0.95*cm, 0.95*cm,
               1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm]
-    h_h = 0.5*cm
-    h_f = 0.42*cm
+    # Filas más altas: hay margen abajo en A4 vertical y deja más espacio
+    # para escribir números a mano cómodamente.
+    h_h = 0.62*cm
+    h_f = 0.62*cm
     rh = [h_h] + [h_f]*14 + [h_h]
     t_jug = Table(rows, colWidths=anchos, rowHeights=rh)
 
