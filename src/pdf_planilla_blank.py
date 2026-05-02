@@ -677,10 +677,11 @@ def _bloque_parte_compa(jugadores, titulo_parte: str) -> Table:
 
     anchos = [1.1*cm, 3.5*cm, 0.95*cm, 0.95*cm,
               1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm, 1.92*cm]
-    # Filas aún más altas: hay margen abajo en A4 vertical y deja mucho
-    # más espacio para escribir números a mano cómodamente.
-    h_h = 0.75*cm
-    h_f = 0.75*cm
+    # Filas a 0.55cm: el máximo que cabe en 1 página A4 vertical
+    # incluyendo cabecera + separación entre partes + 2 tablas jugadores
+    # + córners/bandas. Con 0.58cm ya se desborda a 2ª página.
+    h_h = 0.55*cm
+    h_f = 0.55*cm
     rh = [h_h] + [h_f]*14 + [h_h]
     t_jug = Table(rows, colWidths=anchos, rowHeights=rh)
 
