@@ -379,8 +379,29 @@ def cargar(hoja: str) -> pd.DataFrame:
             ]
             for fila in rows
         ]
-        # Usar la segunda fila como cabecera real (la primera son grupos de color)
-        headers = rows[1] if len(rows) > 1 else rows[0]
+        # Detectar AUTOMÁTICAMENTE qué fila es la cabecera real:
+        # - Hojas como _VISTA_CARGA tienen cabecera ya en fila 1.
+        # - Hojas como LESIONES tienen 'grupos de color' en fila 1 (mayormente
+        #   vacía con celdas merged) y la cabecera real en fila 2.
+        # Heurística: si fila 1 tiene más celdas no-vacías que fila 2,
+        # fila 1 es la cabecera; si no, es la fila 2.
+        def _no_vacias(fila):
+            return sum(1 for c in fila if str(c).strip() != "")
+
+        if len(rows) >= 2:
+            f1_count = _no_vacias(rows[0])
+            f2_count = _no_vacias(rows[1])
+            if f1_count >= f2_count and f1_count > 0:
+                # Fila 1 ya es la cabecera (caso típico _VISTA_*)
+                headers = rows[0]
+                data_start = 1
+            else:
+                # Fila 1 son grupos coloreados, cabecera en fila 2 (LESIONES)
+                headers = rows[1]
+                data_start = 2
+        else:
+            headers = rows[0] if rows else []
+            data_start = 1
         # Desduplicar cabeceras vacías
         # ⚠️ str(h) primero: si la cabecera viene como int (ej. "8" como dorsal
         # o "2026" como año), .strip() pelea sin convertir antes a string.
@@ -396,7 +417,7 @@ def cargar(hoja: str) -> pd.DataFrame:
             else:
                 seen[h] = 0
             clean.append(h)
-        data_rows = rows[2:] if len(rows) > 2 else []
+        data_rows = rows[data_start:] if len(rows) > data_start else []
         return pd.DataFrame(data_rows, columns=clean)
 
 
