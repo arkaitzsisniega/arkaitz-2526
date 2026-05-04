@@ -1852,8 +1852,50 @@ with tab_antro:
 
             st.markdown("---")
 
+            # ── Función de color por sumatorio 6 pliegues ──
+            # Rangos pedidos por Arkaitz:
+            #   <30        : rojo (bajo, demasiado magro?)
+            #   30 a 45    : verde       (excelente)
+            #   45 a 50    : verde claro (bueno)
+            #   50 a 60    : amarillo    (aceptable)
+            #   60 a 80    : naranja     (regular)
+            #   >80        : rojo        (bajo rendimiento)
+            def _color_sumatorio(v):
+                """Devuelve el color de fondo CSS según el valor del sumatorio."""
+                try:
+                    x = float(v)
+                except (TypeError, ValueError):
+                    return ""
+                if pd.isna(x):
+                    return ""
+                if x < 30:
+                    return "#FFCDD2"   # rojo claro
+                if x <= 45:
+                    return "#A5D6A7"   # verde
+                if x <= 50:
+                    return "#C8E6C9"   # verde claro
+                if x <= 60:
+                    return "#FFF59D"   # amarillo
+                if x <= 80:
+                    return "#FFCC80"   # naranja
+                return "#FFCDD2"        # rojo (>80)
+
+            # Bandas para el gráfico (referencias visuales)
+            BANDAS_SUMATORIO = [
+                (0, 30,    "rgba(244,67,54,0.10)",   "<30"),
+                (30, 45,   "rgba(76,175,80,0.10)",   "30-45 excelente"),
+                (45, 50,   "rgba(165,214,167,0.10)", "45-50 bueno"),
+                (50, 60,   "rgba(255,235,59,0.10)",  "50-60 aceptable"),
+                (60, 80,   "rgba(255,152,0,0.10)",   "60-80 regular"),
+                (80, 200,  "rgba(244,67,54,0.10)",   ">80 bajo rendimiento"),
+            ]
+
             # ── Tabla con la última medición de cada jugador ──
             st.markdown("#### Última medición por jugador")
+            st.caption("La fila completa se colorea según el **Sumatorio 6 pliegues**. "
+                       "🟢 Verde (30-45) excelente · 🟢 Verde claro (45-50) bueno · "
+                       "🟡 Amarillo (50-60) aceptable · 🟠 Naranja (60-80) regular · "
+                       "🔴 Rojo (<30 o >80) bajo rendimiento.")
             ultimas = (df_a_show.sort_values("fecha_medicion")
                           .groupby("jugador").tail(1)
                           .sort_values("jugador").reset_index(drop=True))
@@ -1865,18 +1907,27 @@ with tab_antro:
             cols_ult = [c for c in cols_ult if c in ultimas.columns]
             ult_show = ultimas[cols_ult].copy()
             ult_show["fecha_medicion"] = ult_show["fecha_medicion"].dt.strftime("%d/%m/%Y")
-            st.dataframe(ult_show, use_container_width=True, hide_index=True)
+
+            def _colorear_fila(row):
+                color = _color_sumatorio(row.get("sumatorio_6_pliegues_mm"))
+                if color:
+                    return [f"background-color: {color}"] * len(row)
+                return [""] * len(row)
+            styled_ult = ult_show.style.apply(_colorear_fila, axis=1)
+            st.dataframe(styled_ult, use_container_width=True, hide_index=True)
 
             st.markdown("---")
 
             # ── Evolución por jugador ──
             st.markdown("#### Evolución temporal")
+            st.caption("Por defecto se grafica el **Sumatorio 6 pliegues** con bandas "
+                       "de color al fondo según los rangos de referencia.")
             metricas_disponibles = {
+                "Sumatorio 6 pliegues (mm)": "sumatorio_6_pliegues_mm",
                 "Peso (kg)": "peso_kg",
                 "IMC": "imc",
                 "% Masa grasa (Yuhasz)": "masa_grasa_yuhasz_pct",
                 "% Masa grasa (Faulkner)": "masa_grasa_faulkner_pct",
-                "Sumatorio 6 pliegues (mm)": "sumatorio_6_pliegues_mm",
                 "Masa muscular (kg)": "masa_muscular_kg",
                 "Tríceps (mm)": "tríceps_mm",
                 "Subescapular (mm)": "subescapular_mm",
@@ -1891,6 +1942,7 @@ with tab_antro:
             metrica_sel = st.selectbox(
                 "Métrica a graficar",
                 list(metricas_disponibles.keys()),
+                index=0,  # Sumatorio 6 pliegues por defecto
                 key="antro_metrica",
             )
             col_metrica = metricas_disponibles[metrica_sel]
@@ -1907,6 +1959,16 @@ with tab_antro:
                         color_discrete_map=color_jug(df_plot["jugador"].unique()),
                         title=f"{metrica_sel} — evolución por jugador",
                     )
+                    # Si la métrica es sumatorio 6 pliegues, añadir bandas
+                    if col_metrica == "sumatorio_6_pliegues_mm":
+                        for y0, y1, color, label in BANDAS_SUMATORIO:
+                            fig_antro.add_hrect(
+                                y0=y0, y1=y1, fillcolor=color,
+                                line_width=0, layer="below",
+                                annotation_text=label,
+                                annotation_position="right",
+                                annotation_font_size=10,
+                            )
                     fig_antro.update_layout(**LAYOUT, height=500,
                                               xaxis_title="Fecha de medición",
                                               yaxis_title=metrica_sel)
@@ -4039,14 +4101,14 @@ with tab_partido:
             df_tmin = tabla_min[["dorsal", "jugador", "min_1t", "min_2t", "min_total"]]
 
             # Aplicar gradient por columna usando los valores NUMÉRICOS (de _num)
-            # via Styler.apply(axis=0) sobre cada columna numérica
+            # via Styler.apply(axis=0) sobre cada columna numérica.
+            # invertir=True → valores ALTOS = verde, valores BAJOS = rojo.
+            # Es lo correcto para minutos: más tiempo jugado = mejor (verde).
             def _style_min_col(col_label_num):
                 def _styler(s_visual):
-                    # s_visual son los strings mm:ss; usamos col paralela _num
-                    valores = tabla_min[col_label_num]
                     return _aplicar_gradient_columna(
                         tabla_min, col_label_num,
-                        filas_excluidas=idx_porteros, invertir=False,
+                        filas_excluidas=idx_porteros, invertir=True,
                     ).reindex(s_visual.index, fill_value="").tolist()
                 return _styler
 

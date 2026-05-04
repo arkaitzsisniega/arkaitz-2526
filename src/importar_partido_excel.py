@@ -227,12 +227,30 @@ def parsear_hoja(ws) -> dict:
         elif accion_str.startswith("EC."):
             equipo = "RIVAL"
             accion_norm = accion_str.replace("EC.", "").strip()
+        # Cuarteto en pista (cols 15,17,19,21), portero (col 13)
+        # Goleador (col 23), asistente (col 26)
+        portero = str(ws.cell(r, 13).value or "").strip().upper()
+        cuarteto_jugs = []
+        for col_c in (15, 17, 19, 21):
+            v = ws.cell(r, col_c).value
+            if v and str(v).strip():
+                cuarteto_jugs.append(str(v).strip().upper())
+        cuarteto_str = "|".join(cuarteto_jugs) if cuarteto_jugs else ""
+        goleador = str(ws.cell(r, 23).value or "").strip().upper()
+        asistente = str(ws.cell(r, 26).value or "").strip().upper()
+        # "RIVAL" como goleador → vaciar (no es un nombre de jugador)
+        if goleador == "RIVAL":
+            goleador = ""
         out["goles"].append({
             "minuto_seg": seg,
             "marcador": str(marcador).strip() if marcador else "",
             "accion_raw": accion_str,
             "accion": accion_norm,
             "equipo_marca": equipo,
+            "portero": portero,
+            "cuarteto": cuarteto_str,
+            "goleador": goleador,
+            "asistente": asistente,
         })
 
     # Marcador final = último gol
@@ -449,6 +467,10 @@ def escribir_a_sheet(datos: dict, partido_id: str, fecha: str, tipo: str):
             "accion": g["accion"],
             "marcador": g["marcador"],
             "equipo_marca": g["equipo_marca"],
+            "goleador": g.get("goleador", ""),
+            "asistente": g.get("asistente", ""),
+            "portero": g.get("portero", ""),
+            "cuarteto": g.get("cuarteto", ""),
         }
         filas_ev.append([str(fila_dict.get(h, "")) for h in headers_ev])
 

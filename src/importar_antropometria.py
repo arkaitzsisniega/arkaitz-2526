@@ -348,7 +348,11 @@ def main():
                                 cols=len(COLS_HOJA) + 5)
         time.sleep(0.5)
 
-    # Construir filas (con cabeceras)
+    # Construir filas. IMPORTANTE: pasar VALORES NATIVOS (no str()) para
+    # que Sheets reciba números como number y strings como text. Si paso
+    # todo como str() y luego uso value_input_option=USER_ENTERED, Sheets
+    # interpreta algunos valores numéricos como FECHAS según locale y los
+    # convierte a serial (ej. 21.7 → 46224 = 2026-07-22).
     valores = [COLS_HOJA]
     for m in todas_filas:
         fila = []
@@ -356,16 +360,75 @@ def main():
             v = m.get(c, "")
             if v is None:
                 fila.append("")
+            elif isinstance(v, (int, float)):
+                fila.append(v)  # nativo: Sheets lo guarda como number
             else:
                 fila.append(str(v))
         valores.append(fila)
 
     last_col_letter = chr(64 + len(COLS_HOJA)) if len(COLS_HOJA) <= 26 else (
         chr(64 + (len(COLS_HOJA)-1)//26) + chr(65 + (len(COLS_HOJA)-1) % 26))
+
+    # PRIMERO: forzar formato de TODAS las columnas numéricas a NUMBER
+    # plain (sin DATE auto) para evitar que Sheets aplique formato DATE
+    # heredado del entorno locale.
+    sh = ws.spreadsheet
+    requests = []
+    # Columna fecha_medicion (idx 0) → DATE
+    # Columna jugador (idx 1) → TEXT
+    # Columna dorsal (idx 2) → TEXT
+    # Columnas peso, altura, imc, ..., medicion_n (idx 3 al final) → NUMBER
+    text_cols = [1, 2]  # jugador, dorsal
+    date_cols = [0]
+    number_cols = [i for i in range(len(COLS_HOJA))
+                    if i not in text_cols and i not in date_cols]
+    for col_idx in number_cols:
+        requests.append({
+            "repeatCell": {
+                "range": {"sheetId": ws.id,
+                           "startColumnIndex": col_idx,
+                           "endColumnIndex": col_idx + 1,
+                           "startRowIndex": 1},  # excluir cabecera
+                "cell": {"userEnteredFormat": {
+                    "numberFormat": {"type": "NUMBER", "pattern": "0.##"}
+                }},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        })
+    for col_idx in text_cols:
+        requests.append({
+            "repeatCell": {
+                "range": {"sheetId": ws.id,
+                           "startColumnIndex": col_idx,
+                           "endColumnIndex": col_idx + 1,
+                           "startRowIndex": 1},
+                "cell": {"userEnteredFormat": {
+                    "numberFormat": {"type": "TEXT"}
+                }},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        })
+    for col_idx in date_cols:
+        requests.append({
+            "repeatCell": {
+                "range": {"sheetId": ws.id,
+                           "startColumnIndex": col_idx,
+                           "endColumnIndex": col_idx + 1,
+                           "startRowIndex": 1},
+                "cell": {"userEnteredFormat": {
+                    "numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}
+                }},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        })
+    if requests:
+        sh.batch_update({"requests": requests})
+
+    # AHORA escribir los datos con USER_ENTERED (que respetará el formato)
     ws.update(values=valores,
                 range_name=f"A1:{last_col_letter}{len(valores)}",
                 value_input_option="USER_ENTERED")
-    # Formato cabecera
+    # Formato cabecera (encima del numberFormat)
     ws.format(f"A1:{last_col_letter}1", {
         "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
         "backgroundColor": {"red": 0.10, "green": 0.23, "blue": 0.42},
