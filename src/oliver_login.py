@@ -1,17 +1,20 @@
 """
 oliver_login.py — Login automático en Oliver Sports vía HTTP.
 
-Sin Playwright. Solo una request POST a /v1/auth/login con:
-  - email
-  - password
-  - device_id (UUID estable, generado y guardado en .env)
+Replica EXACTAMENTE el payload que envía el frontend de Oliver:
+  POST /v1/auth/login  con  {"user_name": ..., "password": ...}
+
+(El frontend tiene una función n(e){e()} que es un placeholder de
+reCAPTCHA, pero al llamarse n(i) sin argumentos, rc_token queda
+undefined y se omite del JSON. Por tanto solo van user_name y password.)
 
 Devuelve token (2h) + refresh_token (14 días) y los escribe en .env.
 
 Variables .env necesarias:
-  OLIVER_EMAIL     = email de la cuenta
+  OLIVER_USER_NAME = el username de Oliver (ej. "Txubas").
+                       También acepta OLIVER_EMAIL por compatibilidad
+                       con la versión inicial del .env.
   OLIVER_PASSWORD  = contraseña
-  OLIVER_DEVICE_ID = UUID (se genera automáticamente la primera vez)
 
 Uso:
   /usr/bin/python3 src/oliver_login.py            # login y guardar tokens
@@ -25,7 +28,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import uuid
 from pathlib import Path
 
 import requests
@@ -76,55 +78,40 @@ def _guardar_env(claves: dict) -> None:
     ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
-def _asegurar_device_id(env: dict) -> str:
-    """Devuelve el OLIVER_DEVICE_ID. Si no existe, lo genera y guarda."""
-    did = env.get("OLIVER_DEVICE_ID", "").strip()
-    if not did:
-        did = str(uuid.uuid4())
-        _guardar_env({"OLIVER_DEVICE_ID": did})
-        print(f"🆕 OLIVER_DEVICE_ID generado y guardado en .env")
-    return did
-
-
 def oliver_login() -> bool:
-    """Hace login en Oliver con email+password+device_id y guarda los
+    """Hace login en Oliver con user_name+password y guarda los
     tokens nuevos en .env. Devuelve True/False."""
     env = _leer_env()
 
-    email = env.get("OLIVER_EMAIL", "").strip()
+    # Acepta OLIVER_USER_NAME (nuevo) o OLIVER_EMAIL (legacy) por compat.
+    user = (env.get("OLIVER_USER_NAME", "").strip()
+            or env.get("OLIVER_EMAIL", "").strip())
     password = env.get("OLIVER_PASSWORD", "").strip()
-    if not email or not password:
-        print("❌ Faltan OLIVER_EMAIL y/o OLIVER_PASSWORD en .env")
+    if not user or not password:
+        print("❌ Faltan OLIVER_USER_NAME y/o OLIVER_PASSWORD en .env")
         print()
         print("Añade al final del archivo .env:")
-        print("  OLIVER_EMAIL=tu-email@dominio.com")
+        print("  OLIVER_USER_NAME=Tu_usuario_de_Oliver")
         print("  OLIVER_PASSWORD=tu-contraseña")
         print()
         print("Después ejecuta:")
         print("  /usr/bin/python3 src/oliver_login.py")
         return False
 
-    device_id = _asegurar_device_id(env)
-
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "x-from": "portal",
-        "x-version": OLIVER_VERSION,
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 "
-            "Safari/605.1.15"),
-        "Accept-Language": "es-ES,es;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
     }
+    # IMPORTANTE: el frontend SOLO manda user_name + password.
+    # El "rc_token" que aparece en el código del frontend queda undefined
+    # cuando el form se envía (función n(i) llama a i() sin argumentos),
+    # y JSON.stringify omite los undefined → no llega al backend.
     payload = {
-        "email": email,
+        "user_name": user,
         "password": password,
-        "device_id": device_id,
     }
 
-    print(f"🔐 Login en Oliver con email {email[:3]}***@***")
+    print(f"🔐 Login en Oliver con usuario {user[:3]}***")
     try:
         r = requests.post(f"{OLIVER_API}/auth/login",
                             headers=headers, json=payload, timeout=15)

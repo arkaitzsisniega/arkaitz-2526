@@ -44,14 +44,21 @@ token válido, sin intervención manual.
 ## Variables .env necesarias
 
 ```
-OLIVER_EMAIL=tu-email@dominio.com
+OLIVER_USER_NAME=Tu_usuario_de_Oliver  # ej. "Txubas" — NO es email
 OLIVER_PASSWORD=tu-contraseña
-OLIVER_DEVICE_ID=<UUID auto-generado la primera vez>
 OLIVER_USER_ID=<auto>
 OLIVER_TEAM_ID=1728
 OLIVER_TOKEN=<auto>
 OLIVER_REFRESH_TOKEN=<auto>
 ```
+
+⚠️ **`OLIVER_USER_NAME` NO es un email**: es el username con el que
+entras a Oliver (ej. "Txubas"). Si tu username es realmente un email,
+también funciona — el campo del payload es `user_name` independientemente
+del formato.
+
+Por compatibilidad, el script también acepta `OLIVER_EMAIL` con el
+mismo valor (es decir, el username, no un email).
 
 ⚠️ **Importante**: el `.env` está en `.gitignore`, no se sube al repo.
 Las credenciales nunca salen de la máquina.
@@ -65,11 +72,12 @@ Las credenciales nunca salen de la máquina.
 Abre `/Users/mac/Desktop/Arkaitz/.env` con TextEdit y añade al final:
 
 ```
-OLIVER_EMAIL=tu-email-de-oliver@dominio.com
+OLIVER_USER_NAME=Tu_usuario_de_Oliver
 OLIVER_PASSWORD=tu-contraseña-de-oliver
 ```
 
-(El `OLIVER_DEVICE_ID` se genera automáticamente la primera vez.)
+⚠️ `OLIVER_USER_NAME` debe ser el **username** con el que entras a
+Oliver (lo ves arriba a la derecha cuando estás logueado), NO un email.
 
 ### Paso 2: Probar el login manual
 
