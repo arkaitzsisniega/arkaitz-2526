@@ -348,11 +348,43 @@ def get_client():
     return gspread.authorize(creds)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_resource(show_spinner=False)
+def get_spreadsheet():
+    """Cachea el handle del Sheet para no llamar a client.open() en cada
+    cargar(). client.open() hace un fetch de metadata que cuenta como
+    una read y suma rápido al rate-limit (60 reads/min)."""
+    import time as _time
+    last_err = None
+    for intento in range(4):
+        try:
+            return get_client().open(SHEET_NAME)
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 5)  # 5, 10, 20, 40s
+                continue
+            raise
+    raise last_err if last_err else RuntimeError("No se pudo abrir el Sheet")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
 def cargar(hoja: str) -> pd.DataFrame:
-    client = get_client()
-    ss     = client.open(SHEET_NAME)
-    ws     = ss.worksheet(hoja)
+    """Carga una hoja con retry automático ante 429 (rate-limit)."""
+    import time as _time
+    ss = get_spreadsheet()
+    last_err = None
+    for intento in range(4):
+        try:
+            ws = ss.worksheet(hoja)
+            break
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 3)  # 3, 6, 12, 24s
+                continue
+            raise
+    else:
+        raise last_err if last_err else RuntimeError(f"No se pudo abrir hoja {hoja}")
     try:
         # UNFORMATTED → números como float puro (no "17,1" que rompe pd.to_numeric)
         data = ws.get_all_records(
@@ -424,18 +456,47 @@ def cargar(hoja: str) -> pd.DataFrame:
 SHEET_FISIOS_NAME = "Arkaitz - Lesiones y Tratamientos 2526"
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_resource(show_spinner=False)
+def get_spreadsheet_fisios():
+    """Cachea handle del Sheet de fisios. Igual que get_spreadsheet pero
+    para el Sheet de Lesiones/Tratamientos. Devuelve None si no existe."""
+    import time as _time
+    for intento in range(3):
+        try:
+            return get_client().open(SHEET_FISIOS_NAME)
+        except gspread.exceptions.SpreadsheetNotFound:
+            return None
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 5)
+                continue
+            return None
+        except Exception:
+            return None
+    return None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
 def cargar_fisios(hoja: str) -> pd.DataFrame:
-    """Lee una hoja del Sheet de fisios (Lesiones y Tratamientos).
-    Devuelve DataFrame vacío si el Sheet no existe (aún no creado)."""
-    try:
-        client = get_client()
-        ss = client.open(SHEET_FISIOS_NAME)
-        ws = ss.worksheet(hoja)
-        data = ws.get_all_records()
-        return pd.DataFrame(data)
-    except Exception:
+    """Lee una hoja del Sheet de fisios. Devuelve DataFrame vacío si el
+    Sheet no existe o si falla con 429."""
+    import time as _time
+    ss = get_spreadsheet_fisios()
+    if ss is None:
         return pd.DataFrame()
+    for intento in range(3):
+        try:
+            ws = ss.worksheet(hoja)
+            data = ws.get_all_records()
+            return pd.DataFrame(data)
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 3)
+                continue
+            return pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 
 def _to_date(x):
