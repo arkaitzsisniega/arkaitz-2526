@@ -6,29 +6,59 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
-## 🔔 RECORDATORIOS PROGRAMADOS
+## 🔔 ESTADO 4/5/2026 — bloques de hoy adelantados, faltan acciones del usuario
 
-> Si hoy **lunes 4 de mayo 2026 o posterior** y el usuario aún no ha
-> mencionado los temas de abajo, recordárselos en cuanto arranquemos.
-> Apuntados el 30/04 y 02/05/2026 a petición suya.
->
-> **1. Oliver auto-refresh token** — script Playwright + LaunchAgent
-> macOS para que al encender el Mac cada mañana se renueve el token
-> sin intervención manual. Estimación: 3-4h.
->
-> **2. Planillas de Lesiones + Tratamientos para fisios** — DESPUÉS de
-> Oliver. Objetivo: que los fisios metan datos directamente (sin pasar
-> por Arkaitz como intermediario). Considerar:
-> - Pestaña dentro del dashboard con permisos de fisio (form de
->   creación/edición de lesiones y tratamientos), o
-> - Form separado (Google Forms, similar al sistema PRE/POST que ya
->   existe), o
-> - Bot de Telegram dedicado a fisios.
-> - Importante: cuando un usuario que NO sea fisio/médico/admin acceda
->   a la info de lesiones, los nombres deben aparecer **anonimizados
->   por dorsal** ("el 8" en vez de "RAYA"). Esto está apuntado en la
->   sección "🔐 ROLES Y PERMISOS — pendiente para más adelante" de
->   este mismo documento.
+Hoy se ha trabajado autónomamente en dos bloques. Ambos quedan a la
+espera de **acciones manuales** del usuario:
+
+### 1. Oliver auto-token (✅ código listo)
+
+DESCUBRIMIENTO clave: Oliver expone `POST /v1/auth/login` que acepta
+email+password+device_id y devuelve token+refresh_token. Esto elimina
+la necesidad de Playwright/headless browser. Sistema de 3 niveles
+implementado en `src/oliver_login.py` + integración en
+`src/oliver_sync.py`. Ver `docs/oliver_autologin.md`.
+
+**Pendiente del usuario** (5 min):
+1. Editar `/Users/mac/Desktop/Arkaitz/.env`
+2. Añadir al final:
+   ```
+   OLIVER_EMAIL=tu-email-oliver@dominio.com
+   OLIVER_PASSWORD=tu-contraseña-oliver
+   ```
+3. Probar: `/usr/bin/python3 src/oliver_login.py` → debería dar "Login OK"
+4. Si funciona, el sistema ya hace auto-relogin automáticamente cuando
+   el refresh_token caduque o se invalide.
+
+### 2. Sheet de Lesiones y Tratamientos para fisios (✅ código listo)
+
+Sheet SEPARADO del principal para que los fisios solo accedan a estos
+datos. Migra las 499 lesiones existentes y crea TRATAMIENTOS desde
+cero. Ver `docs/sheet_fisios.md`.
+
+**Pendiente del usuario** (5 min):
+1. Ir a https://sheets.google.com → '+ En blanco'
+2. Renombrar a `Arkaitz - Lesiones y Tratamientos 2526`
+3. Compartir con: `arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com` (Editor)
+4. Ejecutar: `/usr/bin/python3 src/crear_sheet_fisios.py`
+5. Después: `/usr/bin/python3 src/calcular_vistas_fisios.py`
+
+Una vez creado el Sheet:
+- El usuario puede compartirlo con los fisios (Pelu, etc.) como Editor
+- Los fisios introducirán datos directamente
+- En el futuro: adaptar pestaña Lesiones del dashboard para leer del
+  nuevo Sheet (con anonimización por dorsal para roles no médicos)
+
+### 3. Importación J28.JAEN ✅ HECHA
+
+Partido de ayer (3/5) importado al Sheet principal. Inter ganó 4-2.
+Limpieza del partido fantasma "J28" (sin sufijo) que dejaba el script
+viejo. Estado correcto: 14 jugadores en EST_PARTIDOS, 14 en
+EST_PLANTILLAS, 6 goles en EST_EVENTOS, 1 cabecera en EST_TOTALES.
+
+---
+
+(Sección detallada de ROLES Y PERMISOS más abajo en este documento.)
 
 ---
 
