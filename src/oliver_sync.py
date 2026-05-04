@@ -166,12 +166,46 @@ class OliverAPI:
         # Oliver valida que los request lleguen con EXACTAMENTE esos mismos headers.
         self._jwt = _decode_jwt_payload(token)
 
+    def relogin_con_credenciales(self) -> bool:
+        """Fallback: si el refresh_token también es inválido, intenta hacer
+        login fresco con OLIVER_EMAIL+OLIVER_PASSWORD del .env. Si funciona,
+        actualiza self.token, self.refresh_token y escribe al .env.
+        Si no hay credenciales o falla, devuelve False."""
+        try:
+            from oliver_login import oliver_login
+            ok = oliver_login()
+            if not ok:
+                return False
+            # Releer .env y actualizar self
+            from pathlib import Path
+            env_path = Path(__file__).resolve().parent.parent / ".env"
+            for ln in env_path.read_text(encoding="utf-8").splitlines():
+                ln = ln.strip()
+                if "=" not in ln:
+                    continue
+                k, v = ln.split("=", 1)
+                if k.strip() == "OLIVER_TOKEN":
+                    self.token = v.strip()
+                elif k.strip() == "OLIVER_REFRESH_TOKEN":
+                    self.refresh_token = v.strip()
+                elif k.strip() == "OLIVER_USER_ID":
+                    self.user_id = v.strip()
+            self._jwt = _decode_jwt_payload(self.token)
+            _info("  🔐 Sesión recuperada vía login con email/password.")
+            return True
+        except Exception as e:
+            _warn(f"Excepción en relogin: {type(e).__name__}: {e}")
+            return False
+
     def refresh_access_token(self) -> bool:
         """Usa el refresh_token (14 días) para pedir un token nuevo (2 horas).
         Si funciona, actualiza self.token, self.refresh_token y escribe al .env.
-        Devuelve True si tuvo éxito."""
+        Si refresh falla pero hay OLIVER_EMAIL+OLIVER_PASSWORD en .env,
+        intenta hacer login fresco como fallback.
+        Devuelve True si tuvo éxito (refresh o relogin)."""
         if not self.refresh_token:
-            return False
+            # Sin refresh_token, único camino es relogin
+            return self.relogin_con_credenciales()
         url = f"{self.base}/auth/token"
         headers = {
             "Content-Type": "application/json",
@@ -188,11 +222,13 @@ class OliverAPI:
             r = requests.post(url, headers=headers, json={"refresh_token": self.refresh_token}, timeout=15)
             if r.status_code != 200:
                 _warn(f"Refresh devolvió HTTP {r.status_code}: {r.text[:200]}")
-                return False
+                # Fallback: si el refresh es inválido (típico tras un login en
+                # el navegador), probar relogin con email/password.
+                return self.relogin_con_credenciales()
             data = r.json()
             if not data.get("success") or not data.get("token"):
                 _warn(f"Refresh sin success/token. Respuesta: {str(data)[:200]}")
-                return False
+                return self.relogin_con_credenciales()
             self.token = data["token"]
             if data.get("refresh_token"):
                 self.refresh_token = data["refresh_token"]
@@ -207,7 +243,7 @@ class OliverAPI:
             return True
         except Exception as e:
             _warn(f"Excepción al renovar token: {type(e).__name__}: {e}")
-            return False
+            return self.relogin_con_credenciales()
 
     def _hdr(self):
         # Headers base del cliente
