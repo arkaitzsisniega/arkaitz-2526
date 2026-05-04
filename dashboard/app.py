@@ -421,6 +421,23 @@ def cargar(hoja: str) -> pd.DataFrame:
         return pd.DataFrame(data_rows, columns=clean)
 
 
+SHEET_FISIOS_NAME = "Arkaitz - Lesiones y Tratamientos 2526"
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def cargar_fisios(hoja: str) -> pd.DataFrame:
+    """Lee una hoja del Sheet de fisios (Lesiones y Tratamientos).
+    Devuelve DataFrame vacío si el Sheet no existe (aún no creado)."""
+    try:
+        client = get_client()
+        ss = client.open(SHEET_FISIOS_NAME)
+        ws = ss.worksheet(hoja)
+        data = ws.get_all_records()
+        return pd.DataFrame(data)
+    except Exception:
+        return pd.DataFrame()
+
+
 def _to_date(x):
     """Convierte serial de Google Sheets o string a Timestamp con validación de rango."""
     if x is None or x == "":
@@ -770,14 +787,15 @@ def color_jug(jugadores):
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
-(tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_rec, tab_oliver,
+(tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_temp, tab_rec, tab_oliver,
  tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp, tab_scout,
  tab_falt_pen, tab_editar) = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
     "💤 Wellness",
-    "🏥 Lesiones",
+    "🏥 Lesiones / Tratamientos",
+    "🌡️ Temperatura",
     "📋 Recuento",
     "🏃 Oliver",
     "🎯 Ejercicios",
@@ -1419,79 +1437,272 @@ with tab_well:
 # TAB 5 — LESIONES
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_les:
-    st.markdown("### Registro de lesiones")
+    st.markdown("### 🏥 Lesiones y Tratamientos")
+    st.caption("Datos del Sheet de fisios. Si no aparece nada, asegúrate de que "
+               "el Sheet 'Arkaitz - Lesiones y Tratamientos 2526' existe y está "
+               "compartido con la cuenta de servicio.")
 
-    les_f = les.copy()
-    # Filtrar columnas vacías de forma segura (evita TypeError con datetime64 en pandas 2.x)
-    def _col_tiene_datos(s):
-        try:
-            return s.astype(str).str.strip().ne("").any()
-        except Exception:
-            return True
-    les_f = les_f[[c for c in les_f.columns
-                   if not c.startswith("_VACÍO") and _col_tiene_datos(les_f[c])]]
+    # ── Cargar de Sheet de fisios ──
+    df_les_fis = cargar_fisios("LESIONES")
+    df_tra_fis = cargar_fisios("TRATAMIENTOS")
 
-    # Filtrar filas vacías o de plantilla: exige JUGADOR + FECHA LESIÓN válidas
-    if "JUGADOR" in les_f.columns and "FECHA LESIÓN" in les_f.columns:
-        jug_ok = les_f["JUGADOR"].astype(str).str.strip().ne("") & les_f["JUGADOR"].notna()
-        fecha_ok = les_f["FECHA LESIÓN"].notna()
-        les_f = les_f[jug_ok & fecha_ok].reset_index(drop=True)
+    if df_les_fis.empty and df_tra_fis.empty:
+        st.warning("Sheet de fisios sin datos o no accesible. "
+                   "Ejecuta `src/crear_sheet_fisios.py` y "
+                   "`src/calcular_vistas_fisios.py`.")
+    else:
+        # ── Filtros locales (jugador + fechas) ──
+        st.markdown("#### Filtros")
+        cf1, cf2 = st.columns([2, 2])
 
-    # Lesiones activas (sin fecha de alta)
-    try:
-        if "FECHA ALTA" in les_f.columns and "FECHA LESIÓN" in les_f.columns:
-            les_activas = les_f[les_f["FECHA ALTA"].isna() & les_f["FECHA LESIÓN"].notna()]
-            if "JUGADOR" in les_activas.columns:
-                les_activas = les_activas[les_activas["JUGADOR"].isin(sel_jugadores)]
+        # Jugadores disponibles en cualquiera de las 2 hojas
+        jugs_dispo = sorted({
+            *df_les_fis.get("jugador", pd.Series(dtype=str)).dropna().astype(str).str.strip().unique(),
+            *df_tra_fis.get("jugador", pd.Series(dtype=str)).dropna().astype(str).str.strip().unique(),
+        } - {""})
+        jugs_sel_lt = cf1.multiselect(
+            "Jugadores", jugs_dispo,
+            default=jugs_dispo,
+            key="lt_jugadores",
+            help="Selecciona uno o varios jugadores. Por defecto todos.",
+        )
+
+        # Rango de fechas: ampliar a min/max entre ambas tablas
+        _fechas = []
+        for col_df, col_name in [(df_les_fis, "fecha_lesion"),
+                                   (df_tra_fis, "fecha")]:
+            if col_name in col_df.columns:
+                _f = pd.to_datetime(col_df[col_name], errors="coerce").dropna()
+                if not _f.empty:
+                    _fechas.append(_f)
+        if _fechas:
+            fmin = min(f.min() for f in _fechas).date()
+            fmax = max(f.max() for f in _fechas).date()
         else:
-            les_activas = pd.DataFrame()
-    except Exception:
-        les_activas = pd.DataFrame()
+            fmin = pd.Timestamp.now().date()
+            fmax = pd.Timestamp.now().date()
+        rango_lt = cf2.date_input(
+            "Rango de fechas",
+            value=(fmin, fmax),
+            min_value=fmin, max_value=fmax,
+            key="lt_fechas",
+        )
+        if isinstance(rango_lt, tuple) and len(rango_lt) == 2:
+            f_desde_lt = pd.Timestamp(rango_lt[0])
+            f_hasta_lt = pd.Timestamp(rango_lt[1])
+        else:
+            f_desde_lt = pd.Timestamp(fmin)
+            f_hasta_lt = pd.Timestamp(fmax)
 
-    if not les_activas.empty:
-        st.error(f"🔴 {len(les_activas)} lesión/es activa/s ahora mismo")
-        st.dataframe(les_activas, use_container_width=True, hide_index=True)
-    else:
-        st.success("✅ No hay lesiones activas en este momento")
-
-    st.markdown("---")
-    st.markdown("### Historial completo")
-
-    try:
-        les_hist = les_f[les_f["JUGADOR"].isin(sel_jugadores)] if "JUGADOR" in les_f.columns else les_f
-    except Exception:
-        les_hist = les_f
-
-    if les_hist.empty:
-        st.info("Aún no hay lesiones registradas.")
-    else:
-        st.dataframe(les_hist, use_container_width=True, hide_index=True)
-
-    # Estadísticas si hay suficientes datos
-    if len(les_hist) >= 3:
         st.markdown("---")
-        st.markdown("### Estadísticas de lesiones")
-        c_l1, c_l2 = st.columns(2)
 
-        with c_l1:
-            if "ZONA CORPORAL" in les_hist.columns:
-                zona_cnt = les_hist["ZONA CORPORAL"].value_counts().reset_index()
-                zona_cnt.columns = ["Zona", "Lesiones"]
-                fig_zona = px.bar(zona_cnt, x="Lesiones", y="Zona", orientation="h",
-                                  title="Lesiones por zona corporal",
-                                  color="Lesiones", color_continuous_scale="Reds")
-                fig_zona.update_layout(**LAYOUT, height=350, coloraxis_showscale=False)
-                st.plotly_chart(fig_zona, use_container_width=True)
+        # ── Sección 1: LESIONES ──
+        st.markdown("#### 🔴 Lesiones (actuales y pasadas)")
+        if df_les_fis.empty:
+            st.info("Sin lesiones registradas.")
+        else:
+            les_show = df_les_fis.copy()
+            les_show["fecha_lesion"] = pd.to_datetime(les_show["fecha_lesion"], errors="coerce")
+            if "fecha_alta" in les_show.columns:
+                les_show["fecha_alta"] = pd.to_datetime(les_show["fecha_alta"], errors="coerce")
+            # Filtrar por jugadores seleccionados
+            if "jugador" in les_show.columns and jugs_sel_lt:
+                les_show = les_show[les_show["jugador"].astype(str).str.strip().isin(jugs_sel_lt)]
+            # Filtrar por fechas (lesión)
+            if "fecha_lesion" in les_show.columns:
+                m = (les_show["fecha_lesion"] >= f_desde_lt) & (les_show["fecha_lesion"] <= f_hasta_lt)
+                les_show = les_show[m | les_show["fecha_lesion"].isna()]
 
-        with c_l2:
-            if "TIPO LESIÓN" in les_hist.columns:
-                tipo_cnt = les_hist["TIPO LESIÓN"].value_counts().reset_index()
-                tipo_cnt.columns = ["Tipo", "Nº"]
-                fig_tipo = px.pie(tipo_cnt, names="Tipo", values="Nº",
-                                  title="Tipo de lesión",
-                                  color_discrete_sequence=px.colors.qualitative.Set3)
-                fig_tipo.update_layout(**LAYOUT, height=350)
-                st.plotly_chart(fig_tipo, use_container_width=True)
+            # Eliminar filas vacías (sin jugador ni fecha)
+            if "jugador" in les_show.columns and "fecha_lesion" in les_show.columns:
+                les_show = les_show[
+                    les_show["jugador"].astype(str).str.strip().ne("") &
+                    les_show["fecha_lesion"].notna()
+                ].reset_index(drop=True)
+
+            if les_show.empty:
+                st.info("No hay lesiones para los filtros aplicados.")
+            else:
+                # KPIs
+                _activas = (les_show.get("estado_actual", pd.Series(dtype=str))
+                              .astype(str).str.upper()
+                              .isin(["ACTIVA", "EN_RECUP", "RECAÍDA"])).sum()
+                _alta = (les_show.get("estado_actual", pd.Series(dtype=str))
+                            .astype(str).str.upper().eq("ALTA")).sum()
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Total lesiones (filtrado)", len(les_show))
+                k2.metric("🔴 Activas", int(_activas))
+                k3.metric("✅ Cerradas", int(_alta))
+
+                # Tabla ordenada por fecha de lesión descendente
+                cols_pref = ["fecha_lesion", "jugador", "dorsal", "zona_corporal",
+                             "lado", "tipo_tejido", "mecanismo", "gravedad",
+                             "estado_actual", "dias_baja_estimados",
+                             "dias_baja_real", "diferencia_dias",
+                             "total_sesiones_perdidas", "entrenos_perdidos",
+                             "partidos_perdidos", "fecha_alta", "recaida",
+                             "diagnostico", "notas"]
+                cols_pref = [c for c in cols_pref if c in les_show.columns]
+                les_show_o = les_show[cols_pref].sort_values(
+                    "fecha_lesion", ascending=False)
+
+                # Estilo: marcar filas activas en rojo claro, alta en verde claro
+                def _fila_color(row):
+                    est = str(row.get("estado_actual", "")).upper()
+                    if est in ("ACTIVA", "EN_RECUP", "RECAÍDA"):
+                        return ["background-color: #FFCDD2"] * len(row)
+                    if est == "ALTA":
+                        return ["background-color: #C8E6C9"] * len(row)
+                    return [""] * len(row)
+                styled_les = les_show_o.style.apply(_fila_color, axis=1)
+                st.dataframe(styled_les, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # ── Sección 2: TRATAMIENTOS ──
+        st.markdown("#### 🟢 Tratamientos (más reciente arriba)")
+        if df_tra_fis.empty:
+            st.info("Sin tratamientos registrados.")
+        else:
+            tra_show = df_tra_fis.copy()
+            tra_show["fecha"] = pd.to_datetime(tra_show["fecha"], errors="coerce")
+            # Filtros
+            if "jugador" in tra_show.columns and jugs_sel_lt:
+                tra_show = tra_show[tra_show["jugador"].astype(str).str.strip().isin(jugs_sel_lt)]
+            if "fecha" in tra_show.columns:
+                m = (tra_show["fecha"] >= f_desde_lt) & (tra_show["fecha"] <= f_hasta_lt)
+                tra_show = tra_show[m | tra_show["fecha"].isna()]
+            # Eliminar filas vacías
+            if "jugador" in tra_show.columns and "fecha" in tra_show.columns:
+                tra_show = tra_show[
+                    tra_show["jugador"].astype(str).str.strip().ne("") &
+                    tra_show["fecha"].notna()
+                ].reset_index(drop=True)
+
+            if tra_show.empty:
+                st.info("No hay tratamientos para los filtros aplicados.")
+            else:
+                # KPIs
+                k_pre = (tra_show.get("bloque", pd.Series(dtype=str))
+                            .astype(str).str.upper().eq("PRE_ENTRENO")).sum()
+                k_post = (tra_show.get("bloque", pd.Series(dtype=str))
+                             .astype(str).str.upper().eq("POST_ENTRENO")).sum()
+                k_les = (tra_show.get("bloque", pd.Series(dtype=str))
+                             .astype(str).str.upper().eq("LESIONADO")).sum()
+                kt1, kt2, kt3, kt4 = st.columns(4)
+                kt1.metric("Total tratamientos", len(tra_show))
+                kt2.metric("🟦 PRE", int(k_pre))
+                kt3.metric("🟥 POST", int(k_post))
+                kt4.metric("🏥 Lesionado", int(k_les))
+
+                cols_pref_t = ["fecha", "turno", "bloque", "jugador", "dorsal",
+                               "fisio", "accion", "zona_corporal", "lado",
+                               "duracion_min", "id_lesion_relacionada", "notas"]
+                cols_pref_t = [c for c in cols_pref_t if c in tra_show.columns]
+                tra_show_o = tra_show[cols_pref_t].sort_values(
+                    "fecha", ascending=False)
+
+                # Color por bloque
+                def _color_bloque(row):
+                    b = str(row.get("bloque", "")).upper()
+                    if b == "PRE_ENTRENO":
+                        return ["background-color: #BBDEFB"] * len(row)
+                    if b == "POST_ENTRENO":
+                        return ["background-color: #FFE0B2"] * len(row)
+                    if b == "LESIONADO":
+                        return ["background-color: #FFCDD2"] * len(row)
+                    return [""] * len(row)
+                styled_tra = tra_show_o.style.apply(_color_bloque, axis=1)
+                st.dataframe(styled_tra, use_container_width=True, hide_index=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — TEMPERATURA MUSCULAR (cámara térmica)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_temp:
+    st.markdown("### 🌡️ Temperatura muscular")
+    st.caption("Mediciones con cámara térmica. La asimetría se calcula como "
+               "izda − dcha; valores con |asimetría| > 0.5°C aparecen marcados "
+               "como ALERTA (posible sobrecarga o riesgo de lesión).")
+
+    df_temp = cargar_fisios("TEMPERATURA")
+    if df_temp.empty:
+        st.info("Sin mediciones de temperatura registradas todavía.")
+    else:
+        df_temp = df_temp.copy()
+        if "fecha" in df_temp.columns:
+            df_temp["fecha"] = pd.to_datetime(df_temp["fecha"], errors="coerce")
+
+        # Filtros
+        ct1, ct2 = st.columns([2, 2])
+        jugs_temp_dispo = sorted(
+            df_temp.get("jugador", pd.Series(dtype=str))
+                   .dropna().astype(str).str.strip().unique().tolist())
+        jugs_temp_dispo = [j for j in jugs_temp_dispo if j]
+        jugs_sel_temp = ct1.multiselect(
+            "Jugadores", jugs_temp_dispo,
+            default=jugs_temp_dispo,
+            key="temp_jugadores",
+        )
+        _fechas_temp = df_temp["fecha"].dropna() if "fecha" in df_temp.columns else pd.Series(dtype="datetime64[ns]")
+        if not _fechas_temp.empty:
+            tmin, tmax = _fechas_temp.min().date(), _fechas_temp.max().date()
+            rango_t = ct2.date_input(
+                "Rango de fechas",
+                value=(tmin, tmax),
+                min_value=tmin, max_value=tmax,
+                key="temp_fechas",
+            )
+            if isinstance(rango_t, tuple) and len(rango_t) == 2:
+                tdesde = pd.Timestamp(rango_t[0])
+                thasta = pd.Timestamp(rango_t[1])
+            else:
+                tdesde, thasta = pd.Timestamp(tmin), pd.Timestamp(tmax)
+        else:
+            tdesde = thasta = pd.Timestamp.now()
+
+        # Aplicar filtros
+        df_show = df_temp.copy()
+        if "jugador" in df_show.columns and jugs_sel_temp:
+            df_show = df_show[df_show["jugador"].astype(str).str.strip().isin(jugs_sel_temp)]
+        if "fecha" in df_show.columns:
+            m = (df_show["fecha"] >= tdesde) & (df_show["fecha"] <= thasta)
+            df_show = df_show[m | df_show["fecha"].isna()]
+        # Filtrar filas vacías
+        if "jugador" in df_show.columns and "fecha" in df_show.columns:
+            df_show = df_show[
+                df_show["jugador"].astype(str).str.strip().ne("") &
+                df_show["fecha"].notna()
+            ].reset_index(drop=True)
+
+        if df_show.empty:
+            st.info("No hay mediciones para los filtros aplicados.")
+        else:
+            # KPIs
+            n_total = len(df_show)
+            n_alertas = (df_show.get("alerta", pd.Series(dtype=str))
+                            .astype(str).str.upper().eq("ALERTA")).sum()
+            n_jug = df_show["jugador"].nunique() if "jugador" in df_show.columns else 0
+            kr1, kr2, kr3 = st.columns(3)
+            kr1.metric("Mediciones", n_total)
+            kr2.metric("🚨 Alertas (>0.5°C)", int(n_alertas))
+            kr3.metric("Jugadores", int(n_jug))
+
+            # Tabla, ordenada por fecha desc
+            cols_pref_temp = ["fecha", "turno", "momento", "jugador", "dorsal",
+                              "zona", "temp_izda_c", "temp_dcha_c",
+                              "asimetria_c", "alerta", "temp_ambiente_c", "notas"]
+            cols_pref_temp = [c for c in cols_pref_temp if c in df_show.columns]
+            df_show_o = df_show[cols_pref_temp].sort_values(
+                "fecha", ascending=False)
+
+            # Resaltar filas con ALERTA
+            def _color_alerta(row):
+                if str(row.get("alerta", "")).upper() == "ALERTA":
+                    return ["background-color: #FFCDD2"] * len(row)
+                return [""] * len(row)
+            styled_temp = df_show_o.style.apply(_color_alerta, axis=1)
+            st.dataframe(styled_temp, use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
