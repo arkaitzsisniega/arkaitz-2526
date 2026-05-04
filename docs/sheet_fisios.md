@@ -1,186 +1,144 @@
-# 🏥 Sheet de Lesiones y Tratamientos para fisios
+# 🏥 Sheet de Lesiones, Tratamientos y Temperatura para fisios
 
-Documento separado del Sheet principal donde los fisios y Arkaitz
-introducen lesiones y tratamientos. Los fisios **solo** tienen acceso
-a este documento, no al principal.
+Documento separado del Sheet principal con **3 pestañas principales**
+para que los fisios y Arkaitz introduzcan datos. Los fisios solo tienen
+acceso a este documento, no al principal.
 
----
-
-## Por qué un Sheet separado
-
-- El Sheet principal contiene datos sensibles del primer equipo
-  (carga, peso, wellness, estadísticas de partido…) que los fisios
-  no necesitan ver.
-- Los datos médicos tienen requisitos de confidencialidad. Aislar
-  el documento limita el daño en caso de fuga.
-- Los fisios pueden tener su propio flujo de trabajo sin interferir
-  con el resto.
+URL: la del Sheet `Arkaitz - Lesiones y Tratamientos 2526` que ya creaste.
 
 ---
 
-## 🔧 Setup inicial (UNA SOLA VEZ)
+## Estructura
 
-### Paso 1: Crear el Sheet a mano
+| Pestaña | Cuándo se rellena |
+|---|---|
+| **🔴 LESIONES** | Cuando un jugador se retira de un entrenamiento o partido y va a perder sesiones |
+| **🟢 TRATAMIENTOS** | Cada vez que un fisio aplica algo: PRE entreno, POST entreno, o tratamiento al jugador lesionado durante la sesión |
+| **🟠 TEMPERATURA** | Cada vez que se hace una medición con la cámara térmica para detectar asimetrías |
+| `JUGADORES` | Referencia (auto-sincronizada con el roster del Sheet principal) |
+| `_LISTAS` | Opciones de los dropdowns (oculta) |
+| `_META` | Metadatos internos (oculta) |
+| `_VISTA_*` | Tablas calculadas que consume el dashboard (ocultas) |
 
-La cuenta de servicio de Google **no puede** crear Sheets nuevos
-(no tiene cuota de Drive). Los crea Arkaitz desde su cuenta.
-
-1. Ve a https://sheets.google.com → **`+ En blanco`** (Sheet vacío).
-2. **Renombra** el documento (arriba a la izquierda) a:
-   ```
-   Arkaitz - Lesiones y Tratamientos 2526
-   ```
-3. **Compartir** (botón arriba a la derecha):
-   - Escribe el email de la cuenta de servicio:
-     ```
-     arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com
-     ```
-   - Permiso: **Editor**
-   - Pulsa **Enviar**
-
-### Paso 2: Ejecutar el script de configuración
-
-Desde la terminal:
-```bash
-cd /Users/mac/Desktop/Arkaitz
-/usr/bin/python3 src/crear_sheet_fisios.py
-```
-
-Esto crea automáticamente las hojas:
-- `LESIONES` con la misma estructura que la del Sheet principal
-- `TRATAMIENTOS` desde cero
-- `JUGADORES` (sincronizada con tu roster principal)
-- `_META` (config interna)
-
-Y migra las lesiones existentes del Sheet principal al nuevo.
-
-### Paso 3: Ejecutar el cálculo de vistas
-
-```bash
-/usr/bin/python3 src/calcular_vistas_fisios.py
-```
-
-Esto rellena automáticamente:
-- Días de baja real (fecha alta − fecha lesión)
-- Sesiones perdidas (cruzando con SESIONES del Sheet principal)
-- Resumen por jugador
-- Vistas que el dashboard usa
-
-### Paso 4: Compartir con los fisios
-
-Cuando ya estés satisfecho con el setup:
-1. En el Sheet de fisios → **Compartir**
-2. Email del fisio (Pelu, etc.) → permiso **Editor** → Enviar
-3. **NO** les des acceso al Sheet principal
+**Todas las celdas tienen dropdown** salvo:
+- IDs (auto-generados)
+- Diagnóstico y notas (texto libre)
+- Columnas calculadas (las rellena el script automáticamente)
 
 ---
 
-## 📝 Cómo se rellena el día a día
+## 🔴 LESIONES — qué meter
 
-### Opción A: Directamente en el Sheet (recomendado)
+| Columna | Tipo | Cómo se rellena |
+|---|---|---|
+| `id_lesion` | L0001… | Auto |
+| `fecha_lesion` | fecha | Manual |
+| `turno` | M / T / P | Dropdown |
+| `tipo_sesion` | ENTRENO / PARTIDO / GYM / RECUP / GYM+TEC-TAC / FISICO+TEC-TAC / MATINAL / PORTEROS / FISICO / TEC-TAC / AMISTOSO | Dropdown |
+| `jugador` | (lista de tu roster) | Dropdown |
+| `dorsal` | int | Auto desde JUGADORES |
+| `zona_corporal` | (lista de zonas) | Dropdown |
+| `lado` | IZDA / DCHA / BILATERAL / N.A. | Dropdown |
+| `tipo_tejido` | MUSCULAR / TENDINOSA / LIGAMENTOSA / ÓSEA / ARTICULAR / CARTILAGINOSA / MENISCAL / CONTUSIÓN / ESGUINCE / FRACTURA / NEUROLÓGICA / OTRO | Dropdown |
+| `mecanismo` | CONTACTO / NO_CONTACTO / SOBREUSO / RECIDIVA / MAL_GESTO / DESCONOCIDO / OTRO | Dropdown |
+| `gravedad` | LEVE / MODERADA / GRAVE | Dropdown |
+| `dias_baja_estimados` | número | Manual |
+| `pruebas_medicas` | NINGUNA / ECO / RM / RX / TAC / ANÁLISIS / VARIAS | Dropdown |
+| `diagnostico` | texto libre | Manual |
+| `estado_actual` | ACTIVA / EN_RECUP / ALTA / RECAÍDA | Dropdown (auto al cerrar) |
+| `fecha_alta` | fecha | Manual al cerrar |
+| `dias_baja_real` | número | **Auto** |
+| `diferencia_dias` | número | **Auto** (real − estimado) |
+| `total_sesiones_perdidas` | número | **Auto** |
+| `entrenos_perdidos` | número | **Auto** |
+| `partidos_perdidos` | número | **Auto** |
+| `recaida` | SÍ / NO | Dropdown |
+| `notas` | texto libre | Manual |
 
-Los fisios abren el Sheet y rellenan:
-- **Hoja LESIONES**: una fila por lesión nueva (jugador, fecha, zona, tipo…)
-- **Hoja TRATAMIENTOS**: una fila por tratamiento (fecha, jugador, tipo, zona, duración…)
+---
 
-Validaciones:
-- `jugador` debe coincidir con el nombre exacto del roster (ver hoja JUGADORES).
-- Las columnas marcadas como **calculadas** (días baja real, sesiones
-  perdidas, etc.) **NO se rellenan a mano** — las calcula el script.
+## 🟢 TRATAMIENTOS — qué meter
 
-### Opción B: Google Forms (futuro, más cómodo desde móvil)
+| Columna | Tipo | Cómo |
+|---|---|---|
+| `id_tratamiento` | T0001… | Auto |
+| `fecha` | fecha | Manual |
+| `turno` | M / T / P | Dropdown |
+| `bloque` | **PRE_ENTRENO / POST_ENTRENO / LESIONADO** | Dropdown ⭐ |
+| `jugador` | (roster) | Dropdown |
+| `dorsal` | int | Auto |
+| `fisio` | PELU / ARKAITZ / OTRO | Dropdown |
+| `accion` | (lista larga: VENDAJE_FUNCIONAL, MASAJE, ELECTRO_TENS, PUNCIÓN_SECA, CRIOTERAPIA, READAPTACIÓN, etc.) | Dropdown |
+| `zona_corporal` | (zonas) | Dropdown |
+| `lado` | IZDA / DCHA / BILATERAL / N.A. | Dropdown |
+| `duracion_min` | número | Manual |
+| `id_lesion_relacionada` | L0001 (opcional) | Manual si es LESIONADO |
+| `notas` | texto libre | Manual |
 
-Recomendado más adelante: crear dos Google Forms (uno para
-lesiones y otro para tratamientos) que los fisios rellenen desde
-el móvil. Las respuestas caen automáticamente en el Sheet.
+⭐ El campo `bloque` es la clave para distinguir:
+- `PRE_ENTRENO`: vendajes, calentamiento, activación antes de entrenar
+- `POST_ENTRENO`: descargas, recuperación tras entrenar
+- `LESIONADO`: tratamiento al jugador lesionado mientras el resto entrena
 
-Cuando lo quieras, dímelo y te genero los Forms con los campos exactos.
+Una **misma sesión puede tener varias filas**: una por jugador × tipo de
+acción aplicada. Por ejemplo:
+- 14:00 PRE_ENTRENO · CECILIO · vendaje_funcional · tobillo dcha · 5 min
+- 14:00 PRE_ENTRENO · RAYA · masaje · cuádriceps izda · 8 min
+- 16:30 POST_ENTRENO · BARONA · masaje_descarga · pantorrillas · 10 min
+
+---
+
+## 🟠 TEMPERATURA — qué meter
+
+| Columna | Tipo | Cómo |
+|---|---|---|
+| `id_medicion` | M0001… | Auto |
+| `fecha` | fecha | Manual |
+| `turno` | M / T / P | Dropdown |
+| `momento` | PRE_ENTRENO / POST_ENTRENO / PRE_PARTIDO / POST_PARTIDO / RECUP_24H / RECUP_48H / RECUP_72H | Dropdown |
+| `jugador` | (roster) | Dropdown |
+| `dorsal` | int | Auto |
+| `zona` | (zonas térmicas: CUÁDRICEPS_ANT, ISQUIOTIBIALES_POST, ADUCTORES_INT, GLÚTEO, PANTORRILLA_POST, GEMELO_LATERAL, etc.) | Dropdown |
+| `temp_izda_c` | °C (decimal con punto) | Manual |
+| `temp_dcha_c` | °C | Manual |
+| `asimetria_c` | °C | **Auto** (= izda − dcha) |
+| `alerta` | "ALERTA" si \|asimetria\| > 0.5°C | **Auto** |
+| `temp_ambiente_c` | °C | Manual |
+| `notas` | texto libre | Manual |
+
+> Una fila por **(jugador, zona, momento)**. Si mides 6 zonas a un
+> jugador, son 6 filas. Igual para los demás.
 
 ---
 
 ## 🔄 Cuándo ejecutar `calcular_vistas_fisios.py`
 
-- **Cada vez que añades o modificas lesiones manualmente** en el Sheet.
-- **Después de cada `/consolidar`** del bot (lo automatizaremos).
+```bash
+cd /Users/mac/Desktop/Arkaitz
+/usr/bin/python3 src/calcular_vistas_fisios.py
+```
+
+Lo recalcula:
+- Días baja real, diferencia, sesiones perdidas (LESIONES)
+- Asimetría y alerta (TEMPERATURA)
+- Vistas resumen para el dashboard
+
+Cuándo:
+- **Después de añadir o modificar lesiones** manualmente.
+- **Después de cada `/consolidar`** del bot (lo automatizaremos cuando confirmes que el flujo funciona).
 - **Cuando se cierre una lesión** (rellenas `fecha_alta`).
 
-El script es **idempotente**: ejecutarlo varias veces no rompe nada.
-
----
-
-## 🗂️ Estructura del Sheet
-
-### Hoja `LESIONES`
-
-| Columna | Tipo | ¿Quién rellena? |
-|---|---|---|
-| `id_lesion` | L0001, L0002… | Auto (script) |
-| `jugador` | NOMBRE | Manual |
-| `dorsal` | int | Auto desde JUGADORES |
-| `fecha_lesion` | YYYY-MM-DD | Manual |
-| `momento` | ENTRENO/PARTIDO/GYM | Manual |
-| `tipo_lesion` | MUSCULAR/LIGAMENTOSA/… | Manual |
-| `zona_corporal` | MUSLO/RODILLA/… | Manual |
-| `lado` | IZQUIERDA/DERECHA/BILATERAL/N.A. | Manual |
-| `mecanismo` | CONTACTO/NO_CONTACTO/SOBREUSO/… | Manual |
-| `diagnostico` | texto libre | Manual |
-| `dias_baja_estimados` | int | Manual |
-| `pruebas_medicas` | texto libre | Manual |
-| `notas_iniciales` | texto libre | Manual |
-| `estado_actual` | ACTIVA/EN_RECUP/ALTA/RECAÍDA | Auto (calculado) |
-| `fecha_revision` | YYYY-MM-DD | Manual |
-| `tratamiento` | texto libre | Manual |
-| `evolucion` | texto libre | Manual |
-| `vuelta_programada` | YYYY-MM-DD | Manual |
-| `notas_seguimiento` | texto libre | Manual |
-| `fecha_alta` | YYYY-MM-DD | Manual al cerrar |
-| `dias_baja_real` | int | **Auto** |
-| `diferencia_dias` | int | **Auto** |
-| `recaida` | SÍ/NO | Manual |
-| `baja_anterior` | SÍ/NO | Manual |
-| `notas_alta` | texto libre | Manual |
-| `total_sesiones` | int | **Auto** |
-| `entrenos_perdidos` | int | **Auto** |
-| `gym_perdidos` | int | **Auto** |
-| `partidos_perdidos` | int | **Auto** |
-| `recup_perdidos` | int | **Auto** |
-| `minutos_perdidos` | float | **Auto** |
-
-### Hoja `TRATAMIENTOS`
-
-| Columna | Tipo | ¿Quién rellena? |
-|---|---|---|
-| `id_tratamiento` | T0001, T0002… | Auto |
-| `fecha` | YYYY-MM-DD | Manual |
-| `jugador` | NOMBRE | Manual |
-| `dorsal` | int | Auto |
-| `fisio` | nombre del fisio | Manual |
-| `tipo_tratamiento` | MASAJE/ELECTRO/PUNCIÓN_SECA/… | Manual |
-| `zona` | zona del cuerpo | Manual |
-| `lado` | IZDA/DCHA/N.A. | Manual |
-| `duracion_min` | int | Manual |
-| `es_vendaje` | SÍ/NO | Manual |
-| `id_lesion_relacionada` | L0001 (vacío si preventivo) | Manual |
-| `preventivo_o_curativo` | PREVENTIVO/CURATIVO | Manual |
-| `observaciones` | texto libre | Manual |
-
-### Hojas vista (auto)
-
-- `_VISTA_LESIONES`: tabla limpia con todas las lesiones
-- `_VISTA_RESUMEN`: agregado por jugador (lesiones totales, días baja
-  totales, última lesión, etc.)
-- `_VISTA_TRATAMIENTOS_RESUMEN`: tratamientos por jugador
+Idempotente: ejecutarlo varias veces no rompe nada.
 
 ---
 
 ## 🔐 Privacidad y permisos
 
 - **Cuenta de servicio**: Editor (necesario para que los scripts lean/escriban).
-- **Arkaitz**: Editor (creador del Sheet, control total).
-- **Fisios**: Editor solo de este Sheet (no tienen acceso al principal).
+- **Arkaitz**: Editor.
+- **Fisios**: Editor solo de este Sheet (NO del principal).
 
-Cuando un usuario que **no sea fisio/médico/admin** acceda al
-dashboard principal, los nombres de las lesiones aparecerán
-**anonimizados por dorsal** ("el 8 se ha lesionado" en vez de "RAYA").
-Esto se implementa en la pestaña Lesiones del dashboard cuando
-montemos el sistema de roles (apuntado en `docs/estado_proyecto.md`).
+Cuando un usuario que no sea fisio/médico/admin acceda al dashboard
+principal, los nombres de las lesiones aparecerán **anonimizados por
+dorsal** ("el 8 se ha lesionado" en vez de "RAYA"). Apuntado en
+`docs/estado_proyecto.md` para cuando montemos el sistema de roles.

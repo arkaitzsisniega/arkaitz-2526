@@ -1,23 +1,25 @@
 """
-crear_sheet_fisios.py — Configura el Sheet de Lesiones y Tratamientos
-para fisios. Es un sheet SEPARADO del principal para que los fisios
-solo accedan a estos datos y no al resto.
+crear_sheet_fisios.py — Configura el Sheet de Lesiones, Tratamientos
+y Temperatura muscular para fisios. Es un sheet SEPARADO del principal
+para que los fisios solo accedan a estos datos.
 
-⚠️ ATENCIÓN: la cuenta de servicio NO puede crear sheets nuevos (no
-tiene cuota de Drive). El usuario tiene que crear el Sheet a MANO
-y compartirlo con la cuenta de servicio:
+Estructura: 3 pestañas principales + auxiliares
+  · LESIONES        ← cuando un jugador se retira
+  · TRATAMIENTOS    ← PRE / POST / LESIONADO
+  · TEMPERATURA     ← cámara térmica, asimetrías musculares
+  · JUGADORES       ← referencia (sincronizada con roster principal)
+  · _LISTAS         ← opciones de los dropdowns (oculta lateralmente)
+  · _META           ← metadatos internos
 
-  1. Ve a https://sheets.google.com → '+ En blanco' (sheet vacío)
-  2. Renómbralo a 'Arkaitz - Lesiones y Tratamientos 2526'
-  3. Comparte → escribe el email de la cuenta de servicio:
-       arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com
-     Permiso: Editor. Pulsa Enviar.
-  4. Ejecuta este script: /usr/bin/python3 src/crear_sheet_fisios.py
+⚠️ La cuenta de servicio NO puede crear sheets nuevos. El usuario tiene
+que crear el Sheet a mano y compartirlo con la cuenta de servicio.
+Después este script crea las hojas, las cabeceras y las VALIDACIONES
+(dropdowns) en cada columna.
 
-El script entonces creará las hojas (LESIONES, TRATAMIENTOS,
-JUGADORES, _META, _VISTA_*) y migrará los datos del Sheet principal.
+Idempotente: ejecutarlo varias veces NO duplica datos.
 
-Idempotente: ejecutarlo más de una vez NO duplica datos.
+Uso:
+  /usr/bin/python3 src/crear_sheet_fisios.py
 """
 from __future__ import annotations
 
@@ -41,70 +43,171 @@ SHEET_PRINCIPAL = "Arkaitz - Datos Temporada 2526"
 SHEET_FISIOS = "Arkaitz - Lesiones y Tratamientos 2526"
 EMAIL_OWNER = "arkaitzsisniega@gmail.com"
 
-# Estructura de las hojas (cabeceras)
-HOJAS = {
-    "LESIONES": [
-        "id_lesion",  # autogenerado: L0001, L0002...
-        "jugador",
-        "dorsal",  # autocompletado
-        "fecha_lesion",
-        "momento",  # ENTRENO / PARTIDO / GYM / OTRO
-        "tipo_lesion",  # MUSCULAR / LIGAMENTOSA / ÓSEA / CONTUSIÓN / TENDINOSA / ARTICULAR / OTRO
-        "zona_corporal",  # CABEZA / CUELLO / TORSO / HOMBRO / BRAZO / CODO / MUÑECA / MANO / CADERA / MUSLO / RODILLA / TIBIA / TOBILLO / PIE
-        "lado",  # IZQUIERDA / DERECHA / BILATERAL / N.A.
-        "mecanismo",  # CONTACTO / NO_CONTACTO / SOBREUSO / RECIDIVA / OTRO
-        "diagnostico",  # texto libre
-        "dias_baja_estimados",
-        "pruebas_medicas",  # texto libre
-        "notas_iniciales",
-        "estado_actual",  # ACTIVA / EN_RECUP / ALTA / RECAÍDA
-        "fecha_revision",
-        "tratamiento",  # texto libre
-        "evolucion",
-        "vuelta_programada",
-        "notas_seguimiento",
-        "fecha_alta",
-        "dias_baja_real",  # CALCULADO automaticamente
-        "diferencia_dias",  # CALCULADO (real - estimados)
-        "recaida",  # SI / NO
-        "baja_anterior",  # SI / NO
-        "notas_alta",
-        # Calculados (sesiones perdidas - rellena calcular_vistas_fisios)
-        "total_sesiones",
-        "entrenos_perdidos",
-        "gym_perdidos",
-        "partidos_perdidos",
-        "recup_perdidos",
-        "minutos_perdidos",
-    ],
-    "TRATAMIENTOS": [
-        "id_tratamiento",  # T0001, T0002...
-        "fecha",
-        "jugador",
-        "dorsal",
-        "fisio",  # nombre del fisio (Pelu, Otros…)
-        "tipo_tratamiento",  # MASAJE / ELECTRO / PUNCIÓN_SECA / VENDAJE / CRIOTERAPIA / MOVILIZACIÓN / READAPTACIÓN / OTRO
-        "zona",  # zona del cuerpo
-        "lado",
-        "duracion_min",
-        "es_vendaje",  # SÍ / NO
-        "id_lesion_relacionada",  # vacío si es preventivo, si no = id_lesion
-        "preventivo_o_curativo",  # PREVENTIVO / CURATIVO
-        "observaciones",
-    ],
-    "JUGADORES": [
-        "dorsal",
-        "nombre",
-        "posicion",
-        "equipo",  # PRIMER / FILIAL
-        "activo",  # TRUE / FALSE
-    ],
-    "_META": [
-        "clave",
-        "valor",
-        "actualizado",
-    ],
+# ═══════════════════════════════════════════════════════════════════════
+# LISTAS DE OPCIONES (van a la hoja _LISTAS y se referencian con ONE_OF_RANGE)
+# ═══════════════════════════════════════════════════════════════════════
+
+TURNOS = ["M", "T", "P"]
+LADOS = ["IZDA", "DCHA", "BILATERAL", "N.A."]
+SI_NO = ["SÍ", "NO"]
+
+TIPOS_SESION = [
+    "ENTRENO", "PARTIDO", "GYM", "RECUP",
+    "GYM+TEC-TAC", "FISICO+TEC-TAC", "MATINAL",
+    "PORTEROS", "FISICO", "TEC-TAC", "AMISTOSO",
+]
+
+ZONAS_CORPORALES = [
+    "CABEZA", "CUELLO",
+    "PECHO", "ESPALDA", "ABDOMEN", "LUMBAR",
+    "HOMBRO", "BÍCEPS", "TRÍCEPS", "CODO", "ANTEBRAZO", "MUÑECA", "MANO",
+    "CADERA", "GLÚTEO", "INGLE",
+    "CUÁDRICEPS", "ISQUIOTIBIALES", "ADUCTORES", "ABDUCTORES",
+    "RODILLA",
+    "PANTORRILLA / GEMELO", "TIBIAL ANTERIOR", "TENDÓN DE AQUILES",
+    "TOBILLO", "PIE", "TALÓN",
+]
+
+TIPOS_TEJIDO = [
+    "MUSCULAR", "TENDINOSA", "LIGAMENTOSA", "ÓSEA",
+    "ARTICULAR", "CARTILAGINOSA", "MENISCAL",
+    "CONTUSIÓN", "ESGUINCE", "FRACTURA",
+    "NEUROLÓGICA", "OTRO",
+]
+
+MECANISMOS = [
+    "CONTACTO", "NO_CONTACTO", "SOBREUSO",
+    "RECIDIVA", "MAL_GESTO", "DESCONOCIDO", "OTRO",
+]
+
+GRAVEDADES = ["LEVE", "MODERADA", "GRAVE"]
+
+ESTADOS_LESION = ["ACTIVA", "EN_RECUP", "ALTA", "RECAÍDA"]
+
+PRUEBAS_MEDICAS = [
+    "NINGUNA", "ECO", "RM", "RX", "TAC", "ANÁLISIS", "VARIAS",
+]
+
+# Tratamientos
+BLOQUES_TRATAMIENTO = ["PRE_ENTRENO", "POST_ENTRENO", "LESIONADO"]
+
+ACCIONES_TRATAMIENTO = [
+    "VENDAJE_FUNCIONAL", "VENDAJE_NEUROMUSCULAR", "VENDAJE_COMPRESIVO",
+    "MASAJE", "MASAJE_DESCARGA",
+    "ELECTRO_TENS", "ELECTRO_EMS", "ELECTRO_INTERFER.",
+    "PUNCIÓN_SECA",
+    "CRIOTERAPIA", "TERMOTERAPIA", "CONTRASTES",
+    "MOVILIZACIÓN", "ESTIRAMIENTOS", "AUTOMASAJE",
+    "READAPTACIÓN", "PROPIOCEPCIÓN", "FUERZA_EXCÉNTRICA",
+    "ULTRASONIDO", "ONDAS_DE_CHOQUE", "INDIBA", "MAGNETOTERAPIA",
+    "OSTEOPATÍA", "ACTIVACIÓN", "OTRO",
+]
+
+FISIOS = ["PELU", "ARKAITZ", "OTRO"]
+
+# Temperatura
+MOMENTOS_TERMICOS = [
+    "PRE_ENTRENO", "POST_ENTRENO",
+    "PRE_PARTIDO", "POST_PARTIDO",
+    "RECUP_24H", "RECUP_48H", "RECUP_72H",
+]
+
+ZONAS_TERMICAS = [
+    "CUÁDRICEPS_ANT", "ISQUIOTIBIALES_POST", "ADUCTORES_INT",
+    "GLÚTEO", "PANTORRILLA_POST", "GEMELO_LATERAL",
+    "TIBIAL_ANTERIOR", "TENDÓN_AQUILES",
+    "RODILLA_ANT", "RODILLA_POST",
+    "TOBILLO_ANT", "TOBILLO_POST",
+    "ESPALDA_BAJA", "ESPALDA_ALTA", "LUMBAR",
+    "HOMBRO", "PSOAS",
+]
+
+# Mapeo nombre listo → columna en _LISTAS
+LISTAS = {
+    "TURNOS": TURNOS,
+    "LADOS": LADOS,
+    "SI_NO": SI_NO,
+    "TIPOS_SESION": TIPOS_SESION,
+    "ZONAS_CORPORALES": ZONAS_CORPORALES,
+    "TIPOS_TEJIDO": TIPOS_TEJIDO,
+    "MECANISMOS": MECANISMOS,
+    "GRAVEDADES": GRAVEDADES,
+    "ESTADOS_LESION": ESTADOS_LESION,
+    "PRUEBAS_MEDICAS": PRUEBAS_MEDICAS,
+    "BLOQUES_TRATAMIENTO": BLOQUES_TRATAMIENTO,
+    "ACCIONES_TRATAMIENTO": ACCIONES_TRATAMIENTO,
+    "FISIOS": FISIOS,
+    "MOMENTOS_TERMICOS": MOMENTOS_TERMICOS,
+    "ZONAS_TERMICAS": ZONAS_TERMICAS,
 }
+
+# ═══════════════════════════════════════════════════════════════════════
+# ESTRUCTURA DE LAS PESTAÑAS
+# Cada columna es: (nombre, validacion_lista_o_None)
+# validacion = nombre de la lista en LISTAS, "JUGADOR", "FECHA", "NUMERO", o None
+# ═══════════════════════════════════════════════════════════════════════
+
+COLS_LESIONES = [
+    ("id_lesion", None),                  # auto
+    ("fecha_lesion", "FECHA"),
+    ("turno", "TURNOS"),
+    ("tipo_sesion", "TIPOS_SESION"),
+    ("jugador", "JUGADOR"),
+    ("dorsal", None),                     # auto desde JUGADORES
+    ("zona_corporal", "ZONAS_CORPORALES"),
+    ("lado", "LADOS"),
+    ("tipo_tejido", "TIPOS_TEJIDO"),
+    ("mecanismo", "MECANISMOS"),
+    ("gravedad", "GRAVEDADES"),
+    ("dias_baja_estimados", "NUMERO"),
+    ("pruebas_medicas", "PRUEBAS_MEDICAS"),
+    ("diagnostico", None),                # texto libre
+    ("estado_actual", "ESTADOS_LESION"),
+    ("fecha_alta", "FECHA"),
+    ("dias_baja_real", None),             # auto
+    ("diferencia_dias", None),            # auto
+    ("total_sesiones_perdidas", None),    # auto
+    ("entrenos_perdidos", None),          # auto
+    ("partidos_perdidos", None),          # auto
+    ("recaida", "SI_NO"),
+    ("notas", None),                      # texto libre
+]
+
+COLS_TRATAMIENTOS = [
+    ("id_tratamiento", None),
+    ("fecha", "FECHA"),
+    ("turno", "TURNOS"),
+    ("bloque", "BLOQUES_TRATAMIENTO"),    # PRE / POST / LESIONADO
+    ("jugador", "JUGADOR"),
+    ("dorsal", None),
+    ("fisio", "FISIOS"),
+    ("accion", "ACCIONES_TRATAMIENTO"),
+    ("zona_corporal", "ZONAS_CORPORALES"),
+    ("lado", "LADOS"),
+    ("duracion_min", "NUMERO"),
+    ("id_lesion_relacionada", None),      # opcional, dropdown dinámico
+    ("notas", None),
+]
+
+COLS_TEMPERATURA = [
+    ("id_medicion", None),
+    ("fecha", "FECHA"),
+    ("turno", "TURNOS"),
+    ("momento", "MOMENTOS_TERMICOS"),
+    ("jugador", "JUGADOR"),
+    ("dorsal", None),
+    ("zona", "ZONAS_TERMICAS"),
+    ("temp_izda_c", "NUMERO"),            # °C
+    ("temp_dcha_c", "NUMERO"),
+    ("asimetria_c", None),                # auto = izda - dcha
+    ("alerta", None),                     # auto = "ALERTA" si |asimetria|>0.5
+    ("temp_ambiente_c", "NUMERO"),
+    ("notas", None),
+]
+
+COLS_JUGADORES = ["dorsal", "nombre", "posicion", "equipo", "activo"]
+
+COLS_META = ["clave", "valor", "actualizado"]
 
 
 def _connect():
@@ -112,9 +215,8 @@ def _connect():
     return gspread.authorize(creds)
 
 
-def _crear_o_abrir_sheet(client) -> gspread.Spreadsheet:
-    """Devuelve el Spreadsheet de fisios. Si no existe o no está
-    compartido con la cuenta de servicio, da instrucciones al usuario."""
+def _abrir_sheet(client) -> gspread.Spreadsheet:
+    """Abre el Sheet de fisios. Falla con instrucciones si no existe."""
     try:
         sh = client.open(SHEET_FISIOS)
         print(f"📂 Sheet encontrado: '{SHEET_FISIOS}' (id: {sh.id})")
@@ -125,68 +227,179 @@ def _crear_o_abrir_sheet(client) -> gspread.Spreadsheet:
         print(f"❌ No encuentro el Sheet '{SHEET_FISIOS}'")
         print("=" * 70)
         print()
-        print("La cuenta de servicio NO tiene cuota para crear Sheets.")
-        print("Tienes que crearlo TÚ a mano (30 segundos):")
+        print("Crea el Sheet a mano y compártelo con la cuenta de servicio:")
+        print(f"  arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com")
         print()
-        print("  1. Ve a https://sheets.google.com")
-        print("  2. Pulsa '+ En blanco' (Sheet vacío)")
-        print(f"  3. Renombra el documento a:  {SHEET_FISIOS}")
-        print("  4. Compartir (botón arriba a la derecha)")
-        print("  5. Escribe este email y pulsa Enviar (Editor):")
-        print("     arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com")
+        print("Pasos:")
+        print("  1. https://sheets.google.com → '+ En blanco'")
+        print(f"  2. Renombrar a: {SHEET_FISIOS}")
+        print("  3. Compartir → email de arriba como Editor")
+        print("  4. Reejecutar este script")
         print()
-        print("  6. Vuelve a ejecutar este script:")
-        print("     /usr/bin/python3 src/crear_sheet_fisios.py")
-        print()
-        print("=" * 70)
         sys.exit(1)
 
 
-def _asegurar_hoja(sh: gspread.Spreadsheet, nombre: str, cabeceras: list[str]):
-    """Asegura que la hoja existe con las cabeceras correctas."""
-    existe = nombre in [w.title for w in sh.worksheets()]
-    if not existe:
-        ws = sh.add_worksheet(title=nombre,
-                                rows=max(500, len(cabeceras) + 50),
-                                cols=len(cabeceras) + 5)
-        ws.update(values=[cabeceras], range_name=f"A1:{chr(64+len(cabeceras))}1")
-        # Negrita en cabeceras
-        ws.format(f"A1:{chr(64+len(cabeceras))}1", {
-            "textFormat": {"bold": True},
-            "backgroundColor": {"red": 0.10, "green": 0.23, "blue": 0.42},
-        })
-        ws.format(f"A1:{chr(64+len(cabeceras))}1", {
-            "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-        })
-        # Congelar fila de cabecera
-        ws.freeze(rows=1)
-        print(f"   ✅ Hoja creada: {nombre}")
+def _idx_col(idx: int) -> str:
+    """0 → A, 1 → B, ..., 25 → Z, 26 → AA"""
+    out = ""
+    while idx >= 0:
+        out = chr(65 + (idx % 26)) + out
+        idx = idx // 26 - 1
+    return out
+
+
+def _crear_hoja_listas(sh: gspread.Spreadsheet):
+    """Crea/actualiza la hoja _LISTAS con todas las opciones de los dropdowns."""
+    titulos = [w.title for w in sh.worksheets()]
+    if "_LISTAS" in titulos:
+        ws = sh.worksheet("_LISTAS")
+        ws.clear()
+        time.sleep(0.5)
     else:
-        ws = sh.worksheet(nombre)
-        # Verificar cabeceras
-        actual = ws.row_values(1)
-        if actual != cabeceras:
-            print(f"   ⚠️ Cabeceras de '{nombre}' difieren del esperado.")
-            print(f"      Actual:    {actual[:5]}…")
-            print(f"      Esperado:  {cabeceras[:5]}…")
-            print(f"      (no se sobreescribe automáticamente)")
-        else:
-            print(f"   ✓ Hoja OK: {nombre}")
+        # Suficientes filas para la lista más larga
+        max_filas = max(len(v) for v in LISTAS.values()) + 5
+        ws = sh.add_worksheet(title="_LISTAS",
+                                rows=max(max_filas, 100),
+                                cols=len(LISTAS) + 2)
+        time.sleep(0.5)
+    # Cabecera
+    headers = list(LISTAS.keys())
+    cols_data = []
+    max_filas = max(len(v) for v in LISTAS.values())
+    for i in range(max_filas):
+        row = []
+        for k in headers:
+            row.append(LISTAS[k][i] if i < len(LISTAS[k]) else "")
+        cols_data.append(row)
+    valores = [headers] + cols_data
+    last_col = _idx_col(len(headers) - 1)
+    ws.update(values=valores,
+                range_name=f"A1:{last_col}{1+len(cols_data)}",
+                value_input_option="RAW")
+    # Formato cabecera
+    ws.format(f"A1:{last_col}1", {
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+        "backgroundColor": {"red": 0.10, "green": 0.23, "blue": 0.42},
+    })
+    ws.freeze(rows=1)
+    print(f"   ✅ _LISTAS creada con {len(headers)} listas")
     return ws
 
 
-def _eliminar_hoja_default(sh):
-    """Cuando se crea un Sheet nuevo trae una hoja por defecto 'Hoja 1' o
-    'Sheet1'. La quitamos si tenemos al menos una de las nuestras."""
+def _asegurar_hoja(sh: gspread.Spreadsheet, nombre: str,
+                    cabeceras: list[str], color_rgb=(0.10, 0.23, 0.42)):
+    """Asegura que la hoja existe con las cabeceras correctas."""
     titulos = [w.title for w in sh.worksheets()]
-    nuestros = set(HOJAS.keys()) | {"_VISTA_LESIONES", "_VISTA_RESUMEN"}
-    for t in titulos:
-        if t not in nuestros and t in ("Sheet1", "Hoja 1", "Hoja1"):
-            try:
-                sh.del_worksheet(sh.worksheet(t))
-                print(f"   🗑 Hoja default '{t}' eliminada")
-            except Exception:
-                pass
+    if nombre in titulos:
+        ws = sh.worksheet(nombre)
+        actual = ws.row_values(1)
+        if actual != cabeceras:
+            # Reescribir solo cabecera, sin tocar datos
+            last_col = _idx_col(len(cabeceras) - 1)
+            ws.update(values=[cabeceras], range_name=f"A1:{last_col}1")
+            print(f"   ⚠️ Cabecera de '{nombre}' actualizada (datos preservados)")
+        else:
+            print(f"   ✓ Hoja OK: {nombre}")
+    else:
+        ws = sh.add_worksheet(title=nombre,
+                                rows=500, cols=len(cabeceras) + 5)
+        last_col = _idx_col(len(cabeceras) - 1)
+        ws.update(values=[cabeceras], range_name=f"A1:{last_col}1")
+        ws.format(f"A1:{last_col}1", {
+            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+            "backgroundColor": {"red": color_rgb[0], "green": color_rgb[1], "blue": color_rgb[2]},
+        })
+        ws.freeze(rows=1)
+        print(f"   ✅ Hoja creada: {nombre}")
+    time.sleep(0.5)
+    return ws
+
+
+def _aplicar_validaciones(sh: gspread.Spreadsheet, ws_target,
+                            cols_estructura: list[tuple],
+                            ws_listas, ws_jugadores):
+    """Aplica validaciones (dropdowns) a cada columna de la pestaña.
+
+    cols_estructura: lista de (nombre, validacion) donde validacion es:
+       - clave de LISTAS → ONE_OF_RANGE apuntando a _LISTAS!<col>2:<col>1000
+       - "JUGADOR" → ONE_OF_RANGE apuntando a JUGADORES!B2:B100
+       - "FECHA" → DATE_IS_VALID
+       - "NUMERO" → NUMBER_GREATER_THAN_EQ 0
+       - None → sin validación (texto libre)
+    """
+    listas_cols = list(LISTAS.keys())  # mismo orden que en _crear_hoja_listas
+    requests = []
+
+    for col_idx, (nombre, val) in enumerate(cols_estructura):
+        if val is None:
+            continue
+        rango = {
+            "sheetId": ws_target.id,
+            "startRowIndex": 1,    # excluir cabecera
+            "endRowIndex": 1000,
+            "startColumnIndex": col_idx,
+            "endColumnIndex": col_idx + 1,
+        }
+        condition = None
+        if val == "JUGADOR":
+            condition = {
+                "type": "ONE_OF_RANGE",
+                "values": [{"userEnteredValue":
+                            f"=JUGADORES!B2:B{ws_jugadores.row_count}"}],
+            }
+        elif val == "FECHA":
+            condition = {"type": "DATE_IS_VALID"}
+        elif val == "NUMERO":
+            condition = {
+                "type": "NUMBER_GREATER_THAN_EQ",
+                "values": [{"userEnteredValue": "0"}],
+            }
+        elif val in LISTAS:
+            col_letra = _idx_col(listas_cols.index(val))
+            condition = {
+                "type": "ONE_OF_RANGE",
+                "values": [{"userEnteredValue":
+                            f"=_LISTAS!{col_letra}2:{col_letra}{1+len(LISTAS[val])}"}],
+            }
+        else:
+            continue
+
+        requests.append({
+            "setDataValidation": {
+                "range": rango,
+                "rule": {
+                    "condition": condition,
+                    # showCustomUi=True → muestra dropdown UI
+                    "showCustomUi": True,
+                    # strict=False → permite valores fuera de la lista
+                    # (útil si añaden uno nuevo sin actualizar _LISTAS)
+                    "strict": False,
+                }
+            }
+        })
+
+    if requests:
+        sh.batch_update({"requests": requests})
+        print(f"   ✅ {len(requests)} validaciones aplicadas")
+
+
+def _ocultar_hojas_internas(sh: gspread.Spreadsheet):
+    """Marca _LISTAS y _META como ocultas para que los fisios no las vean."""
+    requests = []
+    for nombre in ("_LISTAS", "_META"):
+        try:
+            ws = sh.worksheet(nombre)
+            requests.append({
+                "updateSheetProperties": {
+                    "properties": {"sheetId": ws.id, "hidden": True},
+                    "fields": "hidden",
+                }
+            })
+        except Exception:
+            pass
+    if requests:
+        sh.batch_update({"requests": requests})
+        print(f"   ✅ Hojas internas ocultas")
 
 
 def _sincronizar_jugadores(sh_fisios, sh_principal):
@@ -199,9 +412,12 @@ def _sincronizar_jugadores(sh_fisios, sh_principal):
         return
 
     ws_dst = sh_fisios.worksheet("JUGADORES")
-    # Solo limpiar a partir de la fila 2 (mantener cabeceras)
     ws_dst.batch_clear(["A2:Z"])
     time.sleep(1)
+
+    nombres_primer = {"HERRERO", "GARCIA", "J.HERRERO", "J.GARCIA",
+                       "CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
+                       "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"}
 
     filas = []
     for j in src_data:
@@ -213,20 +429,15 @@ def _sincronizar_jugadores(sh_fisios, sh_principal):
             d = int(float(d)) if d not in ("", None) else ""
         except (ValueError, TypeError):
             d = ""
-        # Decidir equipo: por defecto PRIMER si está en lista de primeros
-        nombres_primer = {"HERRERO", "GARCIA", "J.HERRERO", "J.GARCIA",
-                          "CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
-                          "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"}
         equipo = "PRIMER" if nombre in nombres_primer else "FILIAL"
-        # Activo
         activo = str(j.get("activo", "TRUE")).upper()
         if activo not in ("TRUE", "FALSE"):
             activo = "TRUE"
         filas.append([str(d) if d != "" else "",
-                      nombre,
-                      str(j.get("posicion", "")).upper(),
-                      equipo,
-                      activo])
+                       nombre,
+                       str(j.get("posicion", "")).upper(),
+                       equipo,
+                       activo])
 
     if filas:
         ws_dst.update(values=filas, range_name=f"A2:E{len(filas)+1}",
@@ -236,59 +447,37 @@ def _sincronizar_jugadores(sh_fisios, sh_principal):
 
 def _migrar_lesiones(sh_fisios, sh_principal):
     """Migra las lesiones del Sheet principal al de fisios.
-    Solo añade lesiones que NO estén ya en el destino (idempotente)."""
+    Solo añade lesiones nuevas (idempotente)."""
     print("🏥 Migrando LESIONES desde Sheet principal…")
-    ws_src = sh_principal.worksheet("LESIONES")
-    src = ws_src.get_all_values()
-
+    try:
+        ws_src = sh_principal.worksheet("LESIONES")
+        src = ws_src.get_all_values()
+    except Exception as e:
+        print(f"   ⚠️ No se pudo leer LESIONES del principal: {e}")
+        return
     if len(src) < 3:
         print("   ⚠️ LESIONES vacía o sin datos")
         return
 
-    # La fila 1 son grupos, fila 2 cabeceras reales
-    # Cabeceras viejas (fila 2):
-    # JUGADOR, FECHA LESIÓN, MOMENTO, TIPO LESIÓN, ZONA CORPORAL, LADO,
-    # MECANISMO, DIAGNÓSTICO, DÍAS BAJA EST., PRUEBAS MÉDICAS,
-    # NOTAS INICIALES, ESTADO ACTUAL, FECHA REVISIÓN, TRATAMIENTO,
-    # EVOLUCIÓN, VUELTA PROG., NOTAS SEGUIM., FECHA ALTA,
-    # DÍAS BAJA REALES, DIFERENCIA DÍAS, RECAÍDA, BAJA ANTERIOR,
-    # NOTAS ALTA, TOTAL SESIONES, ENTRENOS, GYM, PARTIDOS, RECUP,
-    # MINUTOS PERDIDOS
-
-    cab_viejas = src[1]
+    cab_viejas = src[1]  # fila 2 son las cabeceras reales
     data_viejas = src[2:]
 
-    # Mapping cabeceras viejas → claves nuevas
+    # Mapping cabeceras viejas → nuevas
     map_cols = {
         "JUGADOR": "jugador",
         "FECHA LESIÓN": "fecha_lesion",
-        "MOMENTO": "momento",
-        "TIPO LESIÓN": "tipo_lesion",
+        "MOMENTO": "turno",       # M/T/P
+        "TIPO LESIÓN": "tipo_tejido",
         "ZONA CORPORAL": "zona_corporal",
         "LADO": "lado",
         "MECANISMO": "mecanismo",
         "DIAGNÓSTICO": "diagnostico",
         "DÍAS BAJA EST.": "dias_baja_estimados",
         "PRUEBAS MÉDICAS": "pruebas_medicas",
-        "NOTAS INICIALES": "notas_iniciales",
         "ESTADO ACTUAL": "estado_actual",
-        "FECHA REVISIÓN": "fecha_revision",
-        "TRATAMIENTO": "tratamiento",
-        "EVOLUCIÓN": "evolucion",
-        "VUELTA PROG.": "vuelta_programada",
-        "NOTAS SEGUIM.": "notas_seguimiento",
         "FECHA ALTA": "fecha_alta",
-        "DÍAS BAJA REALES": "dias_baja_real",
-        "DIFERENCIA DÍAS": "diferencia_dias",
         "RECAÍDA": "recaida",
-        "BAJA ANTERIOR": "baja_anterior",
-        "NOTAS ALTA": "notas_alta",
-        "TOTAL SESIONES": "total_sesiones",
-        "ENTRENOS": "entrenos_perdidos",
-        "GYM": "gym_perdidos",
-        "PARTIDOS": "partidos_perdidos",
-        "RECUP": "recup_perdidos",
-        "MINUTOS PERDIDOS": "minutos_perdidos",
+        "NOTAS INICIALES": "notas",
     }
 
     # Roster para mapear jugador → dorsal
@@ -297,7 +486,7 @@ def _migrar_lesiones(sh_fisios, sh_principal):
     nombre_a_dorsal = {str(r.get("nombre", "")).strip().upper(): r.get("dorsal", "")
                           for r in roster_rows if r.get("nombre")}
 
-    # Lesiones ya existentes en destino (para idempotencia)
+    # Lesiones ya existentes en destino (idempotencia)
     ws_dst = sh_fisios.worksheet("LESIONES")
     existing = ws_dst.get_all_records()
     existing_keys = {(str(r.get("jugador", "")).upper(),
@@ -305,45 +494,52 @@ def _migrar_lesiones(sh_fisios, sh_principal):
                        for r in existing if r.get("jugador") and r.get("fecha_lesion")}
     print(f"   Lesiones ya en destino: {len(existing_keys)}")
 
-    # Construir filas nuevas
+    cab_nueva = [c[0] for c in COLS_LESIONES]
     nuevas = []
     siguiente_id = len(existing) + 1
-    cab_nueva = HOJAS["LESIONES"]
-    for i, fila in enumerate(data_viejas):
-        # Si es fórmula (empieza con =) o vacía, saltar
+    for fila in data_viejas:
         if not fila or all(not str(c).strip() or str(c).strip().startswith("=")
                             for c in fila):
             continue
-        # Construir dict con cabecera vieja
         row_dict_vieja = {cab_viejas[j]: (fila[j] if j < len(fila) else "")
                             for j in range(len(cab_viejas))}
-        # Saltar si fórmulas
         if not row_dict_vieja.get("JUGADOR") or row_dict_vieja["JUGADOR"].startswith("="):
             continue
-
         jugador = str(row_dict_vieja.get("JUGADOR", "")).strip().upper()
         fecha = str(row_dict_vieja.get("FECHA LESIÓN", "")).strip()
         if not jugador or not fecha:
             continue
-        # Idempotencia
         if (jugador, fecha) in existing_keys:
             continue
 
-        # Mapear a estructura nueva
         row_dict_nueva = {}
         for col_vieja, col_nueva in map_cols.items():
             val = row_dict_vieja.get(col_vieja, "")
-            # Si es fórmula la dejamos vacía (calcular_vistas_fisios la rellenará)
             if isinstance(val, str) and val.startswith("="):
                 val = ""
             row_dict_nueva[col_nueva] = val
 
-        # Auto-rellenar id y dorsal
         row_dict_nueva["id_lesion"] = f"L{siguiente_id:04d}"
         siguiente_id += 1
         row_dict_nueva["dorsal"] = nombre_a_dorsal.get(jugador, "")
+        # turno por defecto si no está
+        if not row_dict_nueva.get("turno"):
+            row_dict_nueva["turno"] = ""
+        # tipo_sesion por defecto: ENTRENO
+        if not row_dict_nueva.get("tipo_sesion"):
+            row_dict_nueva["tipo_sesion"] = "ENTRENO"
+        # gravedad: si dias_baja_est es alto, deducir
+        try:
+            dias_est = int(float(row_dict_nueva.get("dias_baja_estimados") or 0))
+            if dias_est >= 30:
+                row_dict_nueva["gravedad"] = "GRAVE"
+            elif dias_est >= 7:
+                row_dict_nueva["gravedad"] = "MODERADA"
+            elif dias_est > 0:
+                row_dict_nueva["gravedad"] = "LEVE"
+        except (ValueError, TypeError):
+            pass
 
-        # Construir fila en orden de cabecera nueva
         fila_nueva = [str(row_dict_nueva.get(h, "")) for h in cab_nueva]
         nuevas.append(fila_nueva)
 
@@ -351,11 +547,11 @@ def _migrar_lesiones(sh_fisios, sh_principal):
         print("   ✓ No hay lesiones nuevas que migrar")
         return
 
-    # Buscar primera fila libre y escribir
     todas_dst = ws_dst.get_all_values()
     primera_libre = len(todas_dst) + 1
+    last_col = _idx_col(len(cab_nueva) - 1)
     ws_dst.update(values=nuevas,
-                    range_name=f"A{primera_libre}:{chr(64+len(cab_nueva))}{primera_libre+len(nuevas)-1}",
+                    range_name=f"A{primera_libre}:{last_col}{primera_libre+len(nuevas)-1}",
                     value_input_option="USER_ENTERED")
     print(f"   ✅ {len(nuevas)} lesiones migradas")
 
@@ -369,54 +565,101 @@ def _guardar_meta(sh_fisios):
     rows = [
         ["sheet_id", sh_fisios.id, dt.datetime.now().isoformat()],
         ["sheet_principal", SHEET_PRINCIPAL, dt.datetime.now().isoformat()],
-        ["ultimo_sync_jugadores", "OK", dt.datetime.now().isoformat()],
+        ["estructura_version", "v2_3pestanas", dt.datetime.now().isoformat()],
     ]
     ws.update(values=rows, range_name=f"A2:C{1+len(rows)}",
                 value_input_option="USER_ENTERED")
-    print("   ✅ _META actualizada")
+    print(f"   ✅ _META actualizada")
 
 
 def main():
-    print("="*70)
-    print("CREAR SHEET DE LESIONES Y TRATAMIENTOS PARA FISIOS")
-    print("="*70)
+    print("=" * 70)
+    print("CONFIGURAR SHEET DE LESIONES, TRATAMIENTOS Y TEMPERATURA")
+    print("=" * 70)
     print()
 
     client = _connect()
-    sh = _crear_o_abrir_sheet(client)
+    sh = _abrir_sheet(client)
 
+    # 1) _LISTAS (auxiliar)
+    print("📋 Hoja _LISTAS (opciones de los dropdowns)…")
+    _crear_hoja_listas(sh)
+
+    # 2) JUGADORES (referencia, debe estar antes de las pestañas que la usan)
     print()
-    print("📋 Asegurando estructura de hojas…")
-    for nombre, cabeceras in HOJAS.items():
-        _asegurar_hoja(sh, nombre, cabeceras)
+    print("📋 Hoja JUGADORES…")
+    ws_jug = _asegurar_hoja(sh, "JUGADORES", COLS_JUGADORES,
+                              color_rgb=(0.30, 0.50, 0.30))
 
-    _eliminar_hoja_default(sh)
-
-    # Sincronizar JUGADORES y migrar LESIONES desde el Sheet principal
+    # Sincronizar jugadores ANTES de aplicar validaciones (que dependen de ella)
     print()
     sh_principal = client.open(SHEET_PRINCIPAL)
     _sincronizar_jugadores(sh, sh_principal)
+
+    # 3) Pestañas principales
+    print()
+    print("📋 Hoja LESIONES…")
+    cab_les = [c[0] for c in COLS_LESIONES]
+    ws_les = _asegurar_hoja(sh, "LESIONES", cab_les,
+                              color_rgb=(0.72, 0.11, 0.11))
+
+    print()
+    print("📋 Hoja TRATAMIENTOS…")
+    cab_tr = [c[0] for c in COLS_TRATAMIENTOS]
+    ws_tr = _asegurar_hoja(sh, "TRATAMIENTOS", cab_tr,
+                             color_rgb=(0.10, 0.45, 0.30))
+
+    print()
+    print("📋 Hoja TEMPERATURA…")
+    cab_temp = [c[0] for c in COLS_TEMPERATURA]
+    ws_temp = _asegurar_hoja(sh, "TEMPERATURA", cab_temp,
+                                color_rgb=(0.85, 0.45, 0.10))
+
+    print()
+    print("📋 Hoja _META…")
+    _asegurar_hoja(sh, "_META", COLS_META, color_rgb=(0.5, 0.5, 0.5))
+
+    # 4) Aplicar validaciones (dropdowns) en cada pestaña
+    print()
+    print("✅ Aplicando validaciones en LESIONES…")
+    ws_listas = sh.worksheet("_LISTAS")
+    _aplicar_validaciones(sh, ws_les, COLS_LESIONES, ws_listas, ws_jug)
+    time.sleep(1)
+    print("✅ Aplicando validaciones en TRATAMIENTOS…")
+    _aplicar_validaciones(sh, ws_tr, COLS_TRATAMIENTOS, ws_listas, ws_jug)
+    time.sleep(1)
+    print("✅ Aplicando validaciones en TEMPERATURA…")
+    _aplicar_validaciones(sh, ws_temp, COLS_TEMPERATURA, ws_listas, ws_jug)
+    time.sleep(1)
+
+    # 5) Ocultar hojas internas (_LISTAS, _META)
+    print()
+    print("🙈 Ocultando hojas internas…")
+    _ocultar_hojas_internas(sh)
+
+    # 6) Migrar lesiones del sheet principal
     print()
     _migrar_lesiones(sh, sh_principal)
-    print()
 
+    # 7) Metadatos
+    print()
     print("📌 Guardando metadatos…")
     _guardar_meta(sh)
 
     print()
-    print("="*70)
+    print("=" * 70)
     print(f"✅ Sheet de fisios listo: '{SHEET_FISIOS}'")
     print(f"   ID: {sh.id}")
     print(f"   URL: https://docs.google.com/spreadsheets/d/{sh.id}/")
     print()
     print("Próximos pasos:")
-    print("  1. Abre la URL → confirma que tienes acceso como Editor.")
+    print("  1. Abre la URL → entra a la pestaña LESIONES.")
+    print("     Comprueba que los dropdowns funcionan al hacer click en una celda.")
     print("  2. Comparte con los fisios (botón 'Compartir' en Sheets):")
     print("     · Email del fisio + permiso Editor")
     print("     · IMPORTANTE: NO les des acceso al Sheet principal")
     print("  3. Ejecuta src/calcular_vistas_fisios.py para rellenar")
-    print("     las columnas de sesiones perdidas (cálculo automático).")
-    print()
+    print("     las columnas calculadas (días baja real, sesiones perdidas, asimetrías).")
 
 
 if __name__ == "__main__":
