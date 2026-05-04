@@ -1014,6 +1014,14 @@ with tab_carga:
         pivot_rpe = (sem_df.pivot_table(
             index="JUGADOR", columns="DIA_TURNO", values="BORG", aggfunc="mean"
         ).round(1))
+        # Ordenar columnas cronológicamente (no alfabéticamente).
+        # Construir mapping DIA_TURNO → fecha real + orden de turno (M < T < P)
+        _orden_t = {"M": 0, "T": 1, "P": 2}
+        _key_dia = (sem_df.assign(
+            _ord=sem_df["FECHA"].astype("int64") + sem_df["TURNO"].fillna("").map(_orden_t).fillna(99)
+        ).groupby("DIA_TURNO")["_ord"].min().to_dict())
+        cols_ordenadas = sorted(pivot_rpe.columns, key=lambda c: _key_dia.get(c, 0))
+        pivot_rpe = pivot_rpe[cols_ordenadas]
 
         # Calcular carga y media
         pivot_rpe["CARGA SEMANA"] = sem_df.groupby("JUGADOR")["CARGA"].sum().round(0).reindex(pivot_rpe.index)
@@ -1051,6 +1059,7 @@ with tab_carga:
                 x="DIA_TURNO", y="CARGA", color="JUGADOR",
                 barmode="group",
                 color_discrete_map=color_jug(sem_df["JUGADOR"].unique()),
+                category_orders={"DIA_TURNO": cols_ordenadas},
             )
             fig.update_layout(**LAYOUT, height=320, showlegend=True)
             st.plotly_chart(fig, use_container_width=True)
@@ -1058,12 +1067,15 @@ with tab_carga:
     with c_der:
         st.markdown("#### Borg medio por sesión")
         if not sem_df.empty:
+            _borg_medio = (sem_df.groupby("DIA_TURNO")["BORG"].mean()
+                           .reindex(cols_ordenadas).reset_index())
             fig2 = px.bar(
-                sem_df.groupby("DIA_TURNO")["BORG"].mean().reset_index(),
+                _borg_medio,
                 x="DIA_TURNO", y="BORG",
                 color="BORG",
                 color_continuous_scale=["#81C784", "#FFF176", "#EF9A9A"],
                 range_color=[0, 10],
+                category_orders={"DIA_TURNO": cols_ordenadas},
             )
             fig2.update_layout(**LAYOUT, height=320, coloraxis_showscale=False)
             st.plotly_chart(fig2, use_container_width=True)
@@ -1144,10 +1156,20 @@ with tab_peso:
 
         # Tabla PRE / POST / DIF como en Excel
         peso_sem["DIA"] = peso_sem["FECHA"].dt.strftime("%a %d/%m")
+        # Mapping DIA → fecha real (para ordenar columnas cronológicamente,
+        # no alfabéticamente "Fri, Mon, Sat...")
+        _key_dia_peso = peso_sem.groupby("DIA")["FECHA"].min().to_dict()
+        _cols_orden_peso = sorted(peso_sem["DIA"].unique(),
+                                    key=lambda c: _key_dia_peso.get(c, pd.Timestamp.min))
         pivot_pre  = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="PESO_PRE",  aggfunc="first").round(1)
         pivot_post = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="PESO_POST", aggfunc="first").round(1)
         pivot_dif  = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="DIFERENCIA",aggfunc="first").round(2)
         pivot_pct  = peso_sem.pivot_table(index="JUGADOR", columns="DIA", values="PCT_PERDIDA",aggfunc="first").round(1)
+        # Reordenar columnas cronológicamente
+        pivot_pre  = pivot_pre[[c for c in _cols_orden_peso if c in pivot_pre.columns]]
+        pivot_post = pivot_post[[c for c in _cols_orden_peso if c in pivot_post.columns]]
+        pivot_dif  = pivot_dif[[c for c in _cols_orden_peso if c in pivot_dif.columns]]
+        pivot_pct  = pivot_pct[[c for c in _cols_orden_peso if c in pivot_pct.columns]]
 
         subtabs = st.tabs(["PRE", "POST", "DIFERENCIA (kg)", "% Pérdida", "Δ vs Baseline"])
         with subtabs[0]: st.dataframe(pivot_pre,  use_container_width=True)
@@ -1171,6 +1193,7 @@ with tab_peso:
                 pivot_dev = peso_sem.pivot_table(
                     index="JUGADOR", columns="DIA", values="DESVIACION_BASELINE", aggfunc="first"
                 ).round(2)
+                pivot_dev = pivot_dev[[c for c in _cols_orden_peso if c in pivot_dev.columns]]
                 def color_dev(v):
                     if pd.isna(v): return ""
                     if v < -3:  return "background-color:#FFCDD2;font-weight:bold"
@@ -1273,9 +1296,16 @@ with tab_well:
 
         # Tabla con S/F/M/Á por día (como Excel WELLNESS v2)
         well_sem["DIA"] = well_sem["FECHA"].dt.strftime("%a %d/%m")
+        # Ordenar columnas cronológicamente (no alfabéticamente)
+        _key_dia_well = well_sem.groupby("DIA")["FECHA"].min().to_dict()
+        _cols_orden_well = sorted(well_sem["DIA"].unique(),
+                                    key=lambda c: _key_dia_well.get(c, pd.Timestamp.min))
         pivot_well_dia = well_sem.pivot_table(
             index="JUGADOR", columns="DIA", values="TOTAL", aggfunc="mean"
         ).round(1)
+        # Reordenar SOLO las columnas de día (las que existan en el pivot)
+        _cols_dia_existen = [c for c in _cols_orden_well if c in pivot_well_dia.columns]
+        pivot_well_dia = pivot_well_dia[_cols_dia_existen]
         pivot_well_dia["MEDIA SEMANA"] = well_sem.groupby("JUGADOR")["TOTAL"].mean().round(1).reindex(pivot_well_dia.index)
         pivot_well_dia["DÍAS CON DATO"] = well_sem.groupby("JUGADOR")["TOTAL"].count().reindex(pivot_well_dia.index)
 
@@ -4243,8 +4273,10 @@ with tab_goles:
     
             # ── Combinaciones (tríos / cuartetos / quintetos) ───────────────────
             st.markdown("#### Combinaciones de jugadores en pista")
-            st.caption("Filtra por tamaño de la combinación y elige si incluir o no al portero. Útil para ver qué tríos/cuartetos/quintetos funcionan mejor.")
-    
+            st.caption("Filtra por tamaño de la combinación, si incluir o no al portero, "
+                       "y la situación del gol. Útil para ver qué tríos/cuartetos/quintetos "
+                       "funcionan mejor en cada tipo de jugada.")
+
             col_a, col_b, col_c = st.columns([2, 2, 2])
             tamanos = col_a.multiselect(
                 "Tamaño combinación", [3, 4, 5], default=[4, 5],
@@ -4259,7 +4291,18 @@ with tab_goles:
                 "Mostrar solo combinaciones con al menos X eventos", 1, 10, 1,
                 key="g_cuart_min"
             )
-    
+
+            # Filtro adicional: situación de gol (acción)
+            acciones_disp = sorted([a for a in ev["accion"].dropna().astype(str).unique() if a.strip()])
+            sel_acciones = st.multiselect(
+                "Situación de gol",
+                acciones_disp,
+                default=acciones_disp,
+                key="g_cuart_accion",
+                help="Filtra por tipo de jugada (Banda, Córner, 4x4, Contraataque...). "
+                     "Por defecto se muestran todas. Deselecciona las que no te interesen.",
+            )
+
             # Generar TODAS las combinaciones de tamaño N a partir de los
             # jugadores en pista en cada evento.
             # Lógica:
@@ -4270,6 +4313,11 @@ with tab_goles:
             _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
 
             ev_for_q = ev.copy()
+            # Aplicar filtro de situación de gol
+            if sel_acciones:
+                ev_for_q = ev_for_q[ev_for_q["accion"].astype(str).isin(sel_acciones)]
+            else:
+                ev_for_q = ev_for_q.iloc[0:0]
             ev_for_q["portero"] = ev_for_q["portero"].fillna("").astype(str)
             ev_for_q["cuarteto"] = ev_for_q["cuarteto"].fillna("").astype(str)
             incl = (incluir_portero == "Sí")
