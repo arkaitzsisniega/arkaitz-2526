@@ -471,6 +471,23 @@ async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"⚠️ Consolidación OK pero el recálculo de vistas falló:\n{(err2 or out2)[-1500:]}"
         )
         return
+
+    # Recalcular vistas FISIOS (Lesiones, Tratamientos, Temperatura)
+    await update.message.reply_text("🏥 Recalculando vistas de fisios…")
+    stop3 = asyncio.Event()
+    task3 = asyncio.create_task(_keep_typing(chat_id, ctx, stop3))
+    try:
+        rc3, out3, err3 = await _run_script(
+            PROJECT_DIR / "src" / "calcular_vistas_fisios.py", timeout=300)
+    finally:
+        stop3.set()
+        try: await task3
+        except Exception: pass
+    if rc3 != 0:
+        await update.message.reply_text(
+            f"⚠️ Vistas principales OK pero las de fisios fallaron:\n{(err3 or out3)[-1000:]}"
+        )
+        # No abortamos: el dashboard principal sigue actualizado
     await update.message.reply_text(
         "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
     )
