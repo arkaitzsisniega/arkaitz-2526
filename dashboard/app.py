@@ -1783,8 +1783,20 @@ with tab_antro:
     else:
         # Normalizar tipos
         df_antro = df_antro.copy()
-        df_antro["fecha_medicion"] = pd.to_datetime(
-            df_antro["fecha_medicion"], errors="coerce")
+        # cargar() usa UNFORMATTED → fechas con formato DATE en Sheets
+        # vienen como serial numérico (ej. 45824 = 2025-06-16). Hay que
+        # convertirlo manualmente; pd.to_datetime() interpretaría el
+        # número como nanosegundos desde 1970 (= epoch + N ns ≈ 1970).
+        def _fecha_robusta(v):
+            if pd.isna(v) or v == "":
+                return pd.NaT
+            if isinstance(v, (int, float)):
+                # Serial Sheets: días desde 1899-12-30
+                if 1 < float(v) < 100000:
+                    return pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(v))
+                return pd.NaT
+            return pd.to_datetime(str(v), errors="coerce")
+        df_antro["fecha_medicion"] = df_antro["fecha_medicion"].apply(_fecha_robusta)
         for c in df_antro.columns:
             if c not in ("fecha_medicion", "jugador", "dorsal", "medicion_n"):
                 df_antro[c] = pd.to_numeric(df_antro[c], errors="coerce")
