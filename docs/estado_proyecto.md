@@ -6,7 +6,52 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
-## 🔔 ESTADO 4/5/2026 — bloques de hoy adelantados, faltan acciones del usuario
+## 🔔 ESTADO 5/5/2026 — bloque fisios cerrado · agenda definida
+
+Hoy 5/5/2026 se cerró el bloque de fisios completo. **Próxima sesión
+(mañana) se arranca con ROLES Y PERMISOS** (ver sección abajo).
+
+### Orden del backlog (acordado con el usuario)
+
+1. **🔐 Roles y permisos** — siguiente. Detalle más abajo.
+2. **🖥 Servidor 24/7** con Mac viejo (después de permisos).
+3. **⏰ App de tiempos y estadísticas en directo** (cronómetro,
+   faltas acumuladas, buzzer 5ª falta, posiblemente PWA).
+4. **📱 Iter 12 — PWA offline del dashboard** (último).
+
+### Feedback cuerpo técnico (sin prisa)
+El usuario va recopilando feedback durante 2-3 semanas. Cuando lo
+tenga todo, lo procesamos en una sola tanda. No hay que perseguirlo
+mientras tanto.
+
+### 🚨 RENDIMIENTO STREAMLIT — investigar antes/durante permisos
+
+El usuario reporta:
+1. **Lentitud al cambiar entre pestañas** (3-5 segundos por pestaña).
+2. **Error 429 (Quota exceeded)** al estar en la 3ª-4ª pestaña.
+   Hay que recargar la web y volver a loguearse → muy frustrante.
+
+Causas probables:
+- Cada pestaña re-lee varias hojas de Google Sheets aunque ya estén
+  cacheadas (cache miss en navegación rápida).
+- TTL del cache demasiado corto (300s).
+- Cuota de service account: 60 reads/min/usuario es bajo cuando hay
+  ~16 pestañas y cada una toca varias hojas.
+
+Cosas a explorar (todas gratuitas):
+- [ ] Subir TTL de cache a 600-1800s (10-30 min) en `@st.cache_data`.
+- [ ] Aumentar a `@st.cache_resource` lo que no debería re-leerse por
+      sesión.
+- [ ] Lazy loading: cargar datos POR pestaña, no todos al inicio.
+- [ ] Refactorizar `cargar()` para reusar conexión y reducir round-trips.
+- [ ] Implementar retry con backoff exponencial al detectar 429.
+- [ ] Considerar Google Cloud quota request (gratis) para subir
+      límites de la service account.
+- [ ] Pre-cachear datos en una hoja "snapshot" actualizada por
+      `/consolidar`, así el dashboard lee una sola hoja.
+
+Hoy se trabajó autónomamente en dos bloques. Ambos quedan a la
+espera de **acciones manuales** del usuario:
 
 Hoy se ha trabajado autónomamente en dos bloques. Ambos quedan a la
 espera de **acciones manuales** del usuario:
@@ -337,13 +382,13 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
   - **Picado cómodo** y **app tablet en directo** aún pendientes.
 
 ### Próximos
-1. **Documento de fisios** — formulario/Sheet sencillo donde los
-   fisios apunten lo que hacen con cada jugador. **Crítico**: el menor
-   tiempo posible de cumplimentación. Hay que diseñarlo pensando en
-   ergonomía, no en exhaustividad.
-2. **Mejorar pestaña Lesiones** — pospuesto. Candidato: gráfico días
-   baja por zona, tiempos medios de retorno, lesiones activas con
-   countdown.
+1. ~~**Documento de fisios**~~ ✅ CERRADO el 5/5/2026: Sheet
+   "Arkaitz - Lesiones y Tratamientos 2526" con 3 pestañas
+   (LESIONES, TRATAMIENTOS, TEMPERATURA) + dropdowns + PDF de
+   instrucciones para Jose, Miguel y Practicas.
+2. ~~**Mejorar pestaña Lesiones**~~ ✅ CERRADO el 5/5/2026: dashboard
+   tiene ya 2 pestañas nuevas (🏥 Lesiones/Tratamientos y 🌡️
+   Temperatura) que sustituyen y mejoran la antigua.
 3. **Plantilla 26/27** (recordatorio programado para 15/06/2026):
    Arkaitz pasará lista oficial de porteros + jugadores primer equipo
    + filial que sube. Actualizar `_OLIVER_ALIASES` y archivar datos
