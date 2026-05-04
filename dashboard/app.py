@@ -787,15 +787,16 @@ def color_jug(jugadores):
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
-(tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_temp, tab_rec, tab_oliver,
- tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp, tab_scout,
- tab_falt_pen, tab_editar) = st.tabs([
+(tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_temp, tab_antro, tab_rec,
+ tab_oliver, tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp,
+ tab_scout, tab_falt_pen, tab_editar) = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
     "💤 Wellness",
     "🏥 Lesiones / Tratamientos",
     "🌡️ Temperatura",
+    "📐 Antropometría",
     "📋 Recuento",
     "🏃 Oliver",
     "🎯 Ejercicios",
@@ -1703,6 +1704,150 @@ with tab_temp:
                 return [""] * len(row)
             styled_temp = df_show_o.style.apply(_color_alerta, axis=1)
             st.dataframe(styled_temp, use_container_width=True, hide_index=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB — ANTROPOMETRÍA (datos del nutricionista)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_antro:
+    st.markdown("### 📐 Antropometría")
+    st.caption("Datos de las mediciones del nutricionista (parseados de los "
+               "PDFs). Incluye peso, altura, IMC, pliegues cutáneos, "
+               "% masa grasa y composición corporal.")
+
+    df_antro = cargar("ANTROPOMETRIA")
+    if df_antro.empty:
+        st.warning("Sin datos de antropometría. Ejecuta "
+                   "`src/importar_antropometria.py` para cargarlos.")
+    else:
+        # Normalizar tipos
+        df_antro = df_antro.copy()
+        df_antro["fecha_medicion"] = pd.to_datetime(
+            df_antro["fecha_medicion"], errors="coerce")
+        for c in df_antro.columns:
+            if c not in ("fecha_medicion", "jugador", "dorsal", "medicion_n"):
+                df_antro[c] = pd.to_numeric(df_antro[c], errors="coerce")
+        df_antro["dorsal"] = df_antro["dorsal"].astype(str)
+
+        # ── Filtros ──
+        ca1, ca2 = st.columns([2, 2])
+        jugs_antro = sorted(df_antro["jugador"].dropna().astype(str).str.strip().unique())
+        jugs_antro = [j for j in jugs_antro if j]
+        sel_jug_antro = ca1.multiselect(
+            "Jugadores", jugs_antro,
+            default=jugs_antro,
+            key="antro_jugs",
+            help="Selecciona uno o varios. Por defecto todos.",
+        )
+        _f_antro = df_antro["fecha_medicion"].dropna()
+        if not _f_antro.empty:
+            fmin_a, fmax_a = _f_antro.min().date(), _f_antro.max().date()
+            rango_antro = ca2.date_input(
+                "Rango fechas",
+                value=(fmin_a, fmax_a),
+                min_value=fmin_a, max_value=fmax_a,
+                key="antro_fechas",
+            )
+            if isinstance(rango_antro, tuple) and len(rango_antro) == 2:
+                fa_desde, fa_hasta = pd.Timestamp(rango_antro[0]), pd.Timestamp(rango_antro[1])
+            else:
+                fa_desde, fa_hasta = pd.Timestamp(fmin_a), pd.Timestamp(fmax_a)
+        else:
+            fa_desde = fa_hasta = pd.Timestamp.now()
+
+        # Aplicar filtros
+        df_a_show = df_antro.copy()
+        if sel_jug_antro:
+            df_a_show = df_a_show[df_a_show["jugador"].astype(str).str.strip().isin(sel_jug_antro)]
+        df_a_show = df_a_show[
+            (df_a_show["fecha_medicion"] >= fa_desde) &
+            (df_a_show["fecha_medicion"] <= fa_hasta)
+        ].reset_index(drop=True)
+
+        if df_a_show.empty:
+            st.info("No hay datos para los filtros aplicados.")
+        else:
+            # ── KPIs ──
+            n_med = len(df_a_show)
+            n_jug = df_a_show["jugador"].nunique()
+            ult_fecha = df_a_show["fecha_medicion"].max()
+            kp1, kp2, kp3 = st.columns(3)
+            kp1.metric("Mediciones", n_med)
+            kp2.metric("Jugadores", n_jug)
+            kp3.metric("Última medición",
+                        ult_fecha.strftime("%d/%m/%Y") if pd.notna(ult_fecha) else "—")
+
+            st.markdown("---")
+
+            # ── Tabla con la última medición de cada jugador ──
+            st.markdown("#### Última medición por jugador")
+            ultimas = (df_a_show.sort_values("fecha_medicion")
+                          .groupby("jugador").tail(1)
+                          .sort_values("jugador").reset_index(drop=True))
+            cols_ult = ["fecha_medicion", "jugador", "dorsal", "peso_kg",
+                         "altura_cm", "imc", "sumatorio_6_pliegues_mm",
+                         "masa_grasa_yuhasz_pct", "masa_grasa_faulkner_pct",
+                         "masa_muscular_kg", "somatotipo_endomórfico",
+                         "somatotipo_mesomórfico", "somatotipo_ectomórfico"]
+            cols_ult = [c for c in cols_ult if c in ultimas.columns]
+            ult_show = ultimas[cols_ult].copy()
+            ult_show["fecha_medicion"] = ult_show["fecha_medicion"].dt.strftime("%d/%m/%Y")
+            st.dataframe(ult_show, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            # ── Evolución por jugador ──
+            st.markdown("#### Evolución temporal")
+            metricas_disponibles = {
+                "Peso (kg)": "peso_kg",
+                "IMC": "imc",
+                "% Masa grasa (Yuhasz)": "masa_grasa_yuhasz_pct",
+                "% Masa grasa (Faulkner)": "masa_grasa_faulkner_pct",
+                "Sumatorio 6 pliegues (mm)": "sumatorio_6_pliegues_mm",
+                "Masa muscular (kg)": "masa_muscular_kg",
+                "Tríceps (mm)": "tríceps_mm",
+                "Subescapular (mm)": "subescapular_mm",
+                "Abdominal (mm)": "abdominal_mm",
+                "Supraespinal (mm)": "supraespinal_mm",
+                "Muslo (mm)": "muslo_mm",
+                "Pantorrilla (mm)": "pantorrilla_mm",
+                "Endomórfico": "somatotipo_endomórfico",
+                "Mesomórfico": "somatotipo_mesomórfico",
+                "Ectomórfico": "somatotipo_ectomórfico",
+            }
+            metrica_sel = st.selectbox(
+                "Métrica a graficar",
+                list(metricas_disponibles.keys()),
+                key="antro_metrica",
+            )
+            col_metrica = metricas_disponibles[metrica_sel]
+
+            if col_metrica in df_a_show.columns:
+                df_plot = df_a_show.dropna(subset=[col_metrica]).sort_values("fecha_medicion")
+                if df_plot.empty:
+                    st.info(f"No hay datos de {metrica_sel} para los filtros aplicados.")
+                else:
+                    fig_antro = px.line(
+                        df_plot,
+                        x="fecha_medicion", y=col_metrica, color="jugador",
+                        markers=True,
+                        color_discrete_map=color_jug(df_plot["jugador"].unique()),
+                        title=f"{metrica_sel} — evolución por jugador",
+                    )
+                    fig_antro.update_layout(**LAYOUT, height=500,
+                                              xaxis_title="Fecha de medición",
+                                              yaxis_title=metrica_sel)
+                    st.plotly_chart(fig_antro, use_container_width=True)
+
+            st.markdown("---")
+
+            # ── Tabla histórica completa ──
+            with st.expander("📊 Ver datos completos (todas las mediciones)"):
+                df_full = df_a_show.copy()
+                df_full["fecha_medicion"] = df_full["fecha_medicion"].dt.strftime("%Y-%m-%d")
+                df_full = df_full.sort_values(
+                    ["jugador", "fecha_medicion"]).reset_index(drop=True)
+                st.dataframe(df_full, use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
