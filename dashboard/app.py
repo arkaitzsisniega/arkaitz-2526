@@ -96,11 +96,28 @@ def _check_password():
 
     # Sin configuración → acceso libre con warning visible (dev local)
     if not users:
+        # Debug: enseñar qué hay en st.secrets para diagnosticar
+        debug_top = []
+        debug_app_users_type = None
+        try:
+            debug_top = list(st.secrets.keys())
+        except Exception:
+            debug_top = ["<no se pudo listar>"]
+        try:
+            if "APP_USERS" in st.secrets:
+                debug_app_users_type = type(st.secrets["APP_USERS"]).__name__
+        except Exception as e:
+            debug_app_users_type = f"err:{e}"
+
+        msg_debug = f"\n\n_Claves visibles a nivel raíz:_ `{debug_top}`"
+        if debug_app_users_type:
+            msg_debug += f"\n\n_APP_USERS detectado, tipo:_ `{debug_app_users_type}`"
         st.warning(
             "⚠️ **No hay contraseñas configuradas en `st.secrets`.** "
             "El dashboard está accesible sin login. Configura `APP_USERS` "
             "(dict de contraseñas → roles) o `APP_PASSWORD` (legacy) "
             "en Streamlit Cloud → Settings → Secrets."
+            + msg_debug
         )
         # Sin contraseña, todos son admin (modo dev)
         st.session_state["rol"] = "admin"
