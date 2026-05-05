@@ -3312,8 +3312,8 @@ with tab_efic:
             # ── Combinaciones efectivas (tríos / cuartetos / quintetos) ─────────
             if not est_eventos.empty:
                 st.markdown("#### 🏅 Combinaciones más efectivas")
-                st.caption("Filtra por tamaño y elige incluir o no al portero.")
-    
+                st.caption("Filtra por tamaño, portero y situación de gol.")
+
                 ce1, ce2 = st.columns([2, 2])
                 tamanos_e = ce1.multiselect(
                     "Tamaño combinación", [3, 4, 5], default=[4, 5], key="efic_cuart_tam",
@@ -3322,7 +3322,21 @@ with tab_efic:
                 inc_p_e = ce2.radio(
                     "Incluir portero", ["Sí", "No"], horizontal=True, key="efic_cuart_port"
                 )
-    
+
+                # Filtro de situación de gol (acción)
+                acciones_disp_e = sorted([
+                    a for a in est_eventos["accion"].dropna().astype(str).unique()
+                    if a.strip()
+                ])
+                sel_acciones_e = st.multiselect(
+                    "Situación de gol",
+                    acciones_disp_e,
+                    default=acciones_disp_e,
+                    key="efic_cuart_accion",
+                    help="Filtra por tipo de jugada (Banda, Córner, 4x4, Contraataque...). "
+                         "Por defecto todas marcadas. Deselecciona las que no te interesen.",
+                )
+
                 # Generar TODAS las combinaciones de tamaño N para cada evento.
                 # Lógica:
                 # - "Incluir portero = Sí": solo eventos con portero canónico
@@ -3334,6 +3348,11 @@ with tab_efic:
                 from itertools import combinations as _combos_e
                 _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
                 ev_q = est_eventos.copy()
+                # Aplicar filtro de situación de gol
+                if sel_acciones_e:
+                    ev_q = ev_q[ev_q["accion"].astype(str).isin(sel_acciones_e)]
+                else:
+                    ev_q = ev_q.iloc[0:0]
                 ev_q["portero"] = ev_q["portero"].fillna("").astype(str)
                 ev_q["cuarteto"] = ev_q["cuarteto"].fillna("").astype(str)
                 incl = (inc_p_e == "Sí")
