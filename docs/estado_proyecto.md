@@ -6,18 +6,54 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
-## 🔔 ESTADO 5/5/2026 — bloque fisios cerrado · agenda definida
+## 🔔 ESTADO 6/5/2026 — roles implementados (esperando contraseñas)
 
-Hoy 5/5/2026 se cerró el bloque de fisios completo. **Próxima sesión
-(mañana) se arranca con ROLES Y PERMISOS** (ver sección abajo).
+Hoy 6/5/2026 se implementó el sistema de roles y permisos completo
+en autonomía. **Pendiente del usuario**: configurar las contraseñas
+en `st.secrets` (~5 min). Ver `docs/roles_y_permisos.md`.
 
 ### Orden del backlog (acordado con el usuario)
 
-1. **🔐 Roles y permisos** — siguiente. Detalle más abajo.
-2. **🖥 Servidor 24/7** con Mac viejo (después de permisos).
+1. **🔐 Roles y permisos** — ✅ código completo, esperando configuración.
+2. **🖥 Servidor 24/7** con Mac viejo (siguiente).
 3. **⏰ App de tiempos y estadísticas en directo** (cronómetro,
    faltas acumuladas, buzzer 5ª falta, posiblemente PWA).
 4. **📱 Iter 12 — PWA offline del dashboard** (último).
+
+### Roles implementados (✅ 6/5/2026)
+
+4 roles: **admin** (Arkaitz), **tecnico** (cuerpo técnico),
+**fisio** (Jose, Miguel, Practicas), **medico** (futuro médico).
+
+Lo que cambia según rol:
+- `admin`: TODO accesible. Único que edita partidos y scouting.
+- `tecnico`: lectura. Pestaña 'Editar partido' bloqueada. Botón
+  'Guardar scouting' oculto. Lesiones/Tratamientos/Temperatura
+  ANONIMIZADAS por dorsal ('el 8' en vez de 'RAYA').
+- `fisio`/`medico`: igual que tecnico PERO ven nombres reales en
+  lesiones (necesario para su trabajo).
+
+Implementación en `dashboard/app.py`:
+- `_leer_users_secret()` → dict[contraseña] = rol
+- `get_rol()`, `es_admin()`, `puede_editar_partidos()`,
+  `ve_lesiones_completas()`
+- `anonimizar_df(df, col_jugador, col_dorsal)` aplicado en pestañas
+  médicas
+- Sidebar muestra rol actual con emoji + botón cerrar sesión
+
+**Lo que falta del usuario para activarlo** (5 min):
+1. Streamlit Cloud → Settings → Secrets
+2. Añadir bloque (ejemplo):
+   ```toml
+   [APP_USERS]
+   "clave-arkaitz-2026" = "admin"
+   "clave-cuerpo-tecnico" = "tecnico"
+   "clave-fisios" = "fisio"
+   ```
+3. Save → Reboot → probar con cada contraseña en pestaña incógnito.
+
+Compatible 100% con la configuración actual (`APP_PASSWORD` legacy
+sigue funcionando = todos admin).
 
 ### Feedback cuerpo técnico (sin prisa)
 El usuario va recopilando feedback durante 2-3 semanas. Cuando lo
