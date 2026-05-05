@@ -26,59 +26,90 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Gate de contraseña (cuerpo técnico) ──────────────────────────────────────
-# Para activar: define APP_PASSWORD en st.secrets (Streamlit Cloud → Settings →
-# Secrets). Si no está definido, el dashboard arranca sin login (modo dev local).
-def _check_password():
-    """Bloquea el dashboard hasta que el usuario introduzca la contraseña.
-    Devuelve True si está autenticado o si no hay contraseña configurada."""
-    pwd_correct = None
-    err_secret = None
-    debug_top = []
-    debug_gcp = []
+# ── Gate de contraseña + ROLES ────────────────────────────────────────────────
+# Sistema de auth con roles. Hay 4 roles posibles:
+#   · "admin"   → tú (Arkaitz). Acceso total. Único que puede editar partidos.
+#   · "tecnico" → cuerpo técnico. Lee todo en MODO LECTURA. Lesiones
+#                  ANONIMIZADAS por dorsal ('el 8' en vez de 'RAYA').
+#   · "fisio"   → fisios. Lee todo + ve nombres reales en lesiones/temperatura.
+#                  No edita partidos.
+#   · "medico"  → médico. Igual que fisio.
+#
+# CONFIGURACIÓN (Streamlit Cloud → Settings → Secrets):
+#
+# Modo simple (1 contraseña, todos = admin):
+#     APP_PASSWORD = "tu-contraseña"
+#
+# Modo con roles (recomendado):
+#     [APP_USERS]
+#     "contraseña-arkaitz" = "admin"
+#     "contraseña-cuerpo-tecnico" = "tecnico"
+#     "contraseña-fisios" = "fisio"
+#     "contraseña-medico" = "medico"
+#
+# Si está APP_USERS, prevalece. APP_PASSWORD se mantiene por compat.
+# Si no hay nada, dashboard accesible sin login (dev local).
+ROLES_VALIDOS = {"admin", "tecnico", "fisio", "medico"}
+
+
+def _leer_users_secret() -> dict[str, str]:
+    """Devuelve dict {contraseña: rol} desde st.secrets.
+    Soporta:
+    - APP_USERS = {"clave1": "admin", ...} (sección o tabla TOML)
+    - APP_PASSWORD legacy (clave única → rol "admin")
+    """
+    out = {}
     try:
-        # 1) Buscar al nivel raíz de secrets
+        if "APP_USERS" in st.secrets:
+            users = st.secrets["APP_USERS"]
+            # st.secrets devuelve dict-like
+            for clave, rol in dict(users).items():
+                rol_norm = str(rol).strip().lower()
+                if rol_norm in ROLES_VALIDOS:
+                    out[str(clave)] = rol_norm
+        # APP_PASSWORD legacy: si no hay APP_USERS o como añadido
         if "APP_PASSWORD" in st.secrets:
-            pwd_correct = st.secrets["APP_PASSWORD"]
-        else:
-            pwd_correct = st.secrets.get("APP_PASSWORD", None)
-        # 2) Si no está al nivel raíz, probar dentro de [gcp_service_account]
-        #    (caso típico: la línea APP_PASSWORD se coló dentro del bloque)
-        if not pwd_correct and "gcp_service_account" in st.secrets:
-            sub = st.secrets["gcp_service_account"]
-            try:
-                if "APP_PASSWORD" in sub:
-                    pwd_correct = sub["APP_PASSWORD"]
-            except Exception:
-                pass
-        # Recoger nombres de claves visibles (NO sus valores) para debug
-        try:
-            debug_top = list(st.secrets.keys())
-        except Exception:
-            debug_top = ["<no disponible>"]
+            pwd = st.secrets["APP_PASSWORD"]
+            if pwd:
+                # Si esa contraseña no está ya en out, la añadimos como admin
+                if str(pwd) not in out:
+                    out[str(pwd)] = "admin"
+    except Exception:
+        pass
+    # Caso de APP_PASSWORD dentro de gcp_service_account (legacy bug)
+    if not out:
         try:
             if "gcp_service_account" in st.secrets:
-                debug_gcp = list(st.secrets["gcp_service_account"].keys())
+                sub = st.secrets["gcp_service_account"]
+                if "APP_PASSWORD" in sub:
+                    out[str(sub["APP_PASSWORD"])] = "admin"
         except Exception:
-            debug_gcp = []
-    except Exception as e:
-        err_secret = f"{type(e).__name__}: {e}"
-    # Si no hay contraseña configurada → acceso libre con debug visible
-    if not pwd_correct:
+            pass
+    return out
+
+
+def _check_password():
+    """Bloquea el dashboard hasta que el usuario introduzca una contraseña
+    válida. Tras éxito, guarda el ROL en st.session_state['rol'].
+    Devuelve True si autenticado o si no hay contraseñas configuradas."""
+    users = _leer_users_secret()
+
+    # Sin configuración → acceso libre con warning visible (dev local)
+    if not users:
         st.warning(
-            "⚠️ **APP_PASSWORD no se está leyendo de `st.secrets`.** "
-            "El dashboard está accesible sin contraseña. "
-            "Configura el secret en Streamlit Cloud → Settings → Secrets, "
-            "y haz **Reboot** de la app."
-            + (f"\n\n_Error técnico:_ `{err_secret}`" if err_secret else "")
-            + f"\n\n_Claves visibles a nivel raíz:_ `{debug_top}`"
-            + (f"\n\n_Claves dentro de `gcp_service_account`:_ `{debug_gcp}`"
-               if debug_gcp else "")
+            "⚠️ **No hay contraseñas configuradas en `st.secrets`.** "
+            "El dashboard está accesible sin login. Configura `APP_USERS` "
+            "(dict de contraseñas → roles) o `APP_PASSWORD` (legacy) "
+            "en Streamlit Cloud → Settings → Secrets."
         )
+        # Sin contraseña, todos son admin (modo dev)
+        st.session_state["rol"] = "admin"
         return True
-    # Ya autenticado en esta sesión
+
+    # Ya autenticado
     if st.session_state.get("auth_ok"):
         return True
+
     # Pantalla de login
     st.markdown("""
     <style>
@@ -87,7 +118,6 @@ def _check_password():
     </style>
     """, unsafe_allow_html=True)
 
-    # Logo central
     import base64 as _b64
     _logo_path = (Path(__file__).resolve().parent.parent
                    / "assets" / "logos" / "inter_verde.png")
@@ -105,7 +135,7 @@ def _check_password():
         {logo_html}
         <h1 style="color:white; font-size:2rem; margin:0;">Arkaitz · Movistar Inter FS</h1>
         <p style="color:#BBCDE8; font-size:1rem; margin:6px 0 30px 0;">
-            Panel de la temporada 25/26 · Acceso restringido al cuerpo técnico
+            Panel de la temporada 25/26 · Acceso restringido
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -115,8 +145,9 @@ def _check_password():
         pwd = st.text_input("🔐 Contraseña", type="password",
                               key="pwd_input", label_visibility="visible")
         if st.button("Entrar", use_container_width=True, type="primary"):
-            if pwd == pwd_correct:
+            if pwd in users:
                 st.session_state["auth_ok"] = True
+                st.session_state["rol"] = users[pwd]
                 st.rerun()
             else:
                 st.error("Contraseña incorrecta")
@@ -125,6 +156,59 @@ def _check_password():
 
 if not _check_password():
     st.stop()
+
+
+# ── Helpers de permisos ───────────────────────────────────────────────────────
+def get_rol() -> str:
+    """Devuelve el rol del usuario actual: admin, tecnico, fisio, medico.
+    Si por algún motivo no hay rol en sesión, asume tecnico (más seguro)."""
+    return st.session_state.get("rol", "tecnico")
+
+
+def es_admin() -> bool:
+    return get_rol() == "admin"
+
+
+def puede_editar_partidos() -> bool:
+    """Solo admin puede editar partidos."""
+    return get_rol() == "admin"
+
+
+def ve_lesiones_completas() -> bool:
+    """admin/fisio/medico ven nombres reales. tecnico ve dorsales."""
+    return get_rol() in {"admin", "fisio", "medico"}
+
+
+def anonimizar_nombre(jugador: str, dorsal=None) -> str:
+    """Para roles sin acceso a info médica completa: convierte el nombre
+    en 'el N' usando el dorsal. Si no hay dorsal, devuelve '(jugador)'."""
+    if dorsal is None or dorsal == "" or pd.isna(dorsal):
+        return f"(jugador)"
+    try:
+        d = int(float(str(dorsal)))
+    except (ValueError, TypeError):
+        return f"(jugador)"
+    return f"el {d}"
+
+
+def anonimizar_df(df: pd.DataFrame, col_jugador: str = "jugador",
+                    col_dorsal: str = "dorsal") -> pd.DataFrame:
+    """Si el rol actual NO ve nombres completos, sustituye la columna
+    de jugador por 'el N' (dorsal). DataFrame se modifica in-place y
+    también se devuelve."""
+    if ve_lesiones_completas():
+        return df
+    if df.empty or col_jugador not in df.columns:
+        return df
+    if col_dorsal in df.columns:
+        df[col_jugador] = df.apply(
+            lambda r: anonimizar_nombre(r.get(col_jugador, ""),
+                                          r.get(col_dorsal)),
+            axis=1,
+        )
+    else:
+        df[col_jugador] = "(jugador)"
+    return df
 
 
 # ── Colores globales ──────────────────────────────────────────────────────────
@@ -892,14 +976,21 @@ with st.sidebar:
         st.rerun()
     st.caption("Datos en tiempo real desde Google Sheets")
 
-    # Cerrar sesión (solo aparece si hay contraseña configurada)
+    # Indicador de rol y cerrar sesión (solo si hay auth activa)
+    _has_auth = False
     try:
-        _has_pwd = bool(st.secrets.get("APP_PASSWORD", None))
+        _has_auth = bool(_leer_users_secret())
     except Exception:
-        _has_pwd = False
-    if _has_pwd and st.session_state.get("auth_ok"):
+        pass
+    if _has_auth and st.session_state.get("auth_ok"):
+        _rol_actual = get_rol()
+        _emoji_rol = {
+            "admin": "👑", "tecnico": "🧠", "fisio": "🩹", "medico": "⚕️",
+        }.get(_rol_actual, "👤")
+        st.caption(f"Tu sesión: {_emoji_rol} **{_rol_actual.upper()}**")
         if st.button("🔒 Cerrar sesión", use_container_width=True):
-            st.session_state["auth_ok"] = False
+            for k in ("auth_ok", "rol"):
+                st.session_state.pop(k, None)
             st.rerun()
 
 
@@ -1615,13 +1706,21 @@ with tab_well:
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_les:
     st.markdown("### 🏥 Lesiones y Tratamientos")
-    st.caption("Datos del Sheet de fisios. Si no aparece nada, asegúrate de que "
-               "el Sheet 'Arkaitz - Lesiones y Tratamientos 2526' existe y está "
-               "compartido con la cuenta de servicio.")
+    if not ve_lesiones_completas():
+        st.caption("🔒 Los nombres de jugadores aparecen anonimizados como "
+                   "**'el N'** (donde N es el dorsal) por privacidad de "
+                   "datos médicos. Solo el cuerpo médico-fisio y el "
+                   "administrador ven los nombres reales.")
+    else:
+        st.caption("Datos del Sheet de fisios.")
 
     # ── Cargar de Sheet de fisios ──
     df_les_fis = cargar_fisios("LESIONES")
     df_tra_fis = cargar_fisios("TRATAMIENTOS")
+
+    # 🔒 Anonimización (si rol no ve nombres completos)
+    df_les_fis = anonimizar_df(df_les_fis.copy(), "jugador", "dorsal") if not df_les_fis.empty else df_les_fis
+    df_tra_fis = anonimizar_df(df_tra_fis.copy(), "jugador", "dorsal") if not df_tra_fis.empty else df_tra_fis
 
     if df_les_fis.empty and df_tra_fis.empty:
         st.warning("Sheet de fisios sin datos o no accesible. "
@@ -1801,12 +1900,17 @@ with tab_temp:
     st.caption("Mediciones con cámara térmica. La asimetría se calcula como "
                "izda − dcha; valores con |asimetría| > 0.5°C aparecen marcados "
                "como ALERTA (posible sobrecarga o riesgo de lesión).")
+    if not ve_lesiones_completas():
+        st.caption("🔒 Nombres anonimizados por dorsal. Solo cuerpo médico-fisio "
+                   "y administrador ven los nombres reales.")
 
     df_temp = cargar_fisios("TEMPERATURA")
     if df_temp.empty:
         st.info("Sin mediciones de temperatura registradas todavía.")
     else:
         df_temp = df_temp.copy()
+        # 🔒 Anonimización si rol no ve nombres completos
+        df_temp = anonimizar_df(df_temp, "jugador", "dorsal")
         if "fecha" in df_temp.columns:
             df_temp["fecha"] = pd.to_datetime(df_temp["fecha"], errors="coerce")
 
@@ -4021,8 +4125,12 @@ with tab_scout:
                 },
             )
 
-            if st.button("💾 Guardar scouting", type="primary",
-                          key="scout_guardar"):
+            # 🔒 Solo admin puede guardar
+            if not puede_editar_partidos():
+                st.info("🔒 Solo el administrador puede guardar scouting. "
+                        "Si tienes datos para añadir, pásaselos a Arkaitz.")
+            elif st.button("💾 Guardar scouting", type="primary",
+                            key="scout_guardar"):
                 if not equipo_input:
                     st.error("Pon el nombre del equipo en scouting.")
                 else:
@@ -5316,6 +5424,14 @@ with tab_falt_pen:
 # TAB 16 — ✏️ EDITAR PARTIDO (crear nuevo o editar existente)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_editar:
+    # 🔒 PERMISO: solo admin puede editar partidos
+    if not puede_editar_partidos():
+        st.warning(
+            "🔒 **Acceso restringido**\n\n"
+            "Esta sección solo es accesible para el administrador (Arkaitz). "
+            "Si necesitas modificar datos de un partido, pídeselo a él."
+        )
+        st.stop()
     try:
         st.markdown("### ✏️ Editar partido")
         st.caption(
