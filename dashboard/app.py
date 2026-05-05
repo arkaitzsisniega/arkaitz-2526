@@ -2135,6 +2135,57 @@ with tab_antro:
             styled_ult = ult_show.style.apply(_colorear_fila, axis=1)
             st.dataframe(styled_ult, use_container_width=True, hide_index=True)
 
+            # ── Panel de alertas: jugadores con sumatorio FUERA de rango ──
+            try:
+                ultimas_check = ultimas[["jugador", "sumatorio_6_pliegues_mm"]].copy()
+                ultimas_check["sumatorio_6_pliegues_mm"] = pd.to_numeric(
+                    ultimas_check["sumatorio_6_pliegues_mm"], errors="coerce")
+                fuera_rango = ultimas_check.dropna()
+                en_alta = fuera_rango[fuera_rango["sumatorio_6_pliegues_mm"] > 60]
+                en_baja = fuera_rango[fuera_rango["sumatorio_6_pliegues_mm"] < 30]
+                en_aceptable = fuera_rango[
+                    (fuera_rango["sumatorio_6_pliegues_mm"] > 50)
+                    & (fuera_rango["sumatorio_6_pliegues_mm"] <= 60)
+                ]
+                if not en_alta.empty or not en_baja.empty or not en_aceptable.empty:
+                    st.markdown("##### 🚨 Atención:")
+                    cols_alerta = st.columns(3)
+                    with cols_alerta[0]:
+                        if not en_alta.empty:
+                            st.error(
+                                "**🔴 Necesitan mejorar (>60)**\n\n" +
+                                "\n".join(
+                                    f"• {r['jugador']}: {r['sumatorio_6_pliegues_mm']:.1f} mm"
+                                    for _, r in en_alta.iterrows()
+                                )
+                            )
+                        else:
+                            st.success("✅ Nadie por encima de 60 mm")
+                    with cols_alerta[1]:
+                        if not en_aceptable.empty:
+                            st.warning(
+                                "**🟡 Aceptable (50-60)**\n\n" +
+                                "\n".join(
+                                    f"• {r['jugador']}: {r['sumatorio_6_pliegues_mm']:.1f} mm"
+                                    for _, r in en_aceptable.iterrows()
+                                )
+                            )
+                        else:
+                            st.success("✅ Nadie en rango aceptable")
+                    with cols_alerta[2]:
+                        if not en_baja.empty:
+                            st.error(
+                                "**🔴 Demasiado bajo (<30)**\n\n" +
+                                "\n".join(
+                                    f"• {r['jugador']}: {r['sumatorio_6_pliegues_mm']:.1f} mm"
+                                    for _, r in en_baja.iterrows()
+                                )
+                            )
+                        else:
+                            st.success("✅ Nadie por debajo de 30 mm")
+            except Exception:
+                pass
+
             st.markdown("---")
 
             # ── Evolución por jugador ──
