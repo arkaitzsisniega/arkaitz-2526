@@ -546,11 +546,56 @@ def get_spreadsheet_fisios():
     return None
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def cargar_fisios(hoja: str) -> pd.DataFrame:
-    """Lee una hoja del Sheet de fisios. Devuelve DataFrame vacío si el
-    Sheet no existe o si falla con 429."""
+HOJAS_BATCH_FISIOS = ["LESIONES", "TRATAMIENTOS", "TEMPERATURA"]
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cargar_todas_fisios() -> dict[str, pd.DataFrame]:
+    """Igual que cargar_todas_hojas pero para el Sheet de fisios. UNA sola
+    llamada batch para las 3 hojas (Lesiones, Tratamientos, Temperatura)."""
     import time as _time
+    ss = get_spreadsheet_fisios()
+    if ss is None:
+        return {}
+    for intento in range(3):
+        try:
+            response = ss.values_batch_get(
+                HOJAS_BATCH_FISIOS,
+                params={"valueRenderOption": "UNFORMATTED_VALUE"},
+            )
+            break
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 3)
+                continue
+            return {}
+        except Exception:
+            return {}
+    else:
+        return {}
+    out = {}
+    for h, vr in zip(HOJAS_BATCH_FISIOS, response.get("valueRanges", [])):
+        try:
+            valores = vr.get("values", [])
+            out[h] = _construir_df_desde_valores(valores)
+        except Exception:
+            out[h] = pd.DataFrame()
+    return out
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cargar_fisios(hoja: str) -> pd.DataFrame:
+    """Lee una hoja del Sheet de fisios. Usa el batch cacheado si la hoja
+    está en HOJAS_BATCH_FISIOS; si no, single request con retry 429."""
+    import time as _time
+    if hoja in HOJAS_BATCH_FISIOS:
+        try:
+            todas = cargar_todas_fisios()
+            if hoja in todas:
+                return todas[hoja].copy()
+        except Exception:
+            pass
+    # Fallback individual
     ss = get_spreadsheet_fisios()
     if ss is None:
         return pd.DataFrame()
