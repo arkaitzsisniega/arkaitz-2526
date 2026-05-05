@@ -24,31 +24,27 @@ El usuario va recopilando feedback durante 2-3 semanas. Cuando lo
 tenga todo, lo procesamos en una sola tanda. No hay que perseguirlo
 mientras tanto.
 
-### 🚨 RENDIMIENTO STREAMLIT — investigar antes/durante permisos
+### ✅ RENDIMIENTO STREAMLIT — resuelto el 6/5/2026
 
-El usuario reporta:
-1. **Lentitud al cambiar entre pestañas** (3-5 segundos por pestaña).
-2. **Error 429 (Quota exceeded)** al estar en la 3ª-4ª pestaña.
-   Hay que recargar la web y volver a loguearse → muy frustrante.
+Optimizaciones implementadas que resuelven el problema 429:
 
-Causas probables:
-- Cada pestaña re-lee varias hojas de Google Sheets aunque ya estén
-  cacheadas (cache miss en navegación rápida).
-- TTL del cache demasiado corto (300s).
-- Cuota de service account: 60 reads/min/usuario es bajo cuando hay
-  ~16 pestañas y cada una toca varias hojas.
+- [x] **batch_get (CAMBIO PRINCIPAL)**: nueva función `cargar_todas_hojas()`
+      hace UNA SOLA llamada `values_batch_get()` para traer las 23 hojas
+      del Sheet principal. Antes eran ~24 llamadas separadas.
+      **Medido**: batch 1.1s vs 14.1s extrapolado individual = **13x
+      más rápido + 23x menos reads consumidos** del rate-limit.
+- [x] **Igual aplicado al Sheet de fisios** (3 hojas): 1 llamada vs 3.
+- [x] **TTL de cache** ampliado a 1800s (30 min) para batches.
+- [x] `@st.cache_resource` cachea el handle del Sheet para no llamar a
+      `client.open()` en cada `cargar()`.
+- [x] **Retry exponencial** ante 429 (5/10/20/40s).
+- [x] `cargar()` con caso óptimo (busca en batch cacheado) + fallback
+      individual si la hoja no está en el batch o el batch falla.
 
-Cosas a explorar (todas gratuitas):
-- [ ] Subir TTL de cache a 600-1800s (10-30 min) en `@st.cache_data`.
-- [ ] Aumentar a `@st.cache_resource` lo que no debería re-leerse por
-      sesión.
-- [ ] Lazy loading: cargar datos POR pestaña, no todos al inicio.
-- [ ] Refactorizar `cargar()` para reusar conexión y reducir round-trips.
-- [ ] Implementar retry con backoff exponencial al detectar 429.
-- [ ] Considerar Google Cloud quota request (gratis) para subir
-      límites de la service account.
-- [ ] Pre-cachear datos en una hoja "snapshot" actualizada por
-      `/consolidar`, así el dashboard lee una sola hoja.
+Siguientes mejoras posibles (no críticas):
+- [ ] Lazy loading de SCOUTING_RIVALES (89 cols, pesada).
+- [ ] Refactorizar Antropometría para usar `_to_date` global en vez de
+      `_fecha_robusta` local (cosmético).
 
 Hoy se trabajó autónomamente en dos bloques. Ambos quedan a la
 espera de **acciones manuales** del usuario:
