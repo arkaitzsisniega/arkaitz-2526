@@ -411,15 +411,20 @@ async def cmd_enlaces(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Lee sesiones del día y manda los enlaces pre-rellenados por cada jugador."""
+    """[DEPRECATED] El comando individual por jugador queda descartado.
+    Redirige al comando /enlaces (genérico con fecha+turno automático)."""
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
+    await update.message.reply_text(
+        "ℹ️ /enlaces_hoy ha sido descartado. Usa /enlaces — ahora genera "
+        "los enlaces del día con FECHA y TURNO ya pre-rellenados, listos "
+        "para mandar al grupo de WhatsApp.")
     chat_id = update.effective_chat.id
     stop = asyncio.Event()
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
-        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_hoy.py")
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_genericos.py")
     finally:
         stop.set()
         try: await task
@@ -622,11 +627,13 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
         msg = salida.split("---MSG---", 1)[1].strip()
     else:
         msg = salida.strip()
-    # Botón inline opcional para mandar enlaces a jugadores
+    # Botón inline opcional: mandar enlaces genéricos del día (fecha+turno
+    # auto). El antiguo /enlaces_hoy (individual por jugador) está
+    # descartado por petición del usuario.
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("📤 Mandar /enlaces_hoy",
-                              callback_data="run_enlaces_hoy"),
+        InlineKeyboardButton("📤 Mandar enlaces de hoy",
+                              callback_data="run_enlaces"),
     ]])
     await update.message.reply_text(msg, parse_mode="Markdown",
                                      reply_markup=kb)
@@ -640,23 +647,26 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("🚫 Acceso denegado.")
         return
     chat_id = update.effective_chat.id
-    if q.data == "run_enlaces_hoy":
-        # Quitar el botón para que no se pulse 2 veces
+    if q.data == "run_enlaces":
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        await ctx.bot.send_message(chat_id, "⏳ Lanzando enlaces del día…")
-        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_hoy.py")
+        await ctx.bot.send_message(chat_id, "⏳ Generando enlaces de hoy…")
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "enlaces_genericos.py")
         if rc != 0:
             await ctx.bot.send_message(
                 chat_id,
                 f"❌ Error generando enlaces (código {rc}):\n{(err or out)[:1500]}"
             )
             return
-        # Enviar bloques: simulamos enviar como send_message
-        for chunk in _chunks(out):
-            await ctx.bot.send_message(chat_id, chunk, parse_mode=None)
+        # enlaces_genericos.py imprime bloques separados por ---MSG---
+        salida = out
+        bloques = [b.strip() for b in salida.split("---MSG---") if b.strip()]
+        for b in bloques:
+            await ctx.bot.send_message(chat_id, b, parse_mode="Markdown",
+                                         disable_web_page_preview=True)
 
 
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

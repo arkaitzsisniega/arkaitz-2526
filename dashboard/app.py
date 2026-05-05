@@ -350,9 +350,8 @@ def get_client():
 
 @st.cache_resource(show_spinner=False)
 def get_spreadsheet():
-    """Cachea el handle del Sheet para no llamar a client.open() en cada
-    cargar(). client.open() hace un fetch de metadata que cuenta como
-    una read y suma rápido al rate-limit (60 reads/min)."""
+    """Cachea el handle del Sheet. client.open() hace un fetch de metadata
+    que cuenta como read y suma rápido al rate-limit."""
     import time as _time
     last_err = None
     for intento in range(4):
@@ -361,15 +360,137 @@ def get_spreadsheet():
         except gspread.exceptions.APIError as e:
             last_err = e
             if "429" in str(e) or "Quota" in str(e):
-                _time.sleep(2 ** intento * 5)  # 5, 10, 20, 40s
+                _time.sleep(2 ** intento * 5)
                 continue
             raise
     raise last_err if last_err else RuntimeError("No se pudo abrir el Sheet")
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+# ── Lista de hojas que se cargan al inicio (batch) ──
+# Si una hoja no está aquí, cargar(nombre) hará single request individual.
+# Mantén actualizada esta lista cuando añadas hojas nuevas.
+HOJAS_BATCH = [
+    "_VISTA_CARGA", "_VISTA_SEMANAL", "_VISTA_PESO", "_VISTA_WELLNESS",
+    "_VISTA_SEMAFORO", "_VISTA_RECUENTO",
+    "LESIONES",
+    "_VISTA_OLIVER", "_VISTA_EJERCICIOS",
+    "_VISTA_EST_JUGADOR",
+    "EST_PARTIDOS", "EST_EVENTOS",
+    "_VISTA_EST_AVANZADAS", "_VISTA_EST_CUARTETOS",
+    "EST_DISPAROS", "EST_DISPAROS_ZONAS",
+    "SCOUTING_RIVALES", "_VISTA_SCOUTING_RIVAL",
+    "EST_TOTALES_PARTIDO",
+    "JUGADORES_ROSTER",
+    "EST_FALTAS", "EST_PENALTIS_10M",
+    "ANTROPOMETRIA",
+    # NOTA: EST_SCOUTING_GOLES y EST_SCOUTING_PEN_10M NO se incluyen
+    # porque NO existen en el Sheet (cargar() las maneja con fallback
+    # individual que devuelve DataFrame vacío al detectar WorksheetNotFound).
+]
+
+
+def _construir_df_desde_valores(rows: list) -> pd.DataFrame:
+    """Convierte una lista de filas (de Sheets values_batch_get) en DataFrame.
+    Maneja fórmulas como texto, cabecera en fila 1 o fila 2 (LESIONES),
+    cabeceras duplicadas y vacías."""
+    if not rows:
+        return pd.DataFrame()
+    # Limpiar fórmulas literales (celdas guardadas como texto que empiezan con '=')
+    rows = [
+        ["" if (isinstance(c, str) and c.startswith("=")) else c for c in fila]
+        for fila in rows
+    ]
+    # Detectar fila de cabecera (1 ó 2)
+    def _no_vacias(fila):
+        return sum(1 for c in fila if str(c).strip() != "")
+    if len(rows) >= 2:
+        f1, f2 = _no_vacias(rows[0]), _no_vacias(rows[1])
+        if f1 >= f2 and f1 > 0:
+            headers, data_start = rows[0], 1
+        else:
+            headers, data_start = rows[1], 2
+    else:
+        headers, data_start = (rows[0] if rows else []), 1
+    # Desduplicar cabeceras
+    seen, clean = {}, []
+    for h in headers:
+        h = str(h).strip() if h is not None else ""
+        if h == "":
+            h = "_VACÍO"
+        if h in seen:
+            seen[h] += 1
+            h = f"{h}_{seen[h]}"
+        else:
+            seen[h] = 0
+        clean.append(h)
+    data_rows = rows[data_start:] if len(rows) > data_start else []
+    # Igualar longitud de filas a número de columnas (algunas filas pueden venir cortadas)
+    n_cols = len(clean)
+    data_rows = [list(r) + [""] * (n_cols - len(r)) if len(r) < n_cols else r[:n_cols]
+                  for r in data_rows]
+    return pd.DataFrame(data_rows, columns=clean)
+
+
+@st.cache_data(ttl=1800, show_spinner="Cargando datos del Sheet...")
+def cargar_todas_hojas() -> dict[str, pd.DataFrame]:
+    """OPTIMIZACIÓN PRINCIPAL: hace UNA SOLA llamada API (batch_get) para
+    traer TODAS las hojas a la vez. Antes eran ~24 llamadas separadas
+    que agotaban la cuota (60 reads/min/usuario).
+
+    Si batch_get falla, devuelve dict vacío y cada cargar() volverá a su
+    flujo individual."""
+    import time as _time
+    ss = get_spreadsheet()
+    response = None
+    for intento in range(4):
+        try:
+            response = ss.values_batch_get(
+                HOJAS_BATCH,
+                params={"valueRenderOption": "UNFORMATTED_VALUE"},
+            )
+            break
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) or "Quota" in str(e):
+                _time.sleep(2 ** intento * 5)  # 5, 10, 20, 40s
+                continue
+            # Otro error (ej. hoja no existe en la lista) → devolver vacío,
+            # cargar() recurrirá a single requests
+            return {}
+        except Exception:
+            return {}
+    if response is None:
+        return {}
+    out = {}
+    for h, vr in zip(HOJAS_BATCH, response.get("valueRanges", [])):
+        try:
+            valores = vr.get("values", [])
+            out[h] = _construir_df_desde_valores(valores)
+        except Exception:
+            out[h] = pd.DataFrame()
+    return out
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def cargar(hoja: str) -> pd.DataFrame:
-    """Carga una hoja con retry automático ante 429 (rate-limit)."""
+    """Carga una hoja. Estrategia:
+    1. Si está en HOJAS_BATCH, usa el dict cacheado (1 read total para todas).
+    2. Si no, hace una request individual con retry ante 429.
+    """
+    # Caso óptimo: la hoja está en el batch
+    if hoja in HOJAS_BATCH:
+        try:
+            todas = cargar_todas_hojas()
+            if hoja in todas and not todas[hoja].empty:
+                return todas[hoja].copy()
+        except Exception:
+            pass
+        # Si llegamos aquí: el batch falló o la hoja vino vacía. Caer al single.
+    # Fallback: single request individual (con retry)
+    return _cargar_individual(hoja)
+
+
+def _cargar_individual(hoja: str) -> pd.DataFrame:
+    """Carga UNA hoja con worksheet().get_all_records() o get(). Retry 429."""
     import time as _time
     ss = get_spreadsheet()
     last_err = None
@@ -380,77 +501,26 @@ def cargar(hoja: str) -> pd.DataFrame:
         except gspread.exceptions.APIError as e:
             last_err = e
             if "429" in str(e) or "Quota" in str(e):
-                _time.sleep(2 ** intento * 3)  # 3, 6, 12, 24s
+                _time.sleep(2 ** intento * 3)
                 continue
             raise
+        except gspread.exceptions.WorksheetNotFound:
+            return pd.DataFrame()
     else:
         raise last_err if last_err else RuntimeError(f"No se pudo abrir hoja {hoja}")
     try:
-        # UNFORMATTED → números como float puro (no "17,1" que rompe pd.to_numeric)
         data = ws.get_all_records(
             value_render_option=gspread.utils.ValueRenderOption.unformatted
         )
         return pd.DataFrame(data)
     except Exception:
-        # Fallback para hojas con cabeceras duplicadas o fusionadas (ej. LESIONES).
         try:
             rows = ws.get(
                 value_render_option=gspread.utils.ValueRenderOption.unformatted
             )
         except Exception:
             rows = ws.get_all_values()
-        if not rows:
-            return pd.DataFrame()
-        # Limpiar fórmulas literales (cuando una celda empieza por "=" significa
-        # que está guardada como TEXTO, no como fórmula evaluada — caso típico
-        # de la hoja LESIONES donde las fórmulas se han pegado como texto).
-        rows = [
-            [
-                "" if (isinstance(c, str) and c.startswith("=")) else c
-                for c in fila
-            ]
-            for fila in rows
-        ]
-        # Detectar AUTOMÁTICAMENTE qué fila es la cabecera real:
-        # - Hojas como _VISTA_CARGA tienen cabecera ya en fila 1.
-        # - Hojas como LESIONES tienen 'grupos de color' en fila 1 (mayormente
-        #   vacía con celdas merged) y la cabecera real en fila 2.
-        # Heurística: si fila 1 tiene más celdas no-vacías que fila 2,
-        # fila 1 es la cabecera; si no, es la fila 2.
-        def _no_vacias(fila):
-            return sum(1 for c in fila if str(c).strip() != "")
-
-        if len(rows) >= 2:
-            f1_count = _no_vacias(rows[0])
-            f2_count = _no_vacias(rows[1])
-            if f1_count >= f2_count and f1_count > 0:
-                # Fila 1 ya es la cabecera (caso típico _VISTA_*)
-                headers = rows[0]
-                data_start = 1
-            else:
-                # Fila 1 son grupos coloreados, cabecera en fila 2 (LESIONES)
-                headers = rows[1]
-                data_start = 2
-        else:
-            headers = rows[0] if rows else []
-            data_start = 1
-        # Desduplicar cabeceras vacías
-        # ⚠️ str(h) primero: si la cabecera viene como int (ej. "8" como dorsal
-        # o "2026" como año), .strip() pelea sin convertir antes a string.
-        seen = {}
-        clean = []
-        for h in headers:
-            h = str(h).strip() if h is not None else ""
-            if h == "":
-                h = "_VACÍO"
-            if h in seen:
-                seen[h] += 1
-                h = f"{h}_{seen[h]}"
-            else:
-                seen[h] = 0
-            clean.append(h)
-        data_rows = rows[data_start:] if len(rows) > data_start else []
-        return pd.DataFrame(data_rows, columns=clean)
+        return _construir_df_desde_valores(rows)
 
 
 SHEET_FISIOS_NAME = "Arkaitz - Lesiones y Tratamientos 2526"
