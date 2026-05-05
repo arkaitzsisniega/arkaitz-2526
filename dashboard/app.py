@@ -87,9 +87,18 @@ def _leer_users_secret() -> dict[str, str]:
                 except Exception:
                     pass
             for clave, rol in pares:
-                rol_norm = str(rol).strip().lower()
-                if rol_norm in ROLES_VALIDOS:
-                    out[str(clave)] = rol_norm
+                k_norm = str(clave).strip().lower()
+                v_norm = str(rol).strip().lower()
+                # Auto-detectar el formato:
+                # · Formato correcto: izquierda=contraseña, derecha=rol
+                # · Formato invertido: izquierda=rol, derecha=contraseña
+                # Si v_norm es un rol válido → formato correcto.
+                # Si k_norm es un rol válido pero v_norm no → invertido.
+                if v_norm in ROLES_VALIDOS:
+                    out[str(clave)] = v_norm
+                elif k_norm in ROLES_VALIDOS:
+                    # Invertido: el "rol" está a la izquierda y la contraseña a la derecha.
+                    out[str(rol)] = k_norm
     except Exception:
         pass
 
