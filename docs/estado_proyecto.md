@@ -6,6 +6,35 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
+## 🔔 ESTADO 6/5/2026 — Servidor 24/7 en marcha (Fase 3 de 11)
+
+Hoy 6/5/2026 (tarde) arrancamos el setup del Mac viejo como servidor 24/7.
+
+**Mac viejo**: MacBook Air probable (2013-2014), Catalina 10.15.7,
+i5 1.3GHz dual-core, 4GB RAM, SSD 251GB, IP local `10.48.0.113`,
+hostname `InterFS-Servidor.local`.
+
+**Estado actual**:
+- ✅ Fase 1: Usuario `arkaitz` admin creado, Apple ID logout previo.
+- ✅ Fase 2: Mac configurado (energía sin suspender + arranque tras
+  fallo eléctrico + Sharing/SSH activos via launchctl directo).
+  Usuario antiguo de la mujer eliminado.
+- ✅ Fase 3 (en curso): Xcode CLT instalado (tardó 2.5h), Homebrew
+  5.1.9 instalado, Python 3.11 + ffmpeg en instalación.
+
+**Continúa MAÑANA con la Fase 4**:
+- Clonar el repo desde GitHub en el Mac viejo
+- Instalar dependencias Python con pip
+- Copiar credenciales (.env, google_credentials.json) via AirDrop
+- Probar `arrancar_bots.sh` manual
+- Activar launchd con `setup_servidor/install.sh`
+- Configurar Tailscale para acceso remoto
+- Apagar bots del Mac de trabajo
+
+**Reconexión SSH**: `ssh arkaitz@10.48.0.113` (o `.local`).
+
+---
+
 ## 🔔 ESTADO 6/5/2026 — roles implementados (esperando contraseñas)
 
 Hoy 6/5/2026 se implementó el sistema de roles y permisos completo
