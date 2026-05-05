@@ -55,28 +55,54 @@ ROLES_VALIDOS = {"admin", "tecnico", "fisio", "medico"}
 def _leer_users_secret() -> dict[str, str]:
     """Devuelve dict {contraseña: rol} desde st.secrets.
     Soporta:
-    - APP_USERS = {"clave1": "admin", ...} (sección o tabla TOML)
+    - APP_USERS = {"clave1": "admin", ...} (sección TOML)
     - APP_PASSWORD legacy (clave única → rol "admin")
+
+    Robusto a AttrDict de Streamlit y otras estructuras dict-like.
     """
     out = {}
+
+    # ── 1. APP_USERS (preferido) ──
     try:
         if "APP_USERS" in st.secrets:
             users = st.secrets["APP_USERS"]
-            # st.secrets devuelve dict-like
-            for clave, rol in dict(users).items():
+            # AttrDict tiene .keys()/.items() pero a veces dict(users) falla.
+            # Probamos varias formas en orden de fiabilidad.
+            pares = []
+            try:
+                # 1a: items() directo (más robusto en AttrDict)
+                pares = list(users.items())
+            except Exception:
+                pass
+            if not pares:
+                try:
+                    # 1b: iterar keys y obtener valores
+                    pares = [(k, users[k]) for k in users.keys()]
+                except Exception:
+                    pass
+            if not pares:
+                try:
+                    # 1c: convertir a dict y luego items
+                    pares = list(dict(users).items())
+                except Exception:
+                    pass
+            for clave, rol in pares:
                 rol_norm = str(rol).strip().lower()
                 if rol_norm in ROLES_VALIDOS:
                     out[str(clave)] = rol_norm
-        # APP_PASSWORD legacy: si no hay APP_USERS o como añadido
-        if "APP_PASSWORD" in st.secrets:
-            pwd = st.secrets["APP_PASSWORD"]
-            if pwd:
-                # Si esa contraseña no está ya en out, la añadimos como admin
-                if str(pwd) not in out:
-                    out[str(pwd)] = "admin"
     except Exception:
         pass
-    # Caso de APP_PASSWORD dentro de gcp_service_account (legacy bug)
+
+    # ── 2. APP_PASSWORD legacy ──
+    try:
+        if "APP_PASSWORD" in st.secrets:
+            pwd = st.secrets["APP_PASSWORD"]
+            if pwd and str(pwd) not in out:
+                out[str(pwd)] = "admin"
+    except Exception:
+        pass
+
+    # ── 3. APP_PASSWORD dentro de gcp_service_account (bug legacy) ──
     if not out:
         try:
             if "gcp_service_account" in st.secrets:
@@ -85,6 +111,7 @@ def _leer_users_secret() -> dict[str, str]:
                     out[str(sub["APP_PASSWORD"])] = "admin"
         except Exception:
             pass
+
     return out
 
 
@@ -99,19 +126,40 @@ def _check_password():
         # Debug: enseñar qué hay en st.secrets para diagnosticar
         debug_top = []
         debug_app_users_type = None
+        debug_app_users_keys = None
+        debug_roles_detectados = None
         try:
             debug_top = list(st.secrets.keys())
         except Exception:
             debug_top = ["<no se pudo listar>"]
         try:
             if "APP_USERS" in st.secrets:
-                debug_app_users_type = type(st.secrets["APP_USERS"]).__name__
+                au = st.secrets["APP_USERS"]
+                debug_app_users_type = type(au).__name__
+                # Intentar listar las claves (sin valores)
+                try:
+                    debug_app_users_keys = list(au.keys())
+                except Exception:
+                    try:
+                        debug_app_users_keys = list(dict(au).keys())
+                    except Exception:
+                        debug_app_users_keys = "<no se pudo iterar>"
+                # Listar roles encontrados (NO contraseñas — es seguro)
+                try:
+                    debug_roles_detectados = [
+                        str(au[k]).strip().lower() for k in au.keys()
+                    ]
+                except Exception:
+                    debug_roles_detectados = "<no se pudo>"
         except Exception as e:
             debug_app_users_type = f"err:{e}"
 
         msg_debug = f"\n\n_Claves visibles a nivel raíz:_ `{debug_top}`"
         if debug_app_users_type:
             msg_debug += f"\n\n_APP_USERS detectado, tipo:_ `{debug_app_users_type}`"
+            msg_debug += f"\n\n_Nº de contraseñas en APP_USERS:_ `{len(debug_app_users_keys) if isinstance(debug_app_users_keys, list) else 'err'}`"
+            msg_debug += f"\n\n_Roles detectados:_ `{debug_roles_detectados}`"
+            msg_debug += f"\n\n_Roles válidos esperados:_ `{sorted(ROLES_VALIDOS)}`"
         st.warning(
             "⚠️ **No hay contraseñas configuradas en `st.secrets`.** "
             "El dashboard está accesible sin login. Configura `APP_USERS` "
