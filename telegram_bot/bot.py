@@ -190,6 +190,25 @@ async def _keep_typing(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, stop: async
 # (vacío = continuar sesión previa con -c)
 _fresh_chats: set = set()
 
+# Acciones locales (slash commands) ejecutadas DESDE el último prompt mandado
+# a Claude. Se inyectan como contexto al próximo prompt para que Claude no
+# pierda el hilo (porque los slash commands los ejecuta el bot directamente,
+# Claude no se entera de que se han disparado).
+_acciones_pendientes: dict = {}  # chat_id -> list[str]
+
+
+def _registrar_accion_local(chat_id: int, descripcion: str) -> None:
+    """Apunta que el usuario ha ejecutado un comando local (no via Claude).
+
+    En el próximo prompt a Claude, le contaremos qué pasó mientras tanto.
+    `descripcion` debe ser una frase corta tipo:
+      "/enlaces (enlaces genéricos del día, mandados al usuario)"
+      "/consolidar (consolidó Forms y recalculó vistas, OK)"
+    """
+    _acciones_pendientes.setdefault(chat_id, []).append(
+        f"{_dt.datetime.now().strftime('%H:%M')} — {descripcion}"
+    )
+
 # Modo "/ejercicios_voz": chat_id → timestamp de activación (vence a los 15 min)
 _modo_ejercicios_voz: dict = {}
 EJVOZ_TTL_SEG = 15 * 60
@@ -355,13 +374,25 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "✅ Todo al día. Abre el dashboard y mira la pestaña **🏃 Oliver**."
             )
+            _registrar_accion_local(
+                chat_id,
+                "/oliver_sync ejecutado: sincronización MVP de Oliver + recálculo "
+                "de cruces (calcular_vistas) terminado correctamente."
+            )
         else:
             tail = (err2 or out2 or b"").decode("utf-8", "replace")[-1500:]
             await update.message.reply_text(f"⚠️ Oliver OK pero calcular_vistas falló:\n{tail}")
+            _registrar_accion_local(
+                chat_id,
+                "/oliver_sync ejecutado: sync OK pero el recálculo de vistas falló."
+            )
     else:
         detalle = (err or out or "(sin detalles)").strip()
         for chunk in _chunks(f"❌ Error en oliver_sync:\n{detalle}"):
             await update.message.reply_text(chunk)
+        _registrar_accion_local(
+            chat_id, "/oliver_sync FALLÓ — el sync de Oliver dio error, no se actualizó."
+        )
 
 
 async def _run_script(path: Path, *args, timeout: int = 600) -> Tuple[int, str, str]:
@@ -408,6 +439,10 @@ async def cmd_enlaces(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
     await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        update.effective_chat.id,
+        "/enlaces ejecutado: enviados al usuario los enlaces PRE+POST genéricos del día (con fecha y turno pre-rellenados). El usuario ya los tiene; NO le preguntes si quiere los enlaces."
+    )
 
 
 async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -495,6 +530,12 @@ async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # No abortamos: el dashboard principal sigue actualizado
     await update.message.reply_text(
         "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
+    )
+    _registrar_accion_local(
+        chat_id,
+        "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS y "
+        "todas las vistas (principales + fisios) recalculadas correctamente. "
+        "El usuario YA tiene el dashboard actualizado."
     )
 
 
@@ -637,6 +678,11 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
     ]])
     await update.message.reply_text(msg, parse_mode="Markdown",
                                      reply_markup=kb)
+    _registrar_accion_local(
+        chat_id,
+        f"/sesion ejecutado: nueva sesión de entreno volcada a la hoja SESIONES. "
+        f"Mensaje resumen mandado al usuario: {msg[:200].replace(chr(10), ' ')}"
+    )
 
 
 async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -667,6 +713,11 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         for b in bloques:
             await ctx.bot.send_message(chat_id, b, parse_mode="Markdown",
                                          disable_web_page_preview=True)
+        _registrar_accion_local(
+            chat_id,
+            "[botón inline tras /sesion] enlaces PRE+POST genéricos del día "
+            "enviados al usuario. NO le preguntes si quiere los enlaces."
+        )
 
 
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -702,6 +753,11 @@ async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Ejercicios procesados.\n\n```\n{resumen}\n```",
         parse_mode="Markdown",
+    )
+    _registrar_accion_local(
+        chat_id,
+        "/ejercicios_sync ejecutado: timelines de Oliver descargados y agregados "
+        "por bloques. _VISTA_EJERCICIOS regenerada."
     )
 
 
@@ -906,15 +962,35 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
-    log.info("→ prompt (%s): %s",
-             "continuar" if continuar else "NUEVA",
-             prompt[:120].replace("\n", " "))
+
+    # Si hay acciones locales (slash commands) ejecutadas desde el último
+    # prompt a Claude, le contamos qué pasó. Si no, prompt va tal cual.
+    pendientes = _acciones_pendientes.pop(chat_id, [])
+    if pendientes and continuar:
+        contexto = (
+            "[Contexto del bot — acciones que el usuario ha disparado por "
+            "comandos del bot DESDE TU ÚLTIMO MENSAJE; el bot las ejecutó "
+            "directamente, no las viste pasar:]\n"
+            + "\n".join(f"  - {p}" for p in pendientes)
+            + "\n\n[Mensaje del usuario:]\n"
+            + prompt
+        )
+        prompt_final = contexto
+        log.info("→ prompt (%s, +%d accs): %s",
+                 "continuar" if continuar else "NUEVA",
+                 len(pendientes),
+                 prompt[:100].replace("\n", " "))
+    else:
+        prompt_final = prompt
+        log.info("→ prompt (%s): %s",
+                 "continuar" if continuar else "NUEVA",
+                 prompt[:120].replace("\n", " "))
 
     stop = asyncio.Event()
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
     try:
-        rc, out, err = await _run_claude(prompt, continue_session=continuar)
+        rc, out, err = await _run_claude(prompt_final, continue_session=continuar)
     finally:
         stop.set()
         try:
