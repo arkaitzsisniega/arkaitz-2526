@@ -123,11 +123,17 @@
   - Form POST: peso + Borg (1-10).
 - Respuestas caen a `_FORM_PRE` y `_FORM_POST` (automático, vía Forms).
 - `src/forms_utils.py`: leer_respuestas_* + consolidar_a_sheet + detectar_duplicados.
-- `src/consolidar_forms.py` + `/consolidar` del bot: consolida a BORG/PESO/WELLNESS,
-  avisa de duplicados y **relanza automáticamente `calcular_vistas`**.
+- `src/consolidar_forms.py`: consolida a BORG/PESO/WELLNESS y avisa de duplicados.
+  El script POR SÍ MISMO no recalcula vistas (mantiene una sola responsabilidad).
+- `/consolidar` del bot: encadena `consolidar_forms.py` → `calcular_vistas.py`
+  → `calcular_vistas_fisios.py` y avisa de duplicados. Es la vía recomendada.
+  Si lanzas el script desde CLI, recuerda relanzar `calcular_vistas` después.
 - Enlaces al jugador:
-  - `/enlaces` → 2 enlaces genéricos (sin prefill, jugador elige su nombre).
-  - `/enlaces_hoy` → pares PRE+POST pre-rellenados por jugador para la sesión del día.
+  - `/enlaces` → 2 enlaces (PRE + POST) genéricos del día con FECHA y TURNO
+    pre-rellenados, listos para mandar al grupo de WhatsApp. El jugador elige
+    su nombre del desplegable.
+  - `/enlaces_hoy` → DEPRECADO (redirige a `/enlaces`). Antes generaba pares
+    individuales por jugador, descartado por el usuario.
 
 ## Ejercicios (timeline Oliver por bloques)
 - Hoja `_EJERCICIOS` (editable por el usuario): session_id, fecha, turno,
