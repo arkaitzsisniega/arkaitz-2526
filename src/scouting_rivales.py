@@ -139,11 +139,14 @@ def cargar(xlsx_path: str = XLSX_DEFAULT) -> pd.DataFrame:
             fecha = _g(4)
             if not comp or not contra:
                 continue
+            comp_norm = " ".join(str(comp).strip().upper().split())
+            comp_norm = comp_norm.replace("COPA DEL R EY", "COPA DEL REY")
+            contra_norm = " ".join(str(contra).strip().upper().split())
             base = {
                 "rival_codigo": codigo,
                 "rival_nombre": nombre_full,
-                "competicion": str(comp).strip(),
-                "contra_quien": str(contra).strip(),
+                "competicion": comp_norm,
+                "contra_quien": contra_norm,
                 "fecha": _to_date_iso(fecha),
                 "total_a_favor": _to_int(_g(6)),
                 "total_en_contra": _to_int(_g(29)),

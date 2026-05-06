@@ -3743,10 +3743,103 @@ with tab_scout:
         else:
             st.markdown("### 🔍 Scouting de rivales")
             st.caption(
-                "Cómo marcan los rivales cuando juegan contra OTROS equipos (no contra Inter). "
-                "Útil para preparar partidos."
+                "Cómo marca y recibe goles cada rival en todos sus partidos "
+                "(LIGA, Copa, Champions… incluyendo los que han jugado contra Inter). "
+                "Útil para preparar enfrentamientos."
             )
-    
+
+            # ── Filtros (afectan a las dos sub-pestañas) ──────────────────
+            scout_raw_full = scout_raw.copy()
+            for c in ("total_a_favor", "total_en_contra"):
+                if c in scout_raw_full.columns:
+                    scout_raw_full[c] = pd.to_numeric(scout_raw_full[c], errors="coerce").fillna(0)
+            for c in scout_raw_full.columns:
+                if c.startswith(("AF_", "EC_")):
+                    scout_raw_full[c] = pd.to_numeric(scout_raw_full[c], errors="coerce").fillna(0)
+            scout_raw_full["_fecha_dt"] = pd.to_datetime(scout_raw_full["fecha"], errors="coerce")
+
+            comps_disp = sorted([c for c in scout_raw_full["competicion"].dropna().unique() if c])
+            comps_default = [c for c in comps_disp if "LIGA" in c.upper() and "25" in c]
+            if not comps_default:
+                comps_default = comps_disp
+
+            # Rango de fechas: por defecto solo temporada actual (>= ago 2025)
+            from datetime import date as _date_cls
+            f_min_data = scout_raw_full["_fecha_dt"].min()
+            f_max_data = scout_raw_full["_fecha_dt"].max()
+            f_default_ini = _date_cls(2025, 8, 1)
+            if pd.notna(f_min_data) and f_min_data.date() > f_default_ini:
+                f_default_ini = f_min_data.date()
+            f_default_fin = f_max_data.date() if pd.notna(f_max_data) else _date_cls.today()
+
+            with st.expander("🔧 Filtros", expanded=False):
+                fcol1, fcol2 = st.columns([2, 2])
+                with fcol1:
+                    comps_sel = st.multiselect(
+                        "Competición",
+                        options=comps_disp,
+                        default=comps_default,
+                        key="scout_filt_comp",
+                    )
+                with fcol2:
+                    rango = st.date_input(
+                        "Rango de fechas",
+                        value=(f_default_ini, f_default_fin),
+                        key="scout_filt_fecha",
+                    )
+
+            # Aplicar filtros
+            df_filt = scout_raw_full.copy()
+            if comps_sel:
+                df_filt = df_filt[df_filt["competicion"].isin(comps_sel)]
+            if isinstance(rango, tuple) and len(rango) == 2 and rango[0] and rango[1]:
+                f_ini, f_fin = pd.Timestamp(rango[0]), pd.Timestamp(rango[1])
+                df_filt = df_filt[
+                    df_filt["_fecha_dt"].between(f_ini, f_fin) | df_filt["_fecha_dt"].isna()
+                ]
+
+            def _scout_recalc_agregado(df):
+                if df.empty:
+                    return pd.DataFrame()
+                cols_sum = [c for c in df.columns
+                            if c.startswith(("AF_", "EC_", "total_"))]
+                aggs = {"partidos": ("contra_quien", "count")}
+                for c in cols_sum:
+                    aggs[c] = (c, "sum")
+                g = df.groupby(["rival_codigo", "rival_nombre"], as_index=False).agg(**aggs)
+                # % por origen — A FAVOR
+                af_cols = [c for c in df.columns
+                           if c.startswith("AF_") and not c.startswith("AF_port")
+                           and not c.startswith("AF_zona")]
+                for col in af_cols:
+                    accion = col.replace("AF_", "")
+                    g[f"%AF_{accion}"] = (
+                        g[col] / g["total_a_favor"].replace(0, float("nan")) * 100
+                    ).round(1)
+                # % por origen — EN CONTRA
+                ec_cols = [c for c in df.columns
+                           if c.startswith("EC_") and not c.startswith("EC_port")
+                           and not c.startswith("EC_zona")]
+                for col in ec_cols:
+                    accion = col.replace("EC_", "")
+                    g[f"%EC_{accion}"] = (
+                        g[col] / g["total_en_contra"].replace(0, float("nan")) * 100
+                    ).round(1)
+                return g.sort_values("total_a_favor", ascending=False)
+
+            _scout_filtros_vacios = df_filt.empty
+            if _scout_filtros_vacios:
+                st.warning("No hay datos con esos filtros. Amplía el rango o añade competiciones.")
+                scout_agr_dyn = pd.DataFrame()
+                scout_raw_filt = pd.DataFrame()
+            else:
+                scout_raw_filt = df_filt.drop(columns=["_fecha_dt"], errors="ignore")
+                scout_agr_dyn = _scout_recalc_agregado(scout_raw_filt)
+
+                n_part_filt = len(scout_raw_filt)
+                n_riv_filt = scout_raw_filt["rival_codigo"].nunique()
+                st.caption(f"📌 Filtro activo: **{n_part_filt} partidos** de **{n_riv_filt} rivales**.")
+
             sub_global, sub_rival = st.tabs(["📊 Global (todos los rivales)", "🎯 Foco en un rival"])
     
             # Abreviaturas para el heatmap (cabeceras cortas, mismo ancho)
@@ -3765,30 +3858,54 @@ with tab_scout:
             }
     
             with sub_global:
+              if scout_agr_dyn.empty:
+                st.caption("Sin datos con los filtros actuales.")
+              else:
                 st.markdown("#### Comparativa entre rivales")
-                agr = scout_agr.copy()
+                agr = scout_agr_dyn.copy()
                 for c in agr.columns:
                     if c in ("rival_codigo", "rival_nombre"):
                         continue
                     agr[c] = pd.to_numeric(agr[c], errors="coerce")
 
-                # Top: a favor + en contra
+                # Top: a favor + en contra + medias por partido
                 cols_top = ["rival_codigo", "rival_nombre", "partidos",
                             "total_a_favor", "total_en_contra"]
                 cols_top = [c for c in cols_top if c in agr.columns]
                 if "total_a_favor" in agr.columns and "total_en_contra" in agr.columns:
                     agr["dif_goles"] = agr["total_a_favor"] - agr["total_en_contra"]
-                    cols_top.append("dif_goles")
+                    if "partidos" in agr.columns:
+                        agr["gf_part"] = (agr["total_a_favor"]
+                                          / agr["partidos"].replace(0, float("nan"))).round(2)
+                        agr["gc_part"] = (agr["total_en_contra"]
+                                          / agr["partidos"].replace(0, float("nan"))).round(2)
+                        cols_top += ["gf_part", "gc_part", "dif_goles"]
+                    else:
+                        cols_top.append("dif_goles")
                 st.dataframe(
                     agr[cols_top].style
                     .format({"partidos": "{:.0f}",
                              "total_a_favor": "{:.0f}",
                              "total_en_contra": "{:.0f}",
+                             "gf_part": "{:.2f}",
+                             "gc_part": "{:.2f}",
                              "dif_goles": "{:+.0f}"}, na_rep="—")
                     .background_gradient(subset=["total_a_favor"], cmap="Greens")
                     .background_gradient(subset=["total_en_contra"], cmap="Reds")
-                    .background_gradient(subset=["dif_goles"], cmap="RdYlGn"),
+                    .background_gradient(subset=["dif_goles"], cmap="RdYlGn")
+                    .background_gradient(subset=["gf_part"], cmap="Greens")
+                    .background_gradient(subset=["gc_part"], cmap="Reds"),
                     use_container_width=True, hide_index=True,
+                    column_config={
+                        "rival_codigo": st.column_config.Column("cód", width="small"),
+                        "rival_nombre": st.column_config.Column("Rival"),
+                        "partidos": st.column_config.NumberColumn("PJ", help="Partidos jugados"),
+                        "total_a_favor": st.column_config.NumberColumn("GF", help="Goles a favor"),
+                        "total_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra"),
+                        "gf_part": st.column_config.NumberColumn("GF/p", help="Goles a favor por partido"),
+                        "gc_part": st.column_config.NumberColumn("GC/p", help="Goles en contra por partido"),
+                        "dif_goles": st.column_config.NumberColumn("DIF", help="GF - GC (diferencial total)"),
+                    },
                 )
 
                 # Heatmaps separados: A FAVOR y EN CONTRA
@@ -3822,13 +3939,13 @@ with tab_scout:
 
                 _render_heatmap("%AF_", "Heatmap: cómo MARCA cada rival (% por origen)")
                 _render_heatmap("%EC_", "Heatmap: cómo RECIBE cada rival (% por origen)")
-    
+
             with sub_rival:
-                rivales_op = scout_agr["rival_nombre"].tolist() if "rival_nombre" in scout_agr.columns else []
+                rivales_op = scout_agr_dyn["rival_nombre"].tolist() if "rival_nombre" in scout_agr_dyn.columns else []
                 if rivales_op:
                     rival_sel = st.selectbox("Rival a analizar", rivales_op, key="scout_rival")
-                    df_r = scout_raw[scout_raw["rival_nombre"] == rival_sel].copy()
-                    agr_r_filter = scout_agr[scout_agr["rival_nombre"] == rival_sel]
+                    df_r = scout_raw_filt[scout_raw_filt["rival_nombre"] == rival_sel].copy()
+                    agr_r_filter = scout_agr_dyn[scout_agr_dyn["rival_nombre"] == rival_sel]
                     agr_r = agr_r_filter.iloc[0] if not agr_r_filter.empty else None
                     # Código del rival (3 letras)
                     cod_rival = (agr_r["rival_codigo"] if agr_r is not None
