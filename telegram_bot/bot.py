@@ -314,7 +314,10 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
-    _fresh_chats.add(update.effective_chat.id)
+    chat_id = update.effective_chat.id
+    _fresh_chats.add(chat_id)
+    # Sesión nueva = no tiene sentido arrastrar acciones locales pendientes
+    _acciones_pendientes.pop(chat_id, None)
     await update.message.reply_text(
         "🆕 Vale, el próximo mensaje empezará una conversación nueva "
         "(sin contexto de lo anterior)."
@@ -471,6 +474,12 @@ async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
     await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        chat_id,
+        "/enlaces_hoy (deprecated, redirigido a /enlaces) ejecutado: enlaces "
+        "PRE+POST genéricos del día enviados al usuario. NO le preguntes "
+        "si quiere los enlaces."
+    )
 
 
 async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -825,6 +834,11 @@ async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"✅ Token actualizado en .env ({len(nuevos)} claves).\n"
             "Ya puedes lanzar /oliver_sync."
         )
+        _registrar_accion_local(
+            update.effective_chat.id,
+            "/oliver_token ejecutado: claves OLIVER_* actualizadas en .env. "
+            "El próximo /oliver_sync usará el token nuevo."
+        )
     except Exception as e:
         await update.message.reply_text(f"❌ Error guardando .env: {e}")
 
@@ -852,6 +866,11 @@ async def cmd_oliver_deep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✅ Análisis profundo al día. Reviso las 68 métricas en hoja `_OLIVER_DEEP`. "
             "Si quieres que te resalte cosas raras, dime '*repásame el último deep*'."
+        )
+        _registrar_accion_local(
+            chat_id,
+            "/oliver_deep ejecutado: sync profundo de Oliver (68 métricas) terminado, "
+            "hoja _OLIVER_DEEP actualizada y .oliver_deep_ultimo marcado."
         )
     else:
         detalle = (err or out or "(sin detalles)").strip()
