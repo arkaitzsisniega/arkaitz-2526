@@ -60,6 +60,17 @@
   (Whisper local, modelo "base", español).
 - Script `arrancar_bots.sh` en la raíz para lanzar ambos con un comando.
 
+### ✅ Cerrados (mayo 2026)
+- **Bot apunta sesión por voz** — comando `/sesion` en `telegram_bot/bot.py`
+  (solo bot dev). Acepta audio (Whisper, ventana 15 min) o texto directo
+  (`/sesion FÍSICO 75 min mañana`). El script `src/parse_sesion_voz.py`
+  llama a Claude para estructurar la transcripción a JSON validado y
+  vuelca a la hoja `SESIONES`. Tras apuntar, ofrece botón inline
+  "📤 Mandar /enlaces_hoy".
+  - Tipos válidos en `parse_sesion_voz.py:40-43`: FISICO, TEC-TAC, GYM,
+    RECUP, PARTIDO, PORTEROS, **MATINAL**, **GYM+TEC-TAC**,
+    **FISICO+TEC-TAC** (ampliación 29/04 incluida).
+
 ### 🕐 Pospuesto (por decisión del usuario)
 - Mejorar pestaña Lesiones (el usuario dijo "es mejorable, pero más adelante").
   Temas candidatos: gráfico de días baja por zona, tiempos medios de retorno,
@@ -88,34 +99,6 @@
 - [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
       wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
       tiempo diario a Arkaitz.
-- [ ] **Bot apunta sesión por voz** (pedido 29/04/2026):
-      Antes de mandar `/enlaces_hoy`, Arkaitz quiere poder dictarle al bot
-      la sesión de entrenamiento (descripción tipo "FÍSICO + 2v2 + finalización
-      45 min total") y que el bot:
-      1. Transcriba con Whisper (ya está integrado en ambos bots).
-      2. Añada/actualice una fila en la hoja `SESIONES` (fecha = hoy,
-         descripción = lo dictado, tipo si lo detecta, etc.).
-      3. Confirme con un mensaje del estilo "✅ Sesión apuntada para hoy
-         (DD/MM): «descripción»".
-      4. Opcional: ofrecer botón inline para mandar `/enlaces_hoy` justo
-         después.
-      Implementación: comando nuevo `/sesion` (o `/apunta`) en
-      `telegram_bot/bot.py` que reciba audio o texto y use gspread para
-      escribir en `SESIONES`. Añadir helper `apuntar_sesion(texto, fecha)`
-      en `src/sesiones_utils.py`. Schema de SESIONES está en
-      `src/setup_gsheets.py`.
-
-      **AMPLIACIÓN (29/04/2026, antes de irse):**
-      - Añadir nuevo tipo de sesión: **MATINAL** — sesión corta que se
-        hace los días de partido por la mañana.
-      - Permitir **tipos combinados** en una misma sesión (ej. "GYM +
-        tec-tac"). Hoy `tipo` parece ser un solo valor; pasar a
-        multi-select o string libre con separador (p.ej. "GYM+TEC_TAC").
-        Revisar también el extractor / dashboard para que muestren los
-        tipos combinados sin romper agregaciones.
-      - Revisar `src/setup_gsheets.py` (donde se definen los tipos
-        canónicos) y `dashboard/app.py` (donde se filtran por tipo).
-
 ### 🔴 Reglas de dominio importantes (no olvidar)
 
 **Días de partido — sesión MATINAL** (acordado 30/04/2026):
@@ -213,6 +196,17 @@ Desktop/Code (ordenador). Para que no pierda el hilo al saltar de un sitio a otr
   **Claude:** ...
   ```
 - La carpeta `telegram_logs/` está en `.gitignore` (contenido sensible).
+
+### Inyección de "acciones locales" en la sesión de Claude (bot dev)
+El bot dev `telegram_bot/bot.py` ejecuta varios slash commands localmente
+(`/enlaces`, `/consolidar`, `/oliver_sync`, `/ejercicios_sync`, `/sesion`,
+botón inline tras `/sesion`). Esos comandos NO pasan por Claude. Para que
+Claude no pierda el hilo, cada uno registra una línea en
+`_acciones_pendientes[chat_id]`. En el siguiente `_process_prompt` del
+usuario, si la sesión continúa (no `/nuevo`), se prefijan al prompt
+como bloque "[Contexto del bot]" y se vacían. Esto evita el bug clásico
+de "el usuario pidió enlaces hace 2 min y vuelvo a preguntar si quiere
+los enlaces".
 
 ### Comandos explícitos del usuario
 Si el usuario dice **"ponme al día"**, **"recap"**, **"qué ha pasado por Telegram"**
