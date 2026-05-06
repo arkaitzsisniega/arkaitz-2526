@@ -3970,6 +3970,67 @@ with tab_scout:
                         k3.metric("🥅 Goles en contra", gc)
                         k4.metric("Diferencial", f"{gf-gc:+d}")
 
+                        # ── W/D/L + forma últimos 5 ──────────────────────────
+                        df_r_v = df_r.copy()
+                        df_r_v["_gf"] = pd.to_numeric(df_r_v["total_a_favor"], errors="coerce").fillna(0)
+                        df_r_v["_gc"] = pd.to_numeric(df_r_v["total_en_contra"], errors="coerce").fillna(0)
+                        df_r_v["_res"] = df_r_v.apply(
+                            lambda r: "V" if r["_gf"] > r["_gc"]
+                            else ("E" if r["_gf"] == r["_gc"] else "D"),
+                            axis=1,
+                        )
+                        n_v = int((df_r_v["_res"] == "V").sum())
+                        n_e = int((df_r_v["_res"] == "E").sum())
+                        n_d = int((df_r_v["_res"] == "D").sum())
+                        n_tot = max(len(df_r_v), 1)
+                        pct_v = round(n_v / n_tot * 100, 1)
+
+                        # Forma últimos 5 (más reciente a la izquierda)
+                        df_r_v["_fdt"] = pd.to_datetime(df_r_v["fecha"], errors="coerce")
+                        ult5 = (df_r_v.sort_values("_fdt", ascending=False, na_position="last")
+                                .head(5)[["_res", "_fdt", "contra_quien", "_gf", "_gc"]]
+                                .to_dict("records"))
+
+                        v1, v2, v3, v4 = st.columns(4)
+                        v1.metric("✅ Victorias", n_v, help=f"{pct_v}% de partidos")
+                        v2.metric("➖ Empates", n_e)
+                        v3.metric("❌ Derrotas", n_d)
+                        if ult5:
+                            color_map = {"V": "#2E7D32", "E": "#F9A825", "D": "#C62828"}
+                            chips_html = " ".join(
+                                f"<span title='{r['_fdt'].date() if pd.notna(r['_fdt']) else ''} · "
+                                f"vs {r['contra_quien']} ({int(r['_gf'])}-{int(r['_gc'])})' "
+                                f"style='display:inline-block;width:24px;height:24px;"
+                                f"line-height:24px;text-align:center;border-radius:4px;"
+                                f"background:{color_map[r['_res']]};color:white;"
+                                f"font-weight:bold;margin-right:3px;font-size:13px;'>"
+                                f"{r['_res']}</span>"
+                                for r in ult5
+                            )
+                            v4.markdown(
+                                f"**Forma**<br>{chips_html}",
+                                unsafe_allow_html=True,
+                                help="Últimos 5 partidos del rival (más reciente a la izquierda).",
+                            )
+
+                        # ── Highlight: partidos contra Inter ────────────────
+                        df_r_inter = df_r_v[
+                            df_r_v["contra_quien"].str.contains(
+                                "INTER|MOVISTAR", case=False, na=False
+                            )
+                        ]
+                        if not df_r_inter.empty:
+                            n_inter = len(df_r_inter)
+                            gf_inter = int(df_r_inter["_gf"].sum())
+                            gc_inter = int(df_r_inter["_gc"].sum())
+                            v_i = int((df_r_inter["_res"] == "V").sum())
+                            e_i = int((df_r_inter["_res"] == "E").sum())
+                            d_i = int((df_r_inter["_res"] == "D").sum())
+                            with st.container(border=True):
+                                st.markdown(f"**🆚 vs Inter** — {n_inter} partidos · "
+                                            f"GF {gf_inter} · GC {gc_inter} · "
+                                            f"Balance del rival: {v_i}V - {e_i}E - {d_i}D")
+
                         # ── A FAVOR (cómo marca este rival) ───────────────────
                         st.markdown(f"#### ⚽ Cómo marca **{rival_sel}**")
                         af_data = []
@@ -4071,15 +4132,36 @@ with tab_scout:
                     for c in ("total_a_favor", "total_en_contra"):
                         if c in df_r_show.columns:
                             df_r_show[c] = pd.to_numeric(df_r_show[c], errors="coerce")
+                    # Columna resultado (V/E/D) y flag vs Inter
+                    if {"total_a_favor", "total_en_contra"}.issubset(df_r_show.columns):
+                        df_r_show["resultado"] = df_r_show.apply(
+                            lambda r: "V" if r["total_a_favor"] > r["total_en_contra"]
+                            else ("E" if r["total_a_favor"] == r["total_en_contra"] else "D"),
+                            axis=1,
+                        )
+                    df_r_show["vs_inter"] = df_r_show.get("contra_quien", "").astype(str).str.contains(
+                        "INTER|MOVISTAR", case=False, na=False
+                    )
+
+                    def _highlight_inter(row):
+                        if row.get("vs_inter", False):
+                            return ["background-color: #FFF59D"] * len(row)
+                        return [""] * len(row)
+
+                    df_r_show = df_r_show.sort_values("fecha", ascending=False)
                     st.dataframe(
-                        df_r_show.sort_values("fecha", ascending=False),
+                        df_r_show.style.apply(_highlight_inter, axis=1)
+                        .format({"total_a_favor": "{:.0f}",
+                                 "total_en_contra": "{:.0f}"}, na_rep="—"),
                         use_container_width=True, hide_index=True,
                         column_config={
-                            "competicion": st.column_config.Column(help="Competición"),
-                            "contra_quien": st.column_config.Column("contra", help="Equipo contra el que jugó"),
+                            "competicion": st.column_config.Column("Comp.", help="Competición"),
+                            "contra_quien": st.column_config.Column("contra", help="Equipo contra el que jugó (resaltado en amarillo si fue contra Inter)"),
                             "fecha": st.column_config.Column(help="Fecha del partido"),
                             "total_a_favor": st.column_config.NumberColumn("GF", help="Goles a favor del rival en ese partido", format="%d"),
                             "total_en_contra": st.column_config.NumberColumn("GC", help="Goles en contra del rival en ese partido", format="%d"),
+                            "resultado": st.column_config.Column("R", help="Resultado del rival: V (victoria), E (empate), D (derrota)", width="small"),
+                            "vs_inter": None,
                         },
                     )
 
