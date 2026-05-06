@@ -3997,16 +3997,25 @@ with tab_scout:
                         v3.metric("❌ Derrotas", n_d)
                         if ult5:
                             color_map = {"V": "#2E7D32", "E": "#F9A825", "D": "#C62828"}
-                            chips_html = " ".join(
-                                f"<span title='{r['_fdt'].date() if pd.notna(r['_fdt']) else ''} · "
-                                f"vs {r['contra_quien']} ({int(r['_gf'])}-{int(r['_gc'])})' "
-                                f"style='display:inline-block;width:24px;height:24px;"
-                                f"line-height:24px;text-align:center;border-radius:4px;"
-                                f"background:{color_map[r['_res']]};color:white;"
-                                f"font-weight:bold;margin-right:3px;font-size:13px;'>"
-                                f"{r['_res']}</span>"
-                                for r in ult5
-                            )
+                            from html import escape as _esc
+
+                            def _chip(r):
+                                fecha_txt = (str(r["_fdt"].date())
+                                             if pd.notna(r["_fdt"]) else "")
+                                tooltip = _esc(
+                                    f"{fecha_txt} · vs {r['contra_quien']} "
+                                    f"({int(r['_gf'])}-{int(r['_gc'])})"
+                                )
+                                return (
+                                    f'<span title="{tooltip}" '
+                                    f'style="display:inline-block;width:24px;height:24px;'
+                                    f'line-height:24px;text-align:center;border-radius:4px;'
+                                    f'background:{color_map[r["_res"]]};color:white;'
+                                    f'font-weight:bold;margin-right:3px;font-size:13px;">'
+                                    f'{r["_res"]}</span>'
+                                )
+
+                            chips_html = " ".join(_chip(r) for r in ult5)
                             v4.markdown(
                                 f"**Forma**<br>{chips_html}",
                                 unsafe_allow_html=True,
