@@ -368,9 +368,15 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             code = args.get("code", "")
             if not code.strip():
                 return "ERROR: código vacío."
+            # Usamos el mismo Python con el que corre el bot (venv 3.11), que
+            # tiene gspread/pandas/etc. instalados con versiones coherentes.
+            # /usr/bin/python3 (sistema 3.8 en Catalina) crasheaba con SIGSEGV
+            # al importar pandas 2.x compilado contra numpy nuevo.
+            import sys as _sys
+            python_exe = _sys.executable
             # Pasamos el código por stdin para evitar escapado de shell
             result = subprocess.run(
-                ["/usr/bin/python3"],
+                [python_exe],
                 input=code,
                 capture_output=True, text=True,
                 cwd=str(PROJECT_DIR), timeout=120,
