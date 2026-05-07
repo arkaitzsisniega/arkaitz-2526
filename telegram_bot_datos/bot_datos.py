@@ -14,19 +14,24 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import asyncio
 import datetime as _dt
 import logging
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple, Set
+from typing import Optional, Tuple, Set, Dict, List, Any
 
 from dotenv import load_dotenv
 from telegram import Update, constants
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
 )
+
+# Gemini (Google AI Studio) — backend LLM gratuito para este bot.
+import google.generativeai as genai
 
 # Whisper es opcional: si falla el import, el bot sigue funcionando solo con texto.
 try:
@@ -43,8 +48,13 @@ load_dotenv(HERE / ".env")
 TOKEN               = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_IDS_ST = os.getenv("ALLOWED_CHAT_IDS", "").strip()
 PROJECT_DIR         = Path(os.getenv("PROJECT_DIR", str(HERE.parent))).expanduser().resolve()
-CLAUDE_TIMEOUT      = int(os.getenv("CLAUDE_TIMEOUT", "600"))
-CLAUDE_BIN_ENV      = os.getenv("CLAUDE_BIN", "").strip()
+LLM_TIMEOUT         = int(os.getenv("LLM_TIMEOUT", "300"))
+GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+# Cuántas iteraciones de tool-use permitir antes de cortar (defensa anti-bucle).
+GEMINI_MAX_STEPS    = int(os.getenv("GEMINI_MAX_STEPS", "8"))
+# Cuántas vueltas (user+model) guardamos en memoria por chat antes de truncar.
+HISTORY_MAX_TURNS   = int(os.getenv("HISTORY_MAX_TURNS", "12"))
 
 SESIONES_DIR = HERE / "sesiones"
 MAX_MSG_LEN  = 4000
@@ -69,35 +79,6 @@ logging.basicConfig(
 log = logging.getLogger("arkaitz-datos")
 
 
-# ─── Autodetección del binario claude ────────────────────────────────────────
-def find_claude_bin() -> Optional[str]:
-    if CLAUDE_BIN_ENV:
-        return CLAUDE_BIN_ENV
-    in_path = shutil.which("claude")
-    if in_path:
-        return in_path
-    bundle_base = Path.home() / "Library/Application Support/Claude/claude-code"
-    if bundle_base.is_dir():
-        def _ver_key(p: Path):
-            try:
-                return tuple(int(x) for x in p.name.split("."))
-            except ValueError:
-                return (0,)
-        versions = sorted(
-            (v for v in bundle_base.iterdir() if v.is_dir() and re.match(r"^\d", v.name)),
-            key=_ver_key,
-            reverse=True,
-        )
-        for v in versions:
-            cand = v / "claude.app/Contents/MacOS/claude"
-            if cand.is_file() and os.access(cand, os.X_OK):
-                return str(cand)
-    return None
-
-
-CLAUDE_BIN = find_claude_bin()
-
-
 # ─── Validación ──────────────────────────────────────────────────────────────
 def _fail(msg: str) -> None:
     log.error(msg)
@@ -110,12 +91,15 @@ if not ALLOWED_CHAT_IDS:
     _fail("Falta ALLOWED_CHAT_IDS en .env (al menos un chat_id separado por comas).")
 if not PROJECT_DIR.is_dir():
     _fail(f"PROJECT_DIR no existe: {PROJECT_DIR}")
-if not CLAUDE_BIN or not Path(CLAUDE_BIN).is_file():
-    _fail("No encuentro el ejecutable de Claude Code. Revisa LEEME.md.")
+if not GEMINI_API_KEY:
+    _fail("Falta GEMINI_API_KEY en .env (consíguela gratis en aistudio.google.com/apikey).")
 
 SESIONES_DIR.mkdir(parents=True, exist_ok=True)
 
-log.info("Claude: %s", CLAUDE_BIN)
+# Configurar cliente Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+
+log.info("Backend LLM: Gemini (%s)", GEMINI_MODEL)
 log.info("Proyecto: %s", PROJECT_DIR)
 log.info("Autorizados: %s", sorted(ALLOWED_CHAT_IDS))
 
@@ -275,40 +259,189 @@ async def _transcribir(audio_path: str) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
-async def _run_claude(chat_id: int, prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
-    """Ejecuta claude en un directorio de trabajo específico del usuario
-    (para que cada chat_id tenga sesión aislada)."""
-    # Cada usuario tiene su CWD → -c no mezcla historial entre usuarios
-    user_dir = SESIONES_DIR / str(chat_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+# ─── Backend Gemini: tool-use loop con bash + read_file ─────────────────────
+# Conversación en memoria por chat_id. Si el bot se reinicia, se pierde.
+_conv_history: Dict[int, List[Dict[str, Any]]] = {}
 
-    args = [
-        CLAUDE_BIN, "-p",
-        "--dangerously-skip-permissions",
-        "--add-dir", str(PROJECT_DIR),
-        "--append-system-prompt", SYSTEM_PROMPT,
-    ]
-    if continue_session:
-        args.append("-c")
-    args.append(prompt)
+# Definición de herramientas (function calling). Solo lectura: bash + read_file.
+TOOLS_BOT_DATOS = [
+    {
+        "function_declarations": [
+            {
+                "name": "bash",
+                "description": (
+                    "Ejecuta un comando bash en el directorio del proyecto y "
+                    "devuelve stdout+stderr. Uso típico: consultar Google "
+                    "Sheets con /usr/bin/python3 -c '...'. Solo lectura: NO "
+                    "escribir archivos fuera de /tmp, NO git, NO modificar nada."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "Comando bash a ejecutar (ej: /usr/bin/python3 -c 'import gspread...').",
+                        }
+                    },
+                    "required": ["command"],
+                },
+            },
+            {
+                "name": "read_file",
+                "description": "Lee un archivo de texto del proyecto y devuelve su contenido.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Ruta del archivo (relativa al proyecto o absoluta).",
+                        }
+                    },
+                    "required": ["path"],
+                },
+            },
+        ]
+    }
+]
 
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(user_dir),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+
+def _exec_tool(name: str, args: Dict[str, Any]) -> str:
+    """Ejecuta una herramienta y devuelve el resultado (texto)."""
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=CLAUDE_TIMEOUT)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return -1, "", f"Timeout: Claude tardó más de {CLAUDE_TIMEOUT}s."
-    return (
-        proc.returncode or 0,
-        out.decode("utf-8", "replace"),
-        err.decode("utf-8", "replace"),
+        if name == "bash":
+            cmd = args.get("command", "").strip()
+            if not cmd:
+                return "ERROR: comando vacío."
+            # Heurística defensiva: bloquear comandos obviamente destructivos
+            BLOCK = ["rm -rf /", "git push", "git commit", "git reset --hard",
+                     "git checkout --", "shutdown", "reboot"]
+            if any(b in cmd for b in BLOCK):
+                return f"ERROR: comando bloqueado por seguridad ({cmd[:60]})"
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True,
+                cwd=str(PROJECT_DIR), timeout=120,
+            )
+            out = (result.stdout or "") + ("\n[STDERR]\n" + result.stderr if result.stderr else "")
+            if len(out) > 50000:
+                out = out[:50000] + f"\n[...truncado, total {len(out)} chars]"
+            return out or "(sin output)"
+        elif name == "read_file":
+            p = Path(args.get("path", ""))
+            if not p.is_absolute():
+                p = PROJECT_DIR / p
+            try:
+                p = p.resolve()
+                # Cinturón: que no se salga del proyecto
+                p.relative_to(PROJECT_DIR.resolve())
+            except Exception:
+                return f"ERROR: ruta fuera del proyecto: {p}"
+            if not p.is_file():
+                return f"ERROR: no es un archivo: {p}"
+            content = p.read_text(encoding="utf-8", errors="replace")
+            if len(content) > 80000:
+                content = content[:80000] + f"\n[...truncado, total {len(content)} chars]"
+            return content
+        else:
+            return f"ERROR: herramienta desconocida '{name}'."
+    except subprocess.TimeoutExpired:
+        return "ERROR: comando excedió 120s."
+    except Exception as e:
+        return f"ERROR ejecutando {name}: {type(e).__name__}: {e}"
+
+
+def _truncate_history(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Limita el histórico a las últimas HISTORY_MAX_TURNS entradas usuario+modelo."""
+    if len(history) <= HISTORY_MAX_TURNS * 2:
+        return history
+    return history[-HISTORY_MAX_TURNS * 2:]
+
+
+async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
+    """Llama a Gemini con tool-use loop. Mantiene historial por chat_id."""
+    if not continue_session:
+        _conv_history.pop(chat_id, None)
+    history = _conv_history.get(chat_id, [])
+    history.append({"role": "user", "parts": [{"text": prompt}]})
+
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=SYSTEM_PROMPT,
+        tools=TOOLS_BOT_DATOS,
     )
+
+    try:
+        async with asyncio.timeout(LLM_TIMEOUT):
+            for step in range(GEMINI_MAX_STEPS):
+                # Llamar al modelo (en thread aparte, porque genai es bloqueante)
+                response = await asyncio.to_thread(model.generate_content, history)
+
+                # Extraer parts de la respuesta
+                candidates = getattr(response, "candidates", None) or []
+                if not candidates:
+                    return -1, "", "Gemini devolvió respuesta vacía (sin candidates)."
+                cand = candidates[0]
+                content = getattr(cand, "content", None)
+                if not content or not getattr(content, "parts", None):
+                    # Puede ser un block por safety u otra causa
+                    finish = getattr(cand, "finish_reason", "?")
+                    return -1, "", f"Gemini terminó sin contenido (finish_reason={finish})."
+
+                parts = list(content.parts)
+
+                # Detectar function_calls
+                fcalls = []
+                for p in parts:
+                    fc = getattr(p, "function_call", None)
+                    if fc and getattr(fc, "name", None):
+                        fcalls.append(fc)
+
+                if fcalls:
+                    # Guardar el mensaje del modelo (con sus tool calls) en historial
+                    history.append({"role": "model", "parts": parts})
+                    # Ejecutar todas las herramientas y devolver resultados
+                    tool_response_parts = []
+                    for fc in fcalls:
+                        # fc.args es un dict-like (proto MapComposite)
+                        try:
+                            args = dict(fc.args) if fc.args else {}
+                        except Exception:
+                            args = {}
+                        log.info("[%s] tool '%s' args=%s", chat_id, fc.name, str(args)[:120])
+                        result = await asyncio.to_thread(_exec_tool, fc.name, args)
+                        tool_response_parts.append({
+                            "function_response": {
+                                "name": fc.name,
+                                "response": {"result": result},
+                            }
+                        })
+                    history.append({"role": "user", "parts": tool_response_parts})
+                    continue
+
+                # Sin function_calls: respuesta final en texto
+                text = ""
+                for p in parts:
+                    t = getattr(p, "text", None)
+                    if t:
+                        text += t
+                history.append({"role": "model", "parts": [{"text": text}]})
+                _conv_history[chat_id] = _truncate_history(history)
+                return 0, text.strip(), ""
+
+            # Salimos del bucle por límite de pasos
+            _conv_history[chat_id] = _truncate_history(history)
+            return -1, "", f"Límite de iteraciones alcanzado ({GEMINI_MAX_STEPS})."
+    except asyncio.TimeoutError:
+        return -1, "", f"Timeout: Gemini tardó más de {LLM_TIMEOUT}s."
+    except Exception as e:
+        log.exception("Error en _run_gemini: %s", e)
+        return -1, "", f"{type(e).__name__}: {e}"
+    # NB: si llegamos aquí, devolvemos algo válido para que el helper original
+    # de _process_prompt no pete; el envoltorio antiguo esperaba (rc, out, err).
+    return 0, "(sin texto)", ""
+
+
+# Compat: dejamos un alias por si algún sitio del repo aún llama _run_claude.
+_run_claude = _run_gemini
 
 
 # ─── Handlers ────────────────────────────────────────────────────────────────
@@ -351,7 +484,10 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
-    _fresh_chats.add(update.effective_chat.id)
+    chat_id = update.effective_chat.id
+    _fresh_chats.add(chat_id)
+    # Limpiamos también el histórico de Gemini de ese chat
+    _conv_history.pop(chat_id, None)
     await update.message.reply_text(
         "🆕 Vale, el próximo mensaje empezará una conversación nueva "
         "(olvido el contexto anterior)."
@@ -420,7 +556,7 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
     try:
-        rc, out, err = await _run_claude(chat_id, prompt, continue_session=continuar)
+        rc, out, err = await _run_gemini(chat_id, prompt, continue_session=continuar)
     finally:
         stop.set()
         try:
