@@ -216,22 +216,37 @@ Si te dicen un nombre que no encaja exactamente, intenta el match parcial
 (`str.contains`) antes de decir "no encuentro al jugador".
 
 ESQUEMA DE COLUMNAS (las más usadas — abre la hoja para ver el resto):
-- BORG: JUGADOR, FECHA, TURNO, BORG, MINUTOS (Borg=letra como S/A/L/N o número 0-10).
-- PESO: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST.
-- WELLNESS: JUGADOR, FECHA, SUEÑO, FATIGA, MOLESTIAS, ANIMO, TOTAL.
-- LESIONES: JUGADOR, FECHA_INICIO, FECHA_FIN, ZONA, TIPO, BAJA_DIAS.
-- SESIONES: FECHA, TURNO, TIPO, MINUTOS.
-- _VISTA_CARGA: JUGADOR, FECHA, sRPE, MEDIA_AGUDA, MEDIA_CRONICA, ACWR,
+- **BORG**: JUGADOR, FECHA, TURNO, BORG, MINUTOS. Una fila **por jugador y por sesión**.
+  La columna BORG contiene un número (0-10 si entrenó) o una letra (S/A/L/N/D/NC
+  si no entrenó normalmente — Selección, Ausencia, Lesión, No entrena, Descanso, NC).
+- **PESO**: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST.
+- **WELLNESS**: JUGADOR, FECHA, SUEÑO, FATIGA, MOLESTIAS, ANIMO, TOTAL.
+- **LESIONES**: JUGADOR, FECHA_INICIO, FECHA_FIN, ZONA, TIPO, BAJA_DIAS.
+- **SESIONES**: FECHA, TURNO, TIPO, MINUTOS. NO tiene columna JUGADOR — es la
+  lista de entrenamientos del equipo (calendario, no asistencia individual).
+- **FISIO**: tratamientos por jugador. JUGADOR, FECHA, FISIO, ZONA, NOTAS.
+- **_VISTA_CARGA**: JUGADOR, FECHA, sRPE, MEDIA_AGUDA, MEDIA_CRONICA, ACWR,
   MONOTONIA, FATIGA, SEMAFORO.
-- _VISTA_SEMANAL: JUGADOR, SEMANA_ISO, SEMANA_INICIO, sRPE_TOTAL, MIN_TOTAL.
-- _VISTA_PESO: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST, DELTA, PCT_DELTA,
+- **_VISTA_SEMANAL**: JUGADOR, SEMANA_ISO, SEMANA_INICIO, sRPE_TOTAL, MIN_TOTAL.
+- **_VISTA_PESO**: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST, DELTA, PCT_DELTA,
   **DESVIACION_BASELINE** (diferencia vs media personal últimos 2 meses).
-- _VISTA_WELLNESS: JUGADOR, FECHA, TOTAL, SEMAFORO.
-- _VISTA_SEMAFORO: JUGADOR, ESTADO_GENERAL, ALERTA_CARGA, ALERTA_PESO, ALERTA_WELLNESS.
+- **_VISTA_WELLNESS**: JUGADOR, FECHA, TOTAL, SEMAFORO.
+- **_VISTA_SEMAFORO**: JUGADOR, ESTADO_GENERAL, ALERTA_CARGA, ALERTA_PESO, ALERTA_WELLNESS.
 
-Importante: **DESVIACION_BASELINE solo está en `_VISTA_PESO`**, no en la
-hoja `PESO` cruda. Si te preguntan por desviación o pérdida vs baseline,
-abre `_VISTA_PESO`, no `PESO`.
+Notas importantes sobre dónde mirar:
+- **DESVIACION_BASELINE solo está en `_VISTA_PESO`**, no en `PESO` cruda.
+- **"Cuántas sesiones ha entrenado X jugador"** → usa `BORG`, filtrando por
+  jugador y contando filas donde la columna BORG es **numérica** (no letra
+  S/A/L/N/D/NC). Ej:
+  ```python
+  df = pd.DataFrame(ss.worksheet('BORG').get_all_records(value_render_option=...))
+  d = df[df['JUGADOR'].astype(str).str.upper().str.contains('PIRATA', na=False)]
+  d['BORG_num'] = pd.to_numeric(d['BORG'], errors='coerce')
+  print('Sesiones entrenadas:', d['BORG_num'].notna().sum())
+  print('Total filas (incluyendo S/A/L/...):', len(d))
+  ```
+- **"Cuántos entrenamientos lleva el equipo"** → cuenta filas en `SESIONES`
+  (esa hoja sí lleva el calendario del equipo).
 
 MÉTRICAS CLAVE:
 - Borg (RPE): 0-10. Percepción subjetiva del esfuerzo. Las letras S/A/L/N/D/NC
