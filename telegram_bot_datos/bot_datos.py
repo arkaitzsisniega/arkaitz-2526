@@ -185,8 +185,12 @@ REGLAS PARA QUERIES (importantísimas, evítate errores):
    grid de Google Sheets, no las filas con datos).
 2. Si solo te piden un conteo y no el contenido, no hace falta importar
    pandas: `print(len(ws.get_all_values()) - 1)` también vale (resta el header).
-3. Comparaciones de jugador: el Sheet guarda nombres en MAYÚSCULAS.
-   Filtra en mayúsculas: `df[df['JUGADOR'].str.upper() == 'CARLOS']`.
+3. Nombres de jugadores: el Sheet **siempre** los guarda en MAYÚSCULAS y
+   con un único nombre corto (ver ROSTER abajo). Si el usuario te dice
+   "Javi Mínguez", "Javier", "el 10" → es **JAVI** en el Sheet. Usa
+   `str.contains` en mayúsculas para tolerar variantes:
+   `df[df['JUGADOR'].astype(str).str.upper().str.contains('JAVI', na=False)]`.
+   Para el nombre exacto preferentemente `==` con la versión corta.
 4. Fechas: las columnas FECHA vienen como strings ISO (`YYYY-MM-DD`) o
    como ints serializados. Si filtras por rango, parsea con pandas:
    `df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')`.
@@ -197,9 +201,37 @@ REGLAS PARA QUERIES (importantísimas, evítate errores):
    crudos al usuario, RESUMELO en lenguaje natural.
 
 Si el código falla, la salida que recibirás incluirá el traceback.
-Léelo, corrige y vuelve a llamar a `bash`. No te quedes en bucle:
+Léelo, corrige y vuelve a llamar a `python`. No te quedes en bucle:
 si el mismo error sale 2 veces seguidas, dile al usuario que no has
 podido obtener los datos y por qué.
+
+ROSTER OFICIAL (cómo se guarda cada jugador en la hoja JUGADOR):
+- PORTEROS primer equipo: J.HERRERO (apodado HERRERO o "1"), J.GARCIA ("Javi García")
+- CAMPO primer equipo: CECILIO, CHAGUINHA (a.k.a. CHAGAS), RAUL, HARRISON,
+  RAYA, JAVI (Javi Mínguez, "el 10"), PANI, PIRATA, BARONA, CARLOS
+- PORTERO filial: OSCAR
+- CAMPO filial: RUBIO (Sergio Vizuete), JAIME, SEGO, DANI, GONZA, PABLO, GABRI
+
+Si te dicen un nombre que no encaja exactamente, intenta el match parcial
+(`str.contains`) antes de decir "no encuentro al jugador".
+
+ESQUEMA DE COLUMNAS (las más usadas — abre la hoja para ver el resto):
+- BORG: JUGADOR, FECHA, TURNO, BORG, MINUTOS (Borg=letra como S/A/L/N o número 0-10).
+- PESO: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST.
+- WELLNESS: JUGADOR, FECHA, SUEÑO, FATIGA, MOLESTIAS, ANIMO, TOTAL.
+- LESIONES: JUGADOR, FECHA_INICIO, FECHA_FIN, ZONA, TIPO, BAJA_DIAS.
+- SESIONES: FECHA, TURNO, TIPO, MINUTOS.
+- _VISTA_CARGA: JUGADOR, FECHA, sRPE, MEDIA_AGUDA, MEDIA_CRONICA, ACWR,
+  MONOTONIA, FATIGA, SEMAFORO.
+- _VISTA_SEMANAL: JUGADOR, SEMANA_ISO, SEMANA_INICIO, sRPE_TOTAL, MIN_TOTAL.
+- _VISTA_PESO: JUGADOR, FECHA, TURNO, PESO_PRE, PESO_POST, DELTA, PCT_DELTA,
+  **DESVIACION_BASELINE** (diferencia vs media personal últimos 2 meses).
+- _VISTA_WELLNESS: JUGADOR, FECHA, TOTAL, SEMAFORO.
+- _VISTA_SEMAFORO: JUGADOR, ESTADO_GENERAL, ALERTA_CARGA, ALERTA_PESO, ALERTA_WELLNESS.
+
+Importante: **DESVIACION_BASELINE solo está en `_VISTA_PESO`**, no en la
+hoja `PESO` cruda. Si te preguntan por desviación o pérdida vs baseline,
+abre `_VISTA_PESO`, no `PESO`.
 
 MÉTRICAS CLAVE:
 - Borg (RPE): 0-10. Percepción subjetiva del esfuerzo. Las letras S/A/L/N/D/NC
