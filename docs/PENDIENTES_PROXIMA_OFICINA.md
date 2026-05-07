@@ -70,6 +70,35 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 🆕 Nueva pestaña Streamlit "Catálogo de ejercicios" (pedido 07/05/2026)
+
+Solo accesible para **cuerpo técnico** (rol `tecnico` y `admin`). Contenido:
+
+- Lista de todos los ejercicios hechos (de `_VISTA_EJERCICIOS`).
+- Agrupados por nombre normalizado (mismo ejercicio aunque tenga ortografía distinta).
+- **Filtros**:
+  - por nombre del ejercicio (multiselect)
+  - por categoría/tipo (TACTICO, TECNICA, FINALIZACION, etc.)
+  - por **intensidad 1-5** (escala que vamos a inventar a partir de Oliver)
+  - por jugador
+  - por rango de fechas
+- **Escala de intensidad 1-5** automática desde Oliver. Posible fórmula:
+  combinar `oliver_load`, `distancia_total_m/min`, `sprints_count`,
+  `acc_alta_count`, `dec_alta_count`. Umbrales sugeridos:
+  - 1 = muy ligero (movilidad, calentamiento)
+  - 2 = ligero (técnica analítica)
+  - 3 = moderado (rondos, 2x2)
+  - 4 = intenso (1x1, partidillos en espacio reducido)
+  - 5 = máximo (finalización, juego real, 4x4)
+  Antes de codificar, **acordar contigo los umbrales** mirando datos reales.
+- **Por ejercicio mostrar**:
+  - Nº de veces hechos: última semana / mes / año / total.
+  - Minutos totales acumulados (semana/mes/año).
+  - Promedios Oliver (load, distancia, HSR, sprints…).
+  - Últimas N ejecuciones (fecha, session_id, min, jugador top).
+
+Plan estimado: 2-4h de trabajo.
+
 ## 📋 Otras cosas para revisar al estar delante
 
 - Que la tapa del Mac viejo esté cerrada y los bots sigan funcionando.

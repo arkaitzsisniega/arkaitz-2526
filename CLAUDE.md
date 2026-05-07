@@ -99,6 +99,26 @@
 - [ ] **Google Forms para jugadores** (envío auto de Borg + peso PRE/POST +
       wellness tras cada entrenamiento, enlace vía WhatsApp). Ahorra mucho
       tiempo diario a Arkaitz.
+- [ ] **Pestaña Streamlit "Catálogo de ejercicios"** (pedido 07/05/2026,
+      acceso solo cuerpo técnico):
+      - Lista TODOS los ejercicios de `_VISTA_EJERCICIOS` agrupados por
+        nombre normalizado (mismo nombre = mismo ejercicio aunque tenga
+        ortografía distinta).
+      - Filtros: nombre, categoría/tipo, intensidad, jugador, rango fechas.
+      - **Escala de intensidad 1-5** calculada automáticamente desde Oliver
+        (combinar `oliver_load`, `distancia_total_m/min`, `sprints_count`,
+        `acc_alta_count`, `dec_alta_count`). Definir umbrales con Arkaitz:
+          1 = muy ligero (movilidad, calentamiento)
+          2 = ligero (técnica analítica)
+          3 = moderado (rondos, 2x2)
+          4 = intenso (1x1, partidillos en espacio reducido)
+          5 = máximo (finalización, juego real, 4x4)
+      - Por ejercicio mostrar:
+          * Nº de veces hechos (última semana / mes / año / total).
+          * Minutos totales acumulados (semana/mes/año).
+          * Promedio Oliver (load, distancia, HSR…) por ejecución.
+          * Lista de las últimas N ejecuciones con session_id, fecha, min.
+      - Acceso: solo roles `tecnico` y `admin` (ver `roles_y_permisos.md`).
 ### 🔴 Reglas de dominio importantes (no olvidar)
 
 **Días de partido — sesión MATINAL** (acordado 30/04/2026):
