@@ -5,6 +5,12 @@
 #   • @InterFS_datos_bot             (Inter — consultas, cuerpo técnico)
 #   • @GastosComunes_ArkaitzLis_bot  (Gastos comunes — Arkaitz + Lis)
 #
+# NOTA (mayo 2026): este script arranca los bots EN PRIMER PLANO con
+# ventanas de Terminal, pensado para el Mac de oficina cuando se trabaja
+# de forma interactiva. EN EL MAC VIEJO SERVIDOR los bots los lanzan:
+#   - cron @reboot al arrancar (ver `crontab -l` en el servidor)
+#   - setup_servidor/watchdog.sh los relanza si crashean (cada minuto)
+#
 # Uso:
 #   Desde Terminal:       ./arrancar_bots.sh
 #   Desde Finder:         doble-click sobre el archivo

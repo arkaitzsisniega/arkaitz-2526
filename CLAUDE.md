@@ -170,6 +170,52 @@
 - Después de modificar `calcular_vistas.py`, re-ejecutarlo para que las `_VISTA_*` del Sheet reflejen los cambios antes de que el dashboard se actualice.
 - Después de cambios en `dashboard/app.py`: `git push` → Streamlit Cloud tarda 1-2 min en redeplegar.
 
+## Servidor 24/7 (Mac viejo, mayo 2026)
+
+Los 3 bots de Telegram corren en un Mac viejo (Catalina 10.15.7, Intel,
+4GB RAM) actuando de servidor 24/7. SSH desde el Mac de oficina:
+`ssh arkaitz@10.48.0.113`. Esto permite **apagar el portátil sin tirar
+los bots**.
+
+### Backend LLM
+Claude Code v2 NO funciona en Catalina (binario built for macOS 13+).
+Por eso los 3 bots usan **Gemini API gratis** (key en
+`https://aistudio.google.com/apikey`, sin tarjeta):
+
+- **bot_datos** (`telegram_bot_datos/bot_datos.py`) — `gemini-2.5-flash-lite`,
+  tools de solo lectura (`python`, `bash`, `read_file`).
+- **bot dev** (`telegram_bot/bot.py`) — mismo modelo, tools con
+  read+write+edit (puede modificar código).
+- **gastos_bot** (`gastos_bot/bot.py`) — usa `clasificador_gemini.py`
+  para detectar intenciones del usuario.
+
+Variables clave en `.env` de cada bot:
+- `GEMINI_API_KEY=AIza...` (la misma para los 3)
+- `GEMINI_MODEL=gemini-2.5-flash-lite` (override opcional)
+
+### Persistencia
+- **cron @reboot** lanza los bots al iniciar el Mac viejo
+  (entrada en el crontab del usuario `arkaitz`).
+- **`setup_servidor/watchdog.sh`** se ejecuta cada minuto desde cron
+  para detectar bots caídos y relanzarlos.
+
+### launchd
+**No usar** en este Mac viejo — Catalina tiene problemas con la
+redirección de stderr a archivos (logs vacíos pese a PYTHONUNBUFFERED).
+Si en el futuro pasas a un Mac más nuevo, `setup_servidor/install.sh`
+funciona y es mejor opción.
+
+### Logs
+- `/Users/arkaitz/Desktop/Arkaitz/logs/<bot>.log` — todos los bots loguean ahí.
+- Útil: `tail -f` ese archivo mientras se prueba el bot.
+
+### Si hay que tocar código
+Pasos típicos cuando el bot necesita un fix:
+1. Editar/commitear/push desde el Mac de oficina (donde corre Claude Code).
+2. En el Mac viejo: `cd ~/Desktop/Arkaitz && git pull`.
+3. Matar el proceso del bot afectado: `pkill -f bot_datos.py` (o el
+   nombre del script). El watchdog lo relanza solo en menos de 1 minuto.
+
 ## Sincronización móvil ↔ ordenador — **LEER AL ARRANCAR**
 
 El usuario alterna entre hablar con los bots de Telegram (móvil) y con Claude
