@@ -1337,6 +1337,31 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     prompt = (update.message.text or "").strip()
     if not prompt:
         return
+
+    # Si el chat está en modo /ejercicios_voz o /sesion (vivos < 15 min),
+    # también aceptamos TEXTO (no solo audio). Útil cuando es más rápido
+    # escribir que dictar.
+    chat_id = update.effective_chat.id
+    ahora = _dt.datetime.now().timestamp()
+
+    ts_ej = _modo_ejercicios_voz.get(chat_id)
+    if ts_ej and (ahora - ts_ej) < EJVOZ_TTL_SEG:
+        _modo_ejercicios_voz.pop(chat_id, None)
+        _append_log(chat_id,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    prompt, "(procesado como /ejercicios_voz)", kind="texto")
+        await _procesar_audio_ejercicios(prompt, update, ctx)
+        return
+
+    ts_se = _modo_sesion_voz.get(chat_id)
+    if ts_se and (ahora - ts_se) < SESVOZ_TTL_SEG:
+        _modo_sesion_voz.pop(chat_id, None)
+        _append_log(chat_id,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    prompt, "(procesado como /sesion)", kind="texto")
+        await _procesar_audio_sesion(prompt, update, ctx)
+        return
+
     await _process_prompt(prompt, update, ctx)
 
 
