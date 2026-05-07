@@ -27,7 +27,7 @@ Verificar después con una pregunta al bot de datos:
 
 Tiene que devolver un número correcto en kg (no algo como 740 kg).
 
-## 🌐 Tailscale — acceso remoto al servidor
+## 🌐 Fase 8 — Tailscale (acceso remoto al servidor)
 
 Para poder gestionar los bots desde casa también, no solo desde la oficina.
 Pasos:
@@ -40,6 +40,35 @@ Pasos:
    red.
 
 Coste: **gratis** (free tier de Tailscale cubre hasta 100 dispositivos personales).
+
+## 🔁 Fase 10 — Test de reboot real (cierre del setup 24/7)
+
+**No hemos verificado todavía** que tras un reinicio del Mac viejo los bots
+arranquen solos vía cron @reboot. Plan:
+
+```bash
+ssh arkaitz@10.48.0.113
+sudo shutdown -r now
+# espera 1-2 minutos
+ssh arkaitz@10.48.0.113
+ps aux | grep -E "bot.py|bot_datos.py" | grep -v grep
+```
+
+Tienes que ver **3 procesos Python** corriendo. Después prueba desde el
+móvil que los 3 bots responden:
+- `@InterFS_bot` → "hola"
+- `@InterFS_datos_bot` → "¿cuántos jugadores hay?"
+- `@GastosComunes_ArkaitzLis_bot` → "5 euros en café"
+
+Si los 3 contestan tras el reboot → **fase 10 cerrada y servidor 24/7
+totalmente verificado**.
+
+## 🧹 Fase 9 (opcional) — Limpiar `arrancar_bots.sh` del portátil
+
+Para evitar lanzar los bots por error en el portátil de oficina (lo que
+crearía conflicto de `getUpdates` con Telegram). Opciones:
+- Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
+- O simplemente acordarse de no doble-clicarlo nunca más.
 
 ## 📋 Otras cosas para revisar al estar delante
 
