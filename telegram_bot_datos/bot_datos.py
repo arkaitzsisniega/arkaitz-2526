@@ -438,8 +438,16 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) 
                             args = dict(fc.args) if fc.args else {}
                         except Exception:
                             args = {}
-                        log.info("[%s] tool '%s' args=%s", chat_id, fc.name, str(args)[:120])
+                        # Log completo del comando para debugging
+                        if fc.name == "bash":
+                            cmd_full = args.get("command", "")
+                            log.info("[%s] >>> BASH:\n%s", chat_id, cmd_full)
+                        else:
+                            log.info("[%s] tool '%s' args=%s", chat_id, fc.name, str(args))
                         result = await asyncio.to_thread(_exec_tool, fc.name, args)
+                        # Log del resultado (truncado a 800 chars para no saturar)
+                        log.info("[%s] <<< RESULT (%s, %d chars):\n%s",
+                                 chat_id, fc.name, len(result), result[:800])
                         tool_response_parts.append({
                             "function_response": {
                                 "name": fc.name,
