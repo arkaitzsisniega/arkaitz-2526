@@ -98,6 +98,8 @@ genera_plist() {
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>${HOME}</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>
