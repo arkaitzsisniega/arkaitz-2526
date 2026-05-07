@@ -70,6 +70,70 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 🧹 Limpieza profunda del Mac viejo servidor (pedido 07/05/2026)
+
+El Mac viejo aún tiene archivos antiguos de la mujer de Arkaitz + apps
+heredadas. Todo se puede borrar: **el Mac viejo solo tiene que servir
+como servidor de bots, nada más**.
+
+Plan a aplicar cuando estemos delante (con SSH o físicamente):
+
+### 1. Auditar uso de disco
+```bash
+# Ver qué carpetas pesan más
+du -sh /Users/* 2>/dev/null | sort -rh
+du -sh /Applications/* 2>/dev/null | sort -rh | head -30
+df -h /
+```
+
+### 2. Borrar datos personales antiguos (de la mujer)
+Confirmar primero con Arkaitz qué carpetas son. Mover a `/tmp` antes
+de borrar de verdad, por si acaso. Documentos, fotos, etc.
+
+### 3. Quitar apps no necesarias
+El Mac viejo SOLO necesita:
+- Python 3.11 + ffmpeg (Homebrew)
+- Git
+- SSH server (sshd)
+- Terminal
+- Caches mínimas del sistema
+
+Todo lo demás (iWork, iLife, navegadores extra, apps de su mujer,
+software de oficina, juegos, etc.) → **desinstalar**.
+
+```bash
+# Listar apps instaladas
+ls /Applications | sort
+```
+
+Decidir contigo cuáles borrar y mover a la papelera.
+
+### 4. Quitar login items
+```bash
+osascript -e 'tell application "System Events" to get the name of every login item'
+# Borrar los que no sean del sistema
+```
+
+### 5. Limpiar launchd agents/daemons innecesarios
+Mismo procedimiento que en el Mac de oficina (mover los `.plist` que
+no se usan a `.disabled`). En particular: actualizadores de apps que
+ya no estén instaladas, herramientas DRM, VPNs, etc.
+
+### 6. Limpiar caches y logs viejos
+```bash
+sudo rm -rf /private/var/log/asl/*.asl
+rm -rf ~/Library/Caches/*
+```
+
+### 7. Verificar que tras la limpieza:
+- Los bots siguen corriendo (`ps aux | grep bot`).
+- El watchdog sigue activo (`crontab -l`).
+- Hay espacio libre razonable (`df -h /`).
+- RAM disponible (`top -l 1 | head -10`).
+
+Tras esto, el Mac viejo arrancará MUCHO más rápido (es de 2013 con 4GB
+RAM, cualquier cosa que liberemos se nota).
+
 ## 🆕 Nueva pestaña Streamlit "Catálogo de ejercicios" (pedido 07/05/2026)
 
 Solo accesible para **cuerpo técnico** (rol `tecnico` y `admin`). Contenido:
