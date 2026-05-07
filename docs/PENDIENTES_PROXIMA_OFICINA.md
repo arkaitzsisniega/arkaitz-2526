@@ -70,6 +70,63 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 🖱 Arreglar ratón Logitech MX Master 2s (pedido 07/05/2026)
+
+**Síntomas reportados por Arkaitz**:
+- Scroll lateral (rueda horizontal) **no funciona**.
+- Botón lateral "ir hacia atrás" **no funciona**.
+- El resto sí funciona (clicks, scroll vertical, otros botones).
+- Al abrir Logi Options+, dice que **no tiene permisos** para modificar
+  algo del Mac, y se queda atascado ahí.
+- Antes funcionaba todo bien, "de la noche a la mañana" se desconfiguró.
+
+**Diagnóstico probable**:
+Caso clásico de permisos de macOS reseteados (suele pasar tras actualizar
+el SO). Logi Options+ necesita 2 permisos críticos:
+- **Accesibilidad** (Accessibility) → para emular eventos de teclado/ratón.
+- **Monitorización de entrada** (Input Monitoring) → para leer botones
+  custom del ratón.
+
+**Plan a aplicar mañana**:
+
+1. **Verificar permisos actuales**:
+   - Abrir: Apple → Ajustes del Sistema → Privacidad y seguridad →
+     **Accesibilidad** → buscar "Logi Options" / "Logi Options+" / "Logi".
+   - Si NO aparece, está mal instalado. Si aparece pero el toggle está
+     OFF, activar.
+   - Hacer lo mismo en **Monitorización de entrada** (Input Monitoring).
+
+2. **Si los toggles están en ON pero igualmente no funciona**:
+   - Probar quitar el toggle, esperar 5s, volver a activarlo.
+   - Reiniciar el Mac y probar.
+
+3. **Si sigue sin ir**:
+   - **Desinstalar Logi Options+ completamente**:
+     ```bash
+     # Buscar el desinstalador oficial:
+     ls /Applications | grep -i logi
+     ls /Library/Application\ Support/ | grep -i logi
+     # Si hay un Uninstaller, ejecutarlo. Si no:
+     # (lo investigamos juntos antes de borrar nada a mano)
+     ```
+   - Reinstalar la versión más reciente desde:
+     https://www.logitech.com/es-es/software/logi-options-plus.html
+     (o la versión "Logitech Options" estándar si Options+ no
+     soporta el MX Master 2S — verificar en la web).
+   - Tras instalar, conceder los permisos cuando los pida.
+
+4. **Si tras reinstalar sigue mal**:
+   - El **MX Master 2S** se conecta por Bluetooth o por dongle USB
+     (Unifying Receiver). Probar la otra opción.
+   - Reset del ratón: hay un botón pequeño en la base del MX Master que
+     hace reset si lo mantienes 5s.
+
+5. **Plan B mínimo**:
+   - Si todo falla, los botones básicos siguen funcionando con macOS
+     nativo, pero pierdes el scroll lateral y el botón "atrás" custom.
+   - Opciones de software alternativas: SteerMouse (de pago, ~$20),
+     BetterTouchTool (de pago).
+
 ## 🧹 Limpieza profunda del Mac viejo servidor (pedido 07/05/2026)
 
 El Mac viejo aún tiene archivos antiguos de la mujer de Arkaitz + apps
