@@ -151,7 +151,12 @@ REGLAS ESTRICTAS:
 
 CÓMO CONSULTAR LOS DATOS:
 Los datos están en Google Sheets. El proyecto está en {PROJECT_DIR}.
-Ejecuta /usr/bin/python3 con snippets como este (adapta la hoja/filtros):
+Ejecuta TODO el Python de un golpe via la herramienta `bash` con
+`/usr/bin/python3 -c '...'`. NUNCA partas el código en varios `bash` calls;
+cada llamada arranca una nueva sesión, por eso si haces una llamada para
+abrir el sheet y otra para leer datos, perderás la conexión.
+
+Plantilla SIEMPRE válida (cópiala, ajusta el contenido tras `# >>> tu código`):
 
 ```python
 import pandas as pd, gspread
@@ -161,16 +166,39 @@ creds = Credentials.from_service_account_file(
     scopes=['https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'])
 ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
-# Hojas disponibles (vistas pre-calculadas): _VISTA_CARGA, _VISTA_SEMANAL,
-# _VISTA_PESO, _VISTA_WELLNESS, _VISTA_SEMAFORO, _VISTA_RECUENTO
-# Hojas crudas: SESIONES, BORG, PESO, WELLNESS, LESIONES
-df = pd.DataFrame(ss.worksheet('_VISTA_PESO').get_all_records(
+# Hojas disponibles:
+#   crudas:   SESIONES, BORG, PESO, WELLNESS, LESIONES, FISIO
+#   vistas:   _VISTA_CARGA, _VISTA_SEMANAL, _VISTA_PESO, _VISTA_WELLNESS,
+#             _VISTA_SEMAFORO, _VISTA_RECUENTO
+ws = ss.worksheet('NOMBRE_DE_HOJA')
+df = pd.DataFrame(ws.get_all_records(
     value_render_option=gspread.utils.ValueRenderOption.unformatted))
-# filtra/agrega y print(...)
+# >>> tu código sobre df
+print(df.head().to_string())
 ```
 
-Después del print, resume el resultado en lenguaje humano. No pegues dataframes
-crudos salvo que el usuario los pida explícitamente.
+REGLAS PARA QUERIES (importantísimas, evítate errores):
+
+1. Para CONTAR filas reales de una hoja, usa **`len(df)`** después de cargarla
+   con `get_all_records`. No uses `ws.row_count` (devuelve el tamaño del
+   grid de Google Sheets, no las filas con datos).
+2. Si solo te piden un conteo y no el contenido, no hace falta importar
+   pandas: `print(len(ws.get_all_values()) - 1)` también vale (resta el header).
+3. Comparaciones de jugador: el Sheet guarda nombres en MAYÚSCULAS.
+   Filtra en mayúsculas: `df[df['JUGADOR'].str.upper() == 'CARLOS']`.
+4. Fechas: las columnas FECHA vienen como strings ISO (`YYYY-MM-DD`) o
+   como ints serializados. Si filtras por rango, parsea con pandas:
+   `df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')`.
+5. "Esta semana" = lunes-domingo de la semana del usuario (hoy es
+   `__HOY__`). "Última semana" = ese mismo rango menos 7 días.
+6. Cuando agregas, devuelve a la respuesta del usuario números concretos
+   (ej "Carlos: 5 sesiones, sRPE total 1840"). NO pegues dicts/JSON
+   crudos al usuario, RESUMELO en lenguaje natural.
+
+Si el código falla, la salida que recibirás incluirá el traceback.
+Léelo, corrige y vuelve a llamar a `bash`. No te quedes en bucle:
+si el mismo error sale 2 veces seguidas, dile al usuario que no has
+podido obtener los datos y por qué.
 
 MÉTRICAS CLAVE:
 - Borg (RPE): 0-10. Percepción subjetiva del esfuerzo. Las letras S/A/L/N/D/NC
@@ -363,9 +391,13 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) 
     history = _conv_history.get(chat_id, [])
     history.append({"role": "user", "parts": [{"text": prompt}]})
 
+    # Sustitución dinámica: hoy ISO en el system prompt
+    hoy_iso = _dt.date.today().isoformat()
+    system_eff = SYSTEM_PROMPT.replace("__HOY__", hoy_iso)
+
     model = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
-        system_instruction=SYSTEM_PROMPT,
+        system_instruction=system_eff,
         tools=TOOLS_BOT_DATOS,
     )
 
