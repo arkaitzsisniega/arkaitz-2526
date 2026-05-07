@@ -151,10 +151,11 @@ REGLAS ESTRICTAS:
 
 CÓMO CONSULTAR LOS DATOS:
 Los datos están en Google Sheets. El proyecto está en {PROJECT_DIR}.
-Ejecuta TODO el Python de un golpe via la herramienta `bash` con
-`/usr/bin/python3 -c '...'`. NUNCA partas el código en varios `bash` calls;
-cada llamada arranca una nueva sesión, por eso si haces una llamada para
-abrir el sheet y otra para leer datos, perderás la conexión.
+**Usa SIEMPRE la herramienta `python`** (no `bash`) para ejecutar código
+Python — pasa el código tal cual, sin envoltorios ni escapados. Mete TODO
+el script en una sola llamada (importar credenciales + abrir Sheet + leer
+datos + print). NO partas el script en varias llamadas: cada llamada es
+un proceso nuevo y pierdes la conexión.
 
 Plantilla SIEMPRE válida (cópiala, ajusta el contenido tras `# >>> tu código`):
 
@@ -291,24 +292,51 @@ async def _transcribir(audio_path: str) -> str:
 # Conversación en memoria por chat_id. Si el bot se reinicia, se pierde.
 _conv_history: Dict[int, List[Dict[str, Any]]] = {}
 
-# Definición de herramientas (function calling). Solo lectura: bash + read_file.
+# Definición de herramientas (function calling). Solo lectura.
 TOOLS_BOT_DATOS = [
     {
         "function_declarations": [
             {
+                "name": "python",
+                "description": (
+                    "Ejecuta código Python con /usr/bin/python3 y devuelve "
+                    "stdout+stderr. Es la herramienta principal para consultar "
+                    "Google Sheets (gspread, pandas ya instalados). Pasas el "
+                    "código tal cual, SIN escapado de shell ni envoltorios "
+                    "raros: simplemente el contenido del script. Solo lectura: "
+                    "NO escribir archivos, NO commits, NO modificar Sheets."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": (
+                                "Código Python a ejecutar. Ejemplo:\n"
+                                "import gspread\n"
+                                "from google.oauth2.service_account import Credentials\n"
+                                "creds = Credentials.from_service_account_file(...)\n"
+                                "ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')\n"
+                                "print(len(ss.worksheet('BORG').get_all_values()) - 1)"
+                            ),
+                        }
+                    },
+                    "required": ["code"],
+                },
+            },
+            {
                 "name": "bash",
                 "description": (
-                    "Ejecuta un comando bash en el directorio del proyecto y "
-                    "devuelve stdout+stderr. Uso típico: consultar Google "
-                    "Sheets con /usr/bin/python3 -c '...'. Solo lectura: NO "
-                    "escribir archivos fuera de /tmp, NO git, NO modificar nada."
+                    "Ejecuta un comando shell genérico (ls, head, tail, grep, "
+                    "git log…). Para ejecutar Python usa la herramienta "
+                    "`python` en su lugar. Solo lectura: NO escribir, NO commits, NO git push."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Comando bash a ejecutar (ej: /usr/bin/python3 -c 'import gspread...').",
+                            "description": "Comando shell completo.",
                         }
                     },
                     "required": ["command"],
@@ -336,7 +364,35 @@ TOOLS_BOT_DATOS = [
 def _exec_tool(name: str, args: Dict[str, Any]) -> str:
     """Ejecuta una herramienta y devuelve el resultado (texto)."""
     try:
-        if name == "bash":
+        if name == "python":
+            code = args.get("code", "")
+            if not code.strip():
+                return "ERROR: código vacío."
+            # Pasamos el código por stdin para evitar escapado de shell
+            result = subprocess.run(
+                ["/usr/bin/python3"],
+                input=code,
+                capture_output=True, text=True,
+                cwd=str(PROJECT_DIR), timeout=120,
+            )
+            out = (result.stdout or "")
+            if result.stderr:
+                # Filtrar warnings ruidosos de gRPC/google.auth (no son errores)
+                stderr_lines = []
+                for ln in result.stderr.splitlines():
+                    if ("FutureWarning" in ln or "ev_poll_posix" in ln
+                            or "warnings.warn" in ln or "ABSL" in ln):
+                        continue
+                    stderr_lines.append(ln)
+                stderr_clean = "\n".join(stderr_lines).strip()
+                if stderr_clean:
+                    out += "\n[STDERR]\n" + stderr_clean
+            if result.returncode != 0:
+                out += f"\n[exit code: {result.returncode}]"
+            if len(out) > 50000:
+                out = out[:50000] + f"\n[...truncado, total {len(out)} chars]"
+            return out or "(sin output)"
+        elif name == "bash":
             cmd = args.get("command", "").strip()
             if not cmd:
                 return "ERROR: comando vacío."
@@ -439,9 +495,10 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) 
                         except Exception:
                             args = {}
                         # Log completo del comando para debugging
-                        if fc.name == "bash":
-                            cmd_full = args.get("command", "")
-                            log.info("[%s] >>> BASH:\n%s", chat_id, cmd_full)
+                        if fc.name == "python":
+                            log.info("[%s] >>> PYTHON:\n%s", chat_id, args.get("code", ""))
+                        elif fc.name == "bash":
+                            log.info("[%s] >>> BASH:\n%s", chat_id, args.get("command", ""))
                         else:
                             log.info("[%s] tool '%s' args=%s", chat_id, fc.name, str(args))
                         result = await asyncio.to_thread(_exec_tool, fc.name, args)
