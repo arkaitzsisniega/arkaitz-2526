@@ -50,7 +50,7 @@ except Exception:
     _WHISPER_OK = False
 
 from categorias import CATEGORIAS, categorizar
-from clasificador_claude import clasificar as clasificar_con_claude
+from clasificador_gemini import clasificar as clasificar_con_claude  # nombre histórico, ahora Gemini
 from intencion import detectar_intencion
 from parser import GastoParseado, parsear
 import sheets

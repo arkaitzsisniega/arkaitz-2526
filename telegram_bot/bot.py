@@ -14,9 +14,11 @@ import asyncio
 import datetime as _dt
 import logging
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List, Any
 
 from dotenv import load_dotenv
 from telegram import Update, constants
@@ -24,6 +26,9 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler,
 )
+
+# Gemini (Google AI Studio) — backend LLM gratuito.
+import google.generativeai as genai
 
 # Whisper es opcional: si no está instalado, el bot sigue funcionando solo con texto.
 try:
@@ -39,8 +44,11 @@ load_dotenv(HERE / ".env")
 TOKEN           = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "").strip()
 PROJECT_DIR     = Path(os.getenv("PROJECT_DIR", str(HERE.parent))).expanduser().resolve()
-CLAUDE_TIMEOUT  = int(os.getenv("CLAUDE_TIMEOUT", "600"))
-CLAUDE_BIN_ENV  = os.getenv("CLAUDE_BIN", "").strip()
+LLM_TIMEOUT     = int(os.getenv("LLM_TIMEOUT", "600"))
+GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL    = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+GEMINI_MAX_STEPS = int(os.getenv("GEMINI_MAX_STEPS", "12"))
+HISTORY_MAX_TURNS = int(os.getenv("HISTORY_MAX_TURNS", "16"))
 
 MAX_MSG_LEN = 4000  # margen sobre el límite 4096 de Telegram
 BOT_NAME    = "InterFS_bot"  # identificador en los logs espejados
@@ -52,43 +60,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("arkaitz-bot")
-
-
-# ─── Autodetección del binario claude ────────────────────────────────────────
-def find_claude_bin() -> Optional[str]:
-    """Busca el ejecutable de Claude Code en este orden:
-    1. Variable de entorno CLAUDE_BIN
-    2. PATH del sistema (`which claude`)
-    3. Claude Desktop bundled en macOS
-    """
-    if CLAUDE_BIN_ENV:
-        return CLAUDE_BIN_ENV
-
-    in_path = shutil.which("claude")
-    if in_path:
-        return in_path
-
-    # Claude Desktop en macOS incluye Claude Code bundled
-    bundle_base = Path.home() / "Library/Application Support/Claude/claude-code"
-    if bundle_base.is_dir():
-        def _ver_key(p: Path):
-            try:
-                return tuple(int(x) for x in p.name.split("."))
-            except ValueError:
-                return (0,)
-        versions = sorted(
-            (v for v in bundle_base.iterdir() if v.is_dir() and re.match(r"^\d", v.name)),
-            key=_ver_key,
-            reverse=True,
-        )
-        for v in versions:
-            cand = v / "claude.app/Contents/MacOS/claude"
-            if cand.is_file() and os.access(cand, os.X_OK):
-                return str(cand)
-    return None
-
-
-CLAUDE_BIN = find_claude_bin()
 
 
 # ─── Validación previa ───────────────────────────────────────────────────────
@@ -111,14 +82,12 @@ except ValueError:
 if not PROJECT_DIR.is_dir():
     _fail(f"PROJECT_DIR no existe: {PROJECT_DIR}")
 
-if not CLAUDE_BIN or not Path(CLAUDE_BIN).is_file():
-    _fail(
-        "No encuentro el ejecutable de Claude Code.\n"
-        "   Si tienes Claude Desktop instalado, ya debería encontrarlo solo.\n"
-        "   Si no, añade CLAUDE_BIN=/ruta/al/claude al archivo .env."
-    )
+if not GEMINI_API_KEY:
+    _fail("Falta GEMINI_API_KEY en .env (consíguela gratis en aistudio.google.com/apikey).")
 
-log.info("Claude encontrado en: %s", CLAUDE_BIN)
+genai.configure(api_key=GEMINI_API_KEY)
+
+log.info("Backend LLM: Gemini (%s)", GEMINI_MODEL)
 log.info("Proyecto: %s", PROJECT_DIR)
 log.info("Autorizado chat_id: %s", ALLOWED_CHAT_ID)
 
@@ -251,32 +220,351 @@ async def _transcribir(audio_path: str) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
-async def _run_claude(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
-    """Ejecuta `claude -p <prompt>` en PROJECT_DIR.
-    --dangerously-skip-permissions: modo no interactivo, no hay nadie que pueda
-    aprobar permisos. Seguro aquí porque solo el ALLOWED_CHAT_ID manda prompts.
-    -c (--continue) mantiene el hilo de la conversación previa."""
-    args = [CLAUDE_BIN, "-p", "--dangerously-skip-permissions"]
-    if continue_session:
-        args.append("-c")
-    args.append(prompt)
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(PROJECT_DIR),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+# ─── Backend Gemini con tool-use ─────────────────────────────────────────────
+# El bot dev usa Gemini con tools de lectura/escritura/ejecución para poder
+# investigar el proyecto, modificar archivos y ejecutar scripts.
+#
+# Conversación en memoria por chat_id. Al reiniciar el bot, se pierde.
+
+_conv_history: Dict[int, List[Dict[str, Any]]] = {}
+
+
+SYSTEM_PROMPT_DEV = f"""\
+Eres el asistente personal de Arkaitz (director técnico de Movistar Inter FS,
+fútbol sala). Estás respondiendo desde Telegram al móvil de Arkaitz.
+Solo Arkaitz te escribe — sin formalidades, tono directo y útil.
+
+PROYECTO:
+- Repo: {PROJECT_DIR}
+- README maestro: {PROJECT_DIR}/CLAUDE.md (LÉELO ANTES DE CONTESTAR si nunca
+  lo has visto en esta sesión — tiene contexto crítico sobre el proyecto,
+  estado, decisiones, el stack y cómo trabajar con Arkaitz).
+- Estado del proyecto: {PROJECT_DIR}/docs/estado_proyecto.md (más
+  detalle del README maestro).
+- Logs de Telegram del día: {PROJECT_DIR}/telegram_logs/YYYY-MM-DD.md
+  (intercambios previos del bot/datos del bot — sirve para recuperar contexto
+  si Arkaitz pregunta "qué te dije antes" o "ponme al día").
+
+HERRAMIENTAS A TU DISPOSICIÓN:
+- `python`: ejecuta código Python (con gspread, pandas, etc. instalados en el
+  venv del bot). Pasa el código tal cual, sin escapar comillas.
+- `bash`: comandos shell (ls, head, tail, grep, git diff, git log…). Para
+  ejecutar Python usa `python` que es más limpio.
+- `read_file`: lee un archivo del proyecto.
+- `write_file`: escribe/crea un archivo (úsalo para fixes que el usuario te pide).
+- `edit_file`: reemplaza un fragmento de texto en un archivo (más quirúrgico
+  que `write_file`).
+- `git`: comandos `git diff`, `git log`, `git status` (lectura).
+
+REGLAS DE ORO:
+1. Habla en español, tono directo, sin rodeos. Frases cortas. Markdown es OK
+   pero NO HTML.
+2. Cuando el usuario diga "investiga X" o "mira por qué Y" → primero
+   lee CLAUDE.md (si no lo has leído ya en este turno) y luego usa las tools.
+3. Si vas a hacer un cambio de código no trivial, **pregunta primero** y
+   muestra qué archivos vas a tocar. Para fixes pequeños tira directo.
+4. Después de un cambio, si tiene sentido, recálcula vistas o relanza scripts
+   afectados (Streamlit Cloud autodespliega tras `git push`, no hace falta más).
+5. Si te quedas atascado por un error el mismo dos veces seguidas, dile a
+   Arkaitz qué pasa en lenguaje natural en vez de seguir intentándolo.
+6. NO escribas a archivos importantes (.env, google_credentials.json, etc.) ni
+   pushees al repo SIN pedir confirmación explícita primero.
+
+HOY ES __HOY__.
+
+LIMITACIONES vs Claude Code:
+- No tienes el "cargador de plugins" ni los hooks. Solo las tools listadas.
+- El proyecto no se trackea por sesión: tu memoria entre mensajes son los
+  últimos turnos de la conversación + los logs.
+"""
+
+
+# Tools (function declarations Gemini)
+TOOLS_BOT_DEV = [
+    {
+        "function_declarations": [
+            {
+                "name": "python",
+                "description": (
+                    "Ejecuta código Python con el python del venv del bot. "
+                    "Tiene gspread, pandas, openpyxl, google-auth, etc. "
+                    "Pasa el código tal cual; SIN escapado de shell."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "Código Python."},
+                    },
+                    "required": ["code"],
+                },
+            },
+            {
+                "name": "bash",
+                "description": (
+                    "Ejecuta un comando shell genérico (ls, cat, head, tail, "
+                    "grep, find, git diff, git log, git status). Para ejecutar "
+                    "Python usa la tool `python`. NO uses git push/commit aquí "
+                    "(eso lo pide Arkaitz directamente)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "Comando shell."},
+                    },
+                    "required": ["command"],
+                },
+            },
+            {
+                "name": "read_file",
+                "description": "Lee un archivo de texto del proyecto y devuelve su contenido.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Ruta (relativa o absoluta)."},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "write_file",
+                "description": (
+                    "Escribe o sobrescribe un archivo. Pide confirmación al "
+                    "usuario antes de tocar archivos importantes."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Ruta del archivo."},
+                        "content": {"type": "string", "description": "Contenido nuevo completo."},
+                    },
+                    "required": ["path", "content"],
+                },
+            },
+            {
+                "name": "edit_file",
+                "description": (
+                    "Sustituye una porción exacta de texto en un archivo "
+                    "existente. Más quirúrgico que write_file. Falla si "
+                    "old_text no aparece exactamente o aparece varias veces."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "old_text": {"type": "string", "description": "Fragmento a buscar (literal, único en el archivo)."},
+                        "new_text": {"type": "string", "description": "Fragmento que lo sustituye."},
+                    },
+                    "required": ["path", "old_text", "new_text"],
+                },
+            },
+        ]
+    }
+]
+
+
+def _resolve_path(p: str) -> Path:
+    path = Path(p)
+    if not path.is_absolute():
+        path = PROJECT_DIR / path
+    return path.resolve()
+
+
+def _exec_tool(name: str, args: Dict[str, Any]) -> str:
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=CLAUDE_TIMEOUT)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return -1, "", f"Timeout: Claude tardó más de {CLAUDE_TIMEOUT}s en responder."
-    return (
-        proc.returncode or 0,
-        out.decode("utf-8", "replace"),
-        err.decode("utf-8", "replace"),
+        if name == "python":
+            code = args.get("code", "")
+            if not code.strip():
+                return "ERROR: código vacío."
+            result = subprocess.run(
+                [sys.executable], input=code,
+                capture_output=True, text=True,
+                cwd=str(PROJECT_DIR), timeout=180,
+            )
+            out = result.stdout or ""
+            if result.stderr:
+                stderr_clean = "\n".join(
+                    ln for ln in result.stderr.splitlines()
+                    if "FutureWarning" not in ln and "ev_poll_posix" not in ln
+                    and "ABSL" not in ln and "warnings.warn" not in ln
+                ).strip()
+                if stderr_clean:
+                    out += "\n[STDERR]\n" + stderr_clean
+            if result.returncode != 0:
+                out += f"\n[exit code: {result.returncode}]"
+            if len(out) > 50000:
+                out = out[:50000] + f"\n[...truncado, total {len(out)} chars]"
+            return out or "(sin output)"
+        elif name == "bash":
+            cmd = args.get("command", "").strip()
+            if not cmd:
+                return "ERROR: comando vacío."
+            BLOCK = ["rm -rf /", "rm -rf ~", "git push", "git reset --hard",
+                     "git checkout --", "shutdown", "reboot",
+                     ":(){:|:&};:", "mkfs", "dd if=", "> /dev/sda"]
+            if any(b in cmd for b in BLOCK):
+                return f"ERROR: comando bloqueado por seguridad ({cmd[:60]})"
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True,
+                cwd=str(PROJECT_DIR), timeout=180,
+            )
+            out = (result.stdout or "")
+            if result.stderr:
+                out += "\n[STDERR]\n" + result.stderr
+            if result.returncode != 0:
+                out += f"\n[exit code: {result.returncode}]"
+            if len(out) > 50000:
+                out = out[:50000] + f"\n[...truncado, total {len(out)} chars]"
+            return out or "(sin output)"
+        elif name == "read_file":
+            p = _resolve_path(args.get("path", ""))
+            try:
+                p.relative_to(PROJECT_DIR.resolve())
+            except Exception:
+                return f"ERROR: ruta fuera del proyecto: {p}"
+            if not p.is_file():
+                return f"ERROR: no es un archivo: {p}"
+            content = p.read_text(encoding="utf-8", errors="replace")
+            if len(content) > 80000:
+                content = content[:80000] + f"\n[...truncado, total {len(content)} chars]"
+            return content
+        elif name == "write_file":
+            p = _resolve_path(args.get("path", ""))
+            try:
+                p.relative_to(PROJECT_DIR.resolve())
+            except Exception:
+                return f"ERROR: ruta fuera del proyecto: {p}"
+            content = args.get("content", "")
+            # Defensa: no permitir escribir credenciales sin querer
+            forbidden = ["google_credentials.json", ".env"]
+            if p.name in forbidden:
+                return f"ERROR: tocar {p.name} solo a través de Arkaitz a mano (seguridad)."
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            return f"✅ Escrito {p} ({len(content)} chars)"
+        elif name == "edit_file":
+            p = _resolve_path(args.get("path", ""))
+            try:
+                p.relative_to(PROJECT_DIR.resolve())
+            except Exception:
+                return f"ERROR: ruta fuera del proyecto: {p}"
+            if not p.is_file():
+                return f"ERROR: no existe el archivo: {p}"
+            old_text = args.get("old_text", "")
+            new_text = args.get("new_text", "")
+            if not old_text:
+                return "ERROR: old_text vacío."
+            content = p.read_text(encoding="utf-8")
+            count = content.count(old_text)
+            if count == 0:
+                return "ERROR: no encuentro el fragmento `old_text` en el archivo."
+            if count > 1:
+                return (f"ERROR: el fragmento aparece {count} veces; "
+                        f"añade contexto a `old_text` para que sea único.")
+            new_content = content.replace(old_text, new_text, 1)
+            p.write_text(new_content, encoding="utf-8")
+            return f"✅ Editado {p} (1 reemplazo)."
+        else:
+            return f"ERROR: herramienta desconocida '{name}'."
+    except subprocess.TimeoutExpired:
+        return "ERROR: comando excedió el timeout."
+    except Exception as e:
+        return f"ERROR ejecutando {name}: {type(e).__name__}: {e}"
+
+
+def _truncate_history(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if len(history) <= HISTORY_MAX_TURNS * 2:
+        return history
+    return history[-HISTORY_MAX_TURNS * 2:]
+
+
+async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
+    """Llama a Gemini con tool-use loop. Mantiene historial conversacional."""
+    chat_id = ALLOWED_CHAT_ID  # bot dev es mono-usuario; key por chat_id
+    if not continue_session:
+        _conv_history.pop(chat_id, None)
+    history = _conv_history.get(chat_id, [])
+    history.append({"role": "user", "parts": [{"text": prompt}]})
+
+    hoy_iso = _dt.date.today().isoformat()
+    system_eff = SYSTEM_PROMPT_DEV.replace("__HOY__", hoy_iso)
+
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=system_eff,
+        tools=TOOLS_BOT_DEV,
     )
+
+    try:
+        async with asyncio.timeout(LLM_TIMEOUT):
+            for step in range(GEMINI_MAX_STEPS):
+                response = await asyncio.to_thread(model.generate_content, history)
+                candidates = getattr(response, "candidates", None) or []
+                if not candidates:
+                    return -1, "", "Gemini devolvió respuesta vacía (sin candidates)."
+                cand = candidates[0]
+                content = getattr(cand, "content", None)
+                if not content or not getattr(content, "parts", None):
+                    finish = getattr(cand, "finish_reason", "?")
+                    return -1, "", f"Gemini terminó sin contenido (finish_reason={finish})."
+
+                parts = list(content.parts)
+                fcalls = []
+                for p in parts:
+                    fc = getattr(p, "function_call", None)
+                    if fc and getattr(fc, "name", None):
+                        fcalls.append(fc)
+
+                if fcalls:
+                    history.append({"role": "model", "parts": parts})
+                    tool_response_parts = []
+                    for fc in fcalls:
+                        try:
+                            args = dict(fc.args) if fc.args else {}
+                        except Exception:
+                            args = {}
+                        if fc.name == "python":
+                            log.info("[%s] >>> PYTHON:\n%s", chat_id, args.get("code", ""))
+                        elif fc.name == "bash":
+                            log.info("[%s] >>> BASH:\n%s", chat_id, args.get("command", ""))
+                        elif fc.name == "write_file":
+                            log.info("[%s] >>> WRITE %s (%d chars)", chat_id,
+                                     args.get("path", ""), len(args.get("content", "")))
+                        elif fc.name == "edit_file":
+                            log.info("[%s] >>> EDIT %s", chat_id, args.get("path", ""))
+                        else:
+                            log.info("[%s] >>> %s args=%s", chat_id, fc.name, str(args)[:200])
+                        result = await asyncio.to_thread(_exec_tool, fc.name, args)
+                        log.info("[%s] <<< %s (%d chars):\n%s",
+                                 chat_id, fc.name, len(result), result[:600])
+                        tool_response_parts.append({
+                            "function_response": {
+                                "name": fc.name,
+                                "response": {"result": result},
+                            }
+                        })
+                    history.append({"role": "user", "parts": tool_response_parts})
+                    continue
+
+                text = ""
+                for p in parts:
+                    t = getattr(p, "text", None)
+                    if t:
+                        text += t
+                history.append({"role": "model", "parts": [{"text": text}]})
+                _conv_history[chat_id] = _truncate_history(history)
+                return 0, text.strip(), ""
+
+            _conv_history[chat_id] = _truncate_history(history)
+            return -1, "", f"Límite de iteraciones alcanzado ({GEMINI_MAX_STEPS})."
+    except asyncio.TimeoutError:
+        return -1, "", f"Timeout: Gemini tardó más de {LLM_TIMEOUT}s."
+    except Exception as e:
+        log.exception("Error en _run_gemini: %s", e)
+        return -1, "", f"{type(e).__name__}: {e}"
+
+
+# Compat: por si algo del repo aún llama _run_claude
+_run_claude = _run_gemini
 
 
 # ─── Handlers ────────────────────────────────────────────────────────────────
@@ -318,6 +606,8 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _fresh_chats.add(chat_id)
     # Sesión nueva = no tiene sentido arrastrar acciones locales pendientes
     _acciones_pendientes.pop(chat_id, None)
+    # Limpiamos también el historial Gemini de ese chat
+    _conv_history.pop(chat_id, None)
     await update.message.reply_text(
         "🆕 Vale, el próximo mensaje empezará una conversación nueva "
         "(sin contexto de lo anterior)."
@@ -1009,7 +1299,7 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
     try:
-        rc, out, err = await _run_claude(prompt_final, continue_session=continuar)
+        rc, out, err = await _run_gemini(prompt_final, continue_session=continuar)
     finally:
         stop.set()
         try:
