@@ -345,9 +345,59 @@ print(res[['JUGADOR','SESIONES','CARGA_SEMANAL','BORG_MEDIO','ACWR','SEMAFORO']]
 print(len(ss.worksheet('BORG').get_all_values()) - 1)  # -1 por la cabecera
 ```
 
-9) "Lesiones activas" → `FISIO` con ESTADO != Disponible, o LESIONES sin
-   FECHA ALTA. Si FISIO está vacía, prefiere `_VISTA_RECUENTO` para ver
-   estados L (Lesión).
+9) "Lesiones activas" → la hoja `LESIONES` tiene cabecera en la **fila 2**
+   (la fila 1 es super-cabecera con secciones agrupadas). El criterio
+   más fiable de "activa" es **FECHA ALTA vacía**.
+```python
+vals = ss.worksheet('LESIONES').get_all_values()
+header = vals[1]  # ¡fila 2 es la cabecera real!
+df = pd.DataFrame(vals[2:], columns=header)
+df = df[df['JUGADOR'].astype(str).str.strip() != '']  # quitar filas vacías
+# Lesiones activas = sin fecha de alta
+activas = df[df['FECHA ALTA'].astype(str).str.strip() == '']
+print(activas[['JUGADOR','FECHA LESIÓN','TIPO LESIÓN','ZONA CORPORAL','DÍAS BAJA EST.']].to_string(index=False))
+```
+
+10) "Wellness medio del equipo esta semana"
+```python
+import datetime
+df = pd.DataFrame(ss.worksheet('_VISTA_WELLNESS').get_all_records(value_render_option=gspread.utils.ValueRenderOption.unformatted))
+df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')
+hoy = datetime.date.today()
+lunes = hoy - datetime.timedelta(days=hoy.weekday())
+sem = df[df['FECHA']>=pd.Timestamp(lunes)]
+res = sem.groupby('JUGADOR')['TOTAL'].agg(['mean','count']).round(1)
+res.columns = ['Wellness medio', 'N días']
+print(res.sort_values('Wellness medio').to_string())
+```
+
+11) "Compara Carlos y Pirata esta semana"
+```python
+import datetime
+df = pd.DataFrame(ss.worksheet('_VISTA_CARGA').get_all_records(value_render_option=gspread.utils.ValueRenderOption.unformatted))
+df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')
+df['CARGA_N'] = pd.to_numeric(df['CARGA'], errors='coerce')
+df['BORG_N'] = pd.to_numeric(df['BORG'], errors='coerce')
+df['MINUTOS_N'] = pd.to_numeric(df['MINUTOS'], errors='coerce')
+hoy = datetime.date.today()
+lunes = hoy - datetime.timedelta(days=hoy.weekday())
+sem = df[(df['FECHA']>=pd.Timestamp(lunes)) & (df['JUGADOR'].isin(['CARLOS','PIRATA']))]
+res = sem.groupby('JUGADOR').agg(
+    sesiones=('BORG_N','count'),  # solo cuenta sesiones con Borg numérico (las que entrenó)
+    minutos=('MINUTOS_N','sum'),
+    carga_total=('CARGA_N','sum'),
+    borg_medio=('BORG_N','mean')
+).round(1)
+print(res.to_string())
+```
+
+12) "Días de baja de X en la temporada" → `_VISTA_RECUENTO` columna EST_L:
+```python
+df = pd.DataFrame(ss.worksheet('_VISTA_RECUENTO').get_all_records(value_render_option=gspread.utils.ValueRenderOption.unformatted))
+print(df[['JUGADOR','EST_L','EST_S','EST_A','SESIONES_CON_DATOS','TOTAL_SESIONES_EQUIPO']].to_string(index=False))
+# EST_L = nº de sesiones con estado "Lesión" en BORG.
+# Para días reales de baja, si te lo piden, abre LESIONES y resta fechas.
+```
 
 POLÍTICA DE FALLOS:
 Si tu primer intento devuelve "0 filas" o un error, prueba:

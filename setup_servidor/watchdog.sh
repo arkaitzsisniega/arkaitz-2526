@@ -8,6 +8,12 @@
 # El script comprueba cada bot listado en BOTS y, si su proceso no aparece
 # en `pgrep`, lo relanza con nohup. Logs van al log normal del bot.
 
+# PATH explícito (cron no lo hereda y necesitamos pgrep, date, mkdir, etc.)
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# HOME por si cron no lo da
+[ -z "$HOME" ] && export HOME="$(eval echo ~$(whoami))"
+
 BASE="$HOME/Desktop/Arkaitz"
 LOG_DIR="$BASE/logs"
 mkdir -p "$LOG_DIR"
@@ -39,9 +45,10 @@ for entry in "${BOTS[@]}"; do
         continue
     fi
 
-    # No está → lanzarlo
+    # No está → lanzarlo. Usamos nohup para que sobreviva al cierre del
+    # shell del cron. NO usamos `disown`: en non-interactive shell falla
+    # silenciosamente y nohup ya hace su trabajo.
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] watchdog: relanzando $name_short" >> "$log_file"
     cd "$bot_dir" || continue
-    nohup "$venv_py" "$script_path" >> "$log_file" 2>&1 &
-    disown
+    nohup "$venv_py" "$script_path" >> "$log_file" 2>&1 < /dev/null &
 done
