@@ -70,6 +70,46 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 🚀 Más optimización del Mac de oficina (continuación 07/05/2026)
+
+Ya hicimos primera tanda (desactivamos 18 launchd plists no usados).
+Mejoras siguientes a estudiar:
+
+1. **Spotlight / mdworker_shared**: aparecen varios procesos
+   `mdworker_shared` en `top`. Es la indexación de Spotlight. Si está
+   constantemente trabajando, significa que está reindexando algo (a
+   menudo carpetas grandes recién copiadas o un disco externo). Mirar:
+   ```bash
+   sudo mdutil -s /
+   sudo mdutil -s /Volumes/*  # discos externos
+   ```
+   Si está en "Indexing enabled" pero el progreso nunca acaba, se puede
+   forzar reindex limpio o excluir carpetas pesadas (Time Machine,
+   Google Drive cache, etc.).
+
+2. **Caches de Safari/WebKit**: el WebKit estaba consumiendo ~475 MB
+   en varios procesos. Mirar pestañas abiertas y extensiones:
+   - Safari → Preferencias → Extensiones (desactivar las que no uses).
+   - Cerrar pestañas viejas que llevan días/semanas abiertas.
+
+3. **Plugins de la barra de menús** (icons arriba a la derecha): cada
+   uno suele ser un proceso. Revisar cuáles son innecesarios.
+
+4. **Análisis de uso de disco**:
+   ```bash
+   df -h /
+   du -sh ~/Library/Caches/* 2>/dev/null | sort -rh | head -10
+   du -sh ~/Library/Application\ Support/* 2>/dev/null | sort -rh | head -10
+   ```
+   Si hay caches enormes de apps que ya no usas, se pueden limpiar.
+
+5. **Apps abiertas en background sin necesidad**: revisar apps que
+   abren al iniciar sesión. Hoy solo había Google Drive, pero a veces
+   apps añaden agentes de menú que arrancan implícitamente.
+
+6. **Instalar Caffeinate o equivalente** para estudios de impacto: no
+   prioritario.
+
 ## 🖱 Arreglar ratón Logitech MX Master 2s (pedido 07/05/2026)
 
 **Síntomas reportados por Arkaitz**:
