@@ -657,8 +657,49 @@ def _truncate_history(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return history[-HISTORY_MAX_TURNS * 2:]
 
 
-async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
-    """Llama a Gemini con tool-use loop. Mantiene historial por chat_id."""
+async def _gemini_call_with_retry(model, history, max_retries: int = 3):
+    """Llama a Gemini con retry exponencial ante errores transitorios.
+
+    Reintenta hasta `max_retries + 1` veces con backoff [2, 5, 10] segundos.
+    Reintenta: rate limits per-minute, timeouts, 5xx, errores de red.
+    NO reintenta: daily quota agotada, autenticación, InvalidArgument.
+    """
+    delays = [2, 5, 10]
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await asyncio.to_thread(model.generate_content, history)
+        except Exception as e:
+            last_err = e
+            err_str = str(e)
+            err_low = err_str.lower()
+            non_retryable = (
+                "api key" in err_low,
+                "authentication" in err_low,
+                "permission denied" in err_low,
+                "invalid argument" in err_low,
+                "perdayperprojectpermodel" in err_low,
+            )
+            if any(non_retryable):
+                raise
+            if attempt >= max_retries:
+                raise
+            wait_s = delays[min(attempt, len(delays) - 1)]
+            log.warning("[gemini retry %d/%d] %s: %s. Reintentando en %ds.",
+                        attempt + 1, max_retries, type(e).__name__,
+                        err_str[:200], wait_s)
+            await asyncio.sleep(wait_s)
+    raise last_err  # no debería llegar
+
+
+async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True,
+                       progress_cb=None) -> Tuple[int, str, str]:
+    """Llama a Gemini con tool-use loop. Mantiene historial por chat_id.
+
+    `progress_cb`: callable async opcional. Si está, se llama UNA vez
+    con un mensaje de progreso cuando el modelo decide hacer la primera
+    tool call (señal de que la respuesta tardará algo más). No se llama
+    para queries instantáneas (saludos, preguntas que no requieren datos)."""
     if not continue_session:
         _conv_history.pop(chat_id, None)
     history = _conv_history.get(chat_id, [])
@@ -674,11 +715,13 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) 
         tools=TOOLS_BOT_DATOS,
     )
 
+    progress_sent = False
+
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
             for step in range(GEMINI_MAX_STEPS):
-                # Llamar al modelo (en thread aparte, porque genai es bloqueante)
-                response = await asyncio.to_thread(model.generate_content, history)
+                # Llamar al modelo con retry+backoff ante errores transitorios
+                response = await _gemini_call_with_retry(model, history)
 
                 # Extraer parts de la respuesta
                 candidates = getattr(response, "candidates", None) or []
@@ -701,6 +744,14 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True) 
                         fcalls.append(fc)
 
                 if fcalls:
+                    # Notificar al usuario en el primer tool call (la respuesta
+                    # va a tardar más de lo habitual)
+                    if progress_cb is not None and not progress_sent:
+                        try:
+                            await progress_cb("🔧 Consultando los datos del Sheet, dame un momento…")
+                            progress_sent = True
+                        except Exception:
+                            pass
                     # Guardar el mensaje del modelo (con sus tool calls) en historial
                     history.append({"role": "model", "parts": parts})
                     # Ejecutar todas las herramientas y devolver resultados
@@ -869,8 +920,16 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     stop = asyncio.Event()
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
+    async def _progress(text: str):
+        try:
+            await update.message.reply_text(text)
+        except Exception:
+            pass
+
     try:
-        rc, out, err = await _run_gemini(chat_id, prompt, continue_session=continuar)
+        rc, out, err = await _run_gemini(chat_id, prompt,
+                                            continue_session=continuar,
+                                            progress_cb=_progress)
     finally:
         stop.set()
         try:
@@ -880,10 +939,41 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
 
     if rc != 0:
         detalle = (err or out or "(sin detalles)").strip()
-        msg = f"⚠️ Algo falló al consultar los datos.\nDetalle técnico (para Arkaitz):\n{detalle[:1500]}"
-        for chunk in _chunks(msg):
-            await update.message.reply_text(chunk)
-        _append_log(chat_id, user_name, prompt, msg, kind=kind)
+        # Traducción a lenguaje humano según el tipo de error
+        det_low = detalle.lower()
+        if "perdayperprojectpermodel" in det_low or "limit: 0" in det_low:
+            msg_user = (
+                "⚠️ Hoy ya no me quedan consultas con la cuota gratis de Google. "
+                "Vuelve a probar mañana, o pídele a Arkaitz que mire el panel "
+                "de Google AI Studio."
+            )
+        elif "resourceexhausted" in det_low or "429" in detalle[:50]:
+            msg_user = (
+                "⚠️ Hay mucho tráfico ahora mismo y Google me está limitando. "
+                "Dame 1 minuto y vuelve a intentarlo."
+            )
+        elif "timeout" in det_low or "deadline" in det_low:
+            msg_user = (
+                "⚠️ He tardado demasiado en pensar la respuesta. "
+                "Reformula la pregunta más concreta y reintenta."
+            )
+        elif "networkerror" in det_low or "connecterror" in det_low:
+            msg_user = (
+                "⚠️ Se ha caído la conexión a internet del servidor. "
+                "Vuelve a intentarlo en 1-2 minutos."
+            )
+        elif "finish_reason=safety" in det_low or "blocked" in det_low:
+            msg_user = (
+                "⚠️ Mi cerebro ha bloqueado la respuesta por motivos de "
+                "seguridad. Reformula la pregunta de otra forma."
+            )
+        else:
+            msg_user = "⚠️ No me sale ahora. Pídeselo a Arkaitz si urge."
+        msg_tecnico = f"\n\n_(detalle técnico para Arkaitz: {detalle[:500]}...)_" if len(detalle) > 30 else ""
+        msg_final = msg_user + msg_tecnico
+        for chunk in _chunks(msg_final):
+            await update.message.reply_text(chunk, parse_mode="Markdown")
+        _append_log(chat_id, user_name, prompt, msg_final, kind=kind)
         return
 
     response = (out or "").strip()

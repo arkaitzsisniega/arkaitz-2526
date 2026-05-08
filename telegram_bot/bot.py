@@ -541,6 +541,37 @@ def _truncate_history(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return history[-HISTORY_MAX_TURNS * 2:]
 
 
+async def _gemini_call_with_retry(model, history, max_retries: int = 3):
+    """Retry con backoff ante errores transitorios de Gemini.
+    Reintenta: rate limits per-minute, timeouts, 5xx, errores de red.
+    NO reintenta: daily quota, autenticación, InvalidArgument."""
+    delays = [2, 5, 10]
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await asyncio.to_thread(model.generate_content, history)
+        except Exception as e:
+            last_err = e
+            err_low = str(e).lower()
+            non_retryable = (
+                "api key" in err_low,
+                "authentication" in err_low,
+                "permission denied" in err_low,
+                "invalid argument" in err_low,
+                "perdayperprojectpermodel" in err_low,
+            )
+            if any(non_retryable):
+                raise
+            if attempt >= max_retries:
+                raise
+            wait_s = delays[min(attempt, len(delays) - 1)]
+            log.warning("[gemini retry %d/%d] %s: %s. Reintentando en %ds.",
+                        attempt + 1, max_retries, type(e).__name__,
+                        str(e)[:200], wait_s)
+            await asyncio.sleep(wait_s)
+    raise last_err
+
+
 async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
     """Llama a Gemini con tool-use loop. Mantiene historial conversacional."""
     chat_id = ALLOWED_CHAT_ID  # bot dev es mono-usuario; key por chat_id
@@ -561,7 +592,7 @@ async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, 
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
             for step in range(GEMINI_MAX_STEPS):
-                response = await asyncio.to_thread(model.generate_content, history)
+                response = await _gemini_call_with_retry(model, history)
                 candidates = getattr(response, "candidates", None) or []
                 if not candidates:
                     return -1, "", "Gemini devolvió respuesta vacía (sin candidates)."
@@ -1374,10 +1405,28 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
 
     if rc != 0:
         detalle = (err or out or "(sin detalles)").strip()
-        msg = f"❌ Claude devolvió error (código {rc}).\n\n{detalle}"
-        for chunk in _chunks(msg):
-            await update.message.reply_text(chunk)
-        _append_log(chat_id, user_name, prompt, msg, kind=kind)
+        # Traducción a lenguaje humano
+        det_low = detalle.lower()
+        if "perdayperprojectpermodel" in det_low or "limit: 0" in det_low:
+            msg_user = (
+                "⚠️ Hoy ya no me quedan llamadas en la cuota gratis de Gemini. "
+                "Reintenta mañana o mira el panel de Google AI Studio."
+            )
+        elif "resourceexhausted" in det_low or "429" in detalle[:50]:
+            msg_user = "⚠️ Rate limit de Gemini. Dame 1 minuto y reintenta."
+        elif "timeout" in det_low or "deadline" in det_low:
+            msg_user = "⚠️ Tardé demasiado. Reformula más concreto y reintenta."
+        elif "networkerror" in det_low or "connecterror" in det_low:
+            msg_user = "⚠️ Se cayó la red del servidor. Reintenta en 1-2 min."
+        else:
+            msg_user = f"⚠️ No me sale ahora ({type(detalle).__name__})."
+        msg_full = msg_user + (
+            f"\n\n_(detalle técnico: {detalle[:600]}...)_"
+            if len(detalle) > 30 else ""
+        )
+        for chunk in _chunks(msg_full):
+            await update.message.reply_text(chunk, parse_mode="Markdown")
+        _append_log(chat_id, user_name, prompt, msg_full, kind=kind)
         return
 
     response = (out or "").strip()
