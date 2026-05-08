@@ -1129,8 +1129,8 @@ def color_jug(jugadores):
 st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
 
 (tab_sem, tab_carga, tab_peso, tab_well, tab_les, tab_temp, tab_antro, tab_rec,
- tab_oliver, tab_ejer, tab_partido, tab_equipo, tab_efic, tab_goles, tab_comp,
- tab_scout, tab_falt_pen, tab_editar) = st.tabs([
+ tab_oliver, tab_ejer, tab_cat_ejer, tab_partido, tab_equipo, tab_efic, tab_goles,
+ tab_comp, tab_scout, tab_falt_pen, tab_editar) = st.tabs([
     "🚦 Semáforo",
     "📊 Carga",
     "⚖️ Peso",
@@ -1141,6 +1141,7 @@ st.markdown("# 🏆 Panel de Temporada — Arkaitz 25/26")
     "📋 Recuento",
     "🏃 Oliver",
     "🎯 Ejercicios",
+    "📚 Catálogo",
     "🎮 Partido",
     "📊 Equipo",
     "📈 Eficiencia",
@@ -2913,6 +2914,342 @@ with tab_ejer:
                         det.style.format("{:.2f}", subset=num_det, na_rep="—"),
                         use_container_width=True, hide_index=True,
                     )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB — 📚 CATÁLOGO DE EJERCICIOS (cuerpo técnico)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_cat_ejer:
+    try:
+        # Acceso restringido a admin/tecnico (no fisio/medico)
+        if get_rol() not in ("admin", "tecnico"):
+            st.info(
+                "📚 Esta pestaña es para el cuerpo técnico (entrenadores).\n\n"
+                "Si crees que deberías tener acceso, pídeselo a Arkaitz."
+            )
+        elif ejercicios.empty:
+            st.info(
+                "Aún no hay datos de ejercicios. Genera la `_VISTA_EJERCICIOS` con "
+                "`/ejercicios_sync` en el bot."
+            )
+        else:
+            st.markdown("### 📚 Catálogo de ejercicios")
+            st.caption(
+                "Vista agregada por NOMBRE de ejercicio. Te dice cuántas veces "
+                "has hecho cada ejercicio, cuántos minutos llevas y su intensidad "
+                "1-5 calculada desde Oliver."
+            )
+
+            ejer_cat = ejercicios.copy()
+
+            # ── Normalizar columnas numéricas (decimal con coma) ─────────
+            def _to_num(s):
+                if s.dtype == object:
+                    return pd.to_numeric(
+                        s.astype(str).str.replace(",", ".", regex=False),
+                        errors="coerce")
+                return pd.to_numeric(s, errors="coerce")
+
+            cols_num_e = [
+                "duracion_min", "played_time", "activity_time",
+                "active_rest_time", "cods", "jumps", "top_speed_kmh",
+                "kcal", "dist_high_intensity", "dist_low_intensity",
+                "perc_time_high_int", "intensity_medio", "acc_intensity_medio",
+                "speed_intensity_medio", "oli_volume_sum", "dist_total",
+                "n_sprint", "n_lsprint", "n_jogging", "n_walking",
+                "n_acc_alta_pos", "n_acc_alta_neg",
+                "n_acc_max_pos", "n_acc_max_neg",
+            ]
+            for c in cols_num_e:
+                if c in ejer_cat.columns:
+                    ejer_cat[c] = _to_num(ejer_cat[c])
+
+            ejer_cat["fecha"] = pd.to_datetime(ejer_cat["fecha"], errors="coerce")
+
+            # ── Calcular escala intensidad 1-5 (por nombre de ejercicio) ──
+            # Usamos el promedio de `intensity_medio` por ejercicio. Repartimos
+            # en 5 buckets equiespaciados (quintiles globales).
+            intens_por_ejer = (ejer_cat.groupby("ejercicio")["intensity_medio"]
+                                 .mean().dropna())
+            if len(intens_por_ejer) >= 5:
+                try:
+                    quintiles = pd.qcut(intens_por_ejer, q=5,
+                                          labels=[1, 2, 3, 4, 5],
+                                          duplicates="drop")
+                    intensity_map = quintiles.astype(int).to_dict()
+                except Exception:
+                    intensity_map = {}
+            else:
+                # Pocos ejercicios distintos: lineal entre min y max
+                if len(intens_por_ejer) > 0:
+                    lo, hi = intens_por_ejer.min(), intens_por_ejer.max()
+                    rng = hi - lo if hi != lo else 1.0
+                    intensity_map = {
+                        nombre: int(round(1 + 4 * (v - lo) / rng))
+                        for nombre, v in intens_por_ejer.items()
+                    }
+                else:
+                    intensity_map = {}
+
+            ejer_cat["intensidad_1_5"] = ejer_cat["ejercicio"].map(intensity_map)
+
+            # ── Filtros ────────────────────────────────────────────────
+            with st.expander("🔧 Filtros", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    nombres_op = sorted(ejer_cat["ejercicio"].dropna().unique().tolist())
+                    nombres_sel = st.multiselect(
+                        "Nombre del ejercicio (vacío = todos)",
+                        options=nombres_op,
+                        default=[],
+                        key="cat_ejer_nombre",
+                    )
+                with c2:
+                    tipos_op = sorted(ejer_cat["tipo_ejercicio"].dropna().unique().tolist())
+                    tipos_sel = st.multiselect(
+                        "Tipo (vacío = todos)",
+                        options=tipos_op,
+                        default=[],
+                        key="cat_ejer_tipo",
+                    )
+                with c3:
+                    intens_sel = st.multiselect(
+                        "Intensidad 1-5 (vacío = todas)",
+                        options=[1, 2, 3, 4, 5],
+                        default=[],
+                        key="cat_ejer_intens",
+                    )
+                c4, c5 = st.columns(2)
+                with c4:
+                    jugs_op = sorted(ejer_cat["jugador"].dropna().unique().tolist())
+                    jugs_sel = st.multiselect(
+                        "Jugador (vacío = todos)",
+                        options=jugs_op,
+                        default=[],
+                        key="cat_ejer_jugador",
+                    )
+                with c5:
+                    f_min = ejer_cat["fecha"].min()
+                    f_max = ejer_cat["fecha"].max()
+                    if pd.notna(f_min) and pd.notna(f_max):
+                        rango_f = st.date_input(
+                            "Rango fechas",
+                            value=(f_min.date(), f_max.date()),
+                            min_value=f_min.date(),
+                            max_value=f_max.date(),
+                            key="cat_ejer_fechas",
+                        )
+                    else:
+                        rango_f = None
+
+            # Aplicar filtros
+            df_f = ejer_cat.copy()
+            if nombres_sel:
+                df_f = df_f[df_f["ejercicio"].isin(nombres_sel)]
+            if tipos_sel:
+                df_f = df_f[df_f["tipo_ejercicio"].isin(tipos_sel)]
+            if intens_sel:
+                df_f = df_f[df_f["intensidad_1_5"].isin(intens_sel)]
+            if jugs_sel:
+                df_f = df_f[df_f["jugador"].isin(jugs_sel)]
+            if rango_f and isinstance(rango_f, tuple) and len(rango_f) == 2:
+                ini, fin = rango_f
+                df_f = df_f[
+                    (df_f["fecha"] >= pd.Timestamp(ini)) &
+                    (df_f["fecha"] <= pd.Timestamp(fin))
+                ]
+
+            if df_f.empty:
+                st.warning("No hay datos con los filtros aplicados.")
+            else:
+                # ── KPIs arriba ───────────────────────────────────────
+                n_ej_unicos = df_f["ejercicio"].nunique()
+                n_sesiones = df_f["session_id"].nunique()
+                min_tot = df_f.groupby(["session_id", "ejercicio"])["duracion_min"].first().sum()
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Ejercicios únicos", n_ej_unicos)
+                k2.metric("Sesiones cubiertas", n_sesiones)
+                k3.metric("Minutos totales (suma)", f"{min_tot:.0f}")
+
+                # ── Construir tabla agregada por ejercicio ─────────────
+                hoy = _dt.date.today()
+                lunes_actual = hoy - _dt.timedelta(days=hoy.weekday())
+                hace_30 = hoy - _dt.timedelta(days=30)
+                hace_365 = hoy - _dt.timedelta(days=365)
+
+                # Para sesiones: cuento sesiones únicas por ejercicio (no
+                # filas, una sesión puede tener N filas = una por jugador)
+                df_sesiones_ej = (df_f.groupby(["ejercicio", "session_id", "fecha"])
+                                    .agg(
+                                        duracion_min=("duracion_min", "first"),
+                                        tipo=("tipo_ejercicio", "first"),
+                                        intensidad=("intensidad_1_5", "first"),
+                                        n_jugadores=("jugador", "nunique"),
+                                        intensity_medio=("intensity_medio", "mean"),
+                                        dist_total_med=("dist_total", "mean"),
+                                        n_sprint_med=("n_sprint", "mean"),
+                                        kcal_med=("kcal", "mean"),
+                                    ).reset_index())
+                # Truco para detectar fechas
+                df_sesiones_ej["fecha"] = pd.to_datetime(df_sesiones_ej["fecha"], errors="coerce")
+                df_sesiones_ej["en_semana"] = df_sesiones_ej["fecha"] >= pd.Timestamp(lunes_actual)
+                df_sesiones_ej["en_mes"] = df_sesiones_ej["fecha"] >= pd.Timestamp(hace_30)
+                df_sesiones_ej["en_anno"] = df_sesiones_ej["fecha"] >= pd.Timestamp(hace_365)
+
+                catalog = (df_sesiones_ej.groupby("ejercicio").agg(
+                    tipo=("tipo", "first"),
+                    intensidad=("intensidad", "first"),
+                    sesiones_total=("session_id", "count"),
+                    sesiones_semana=("en_semana", "sum"),
+                    sesiones_mes=("en_mes", "sum"),
+                    sesiones_anno=("en_anno", "sum"),
+                    minutos_total=("duracion_min", "sum"),
+                    intensity_medio_med=("intensity_medio", "mean"),
+                    dist_total_med=("dist_total_med", "mean"),
+                    n_sprint_med=("n_sprint_med", "mean"),
+                    kcal_med=("kcal_med", "mean"),
+                    ultima_fecha=("fecha", "max"),
+                ).reset_index())
+
+                # Minutos por periodo
+                catalog_sem = df_sesiones_ej[df_sesiones_ej["en_semana"]].groupby("ejercicio")["duracion_min"].sum()
+                catalog_mes = df_sesiones_ej[df_sesiones_ej["en_mes"]].groupby("ejercicio")["duracion_min"].sum()
+                catalog_anno = df_sesiones_ej[df_sesiones_ej["en_anno"]].groupby("ejercicio")["duracion_min"].sum()
+                catalog["minutos_semana"] = catalog["ejercicio"].map(catalog_sem).fillna(0)
+                catalog["minutos_mes"] = catalog["ejercicio"].map(catalog_mes).fillna(0)
+                catalog["minutos_anno"] = catalog["ejercicio"].map(catalog_anno).fillna(0)
+
+                # Orden por uso reciente (sesiones_mes) descendente
+                catalog = catalog.sort_values(
+                    ["sesiones_mes", "sesiones_total"], ascending=False
+                )
+
+                # ── Tabla principal ─────────────────────────────────────
+                st.markdown("#### 📋 Tabla de catálogo")
+                cols_show = [
+                    "ejercicio", "tipo", "intensidad",
+                    "sesiones_semana", "sesiones_mes", "sesiones_anno", "sesiones_total",
+                    "minutos_semana", "minutos_mes", "minutos_anno", "minutos_total",
+                    "ultima_fecha",
+                ]
+                cols_show = [c for c in cols_show if c in catalog.columns]
+                catalog_show = catalog[cols_show].copy()
+                catalog_show["ultima_fecha"] = (catalog_show["ultima_fecha"]
+                                                  .dt.strftime("%Y-%m-%d"))
+
+                # Renombrar para tabla legible
+                rename_map = {
+                    "ejercicio": "Ejercicio",
+                    "tipo": "Tipo",
+                    "intensidad": "Int 1-5",
+                    "sesiones_semana": "Ses 7d",
+                    "sesiones_mes": "Ses 30d",
+                    "sesiones_anno": "Ses 365d",
+                    "sesiones_total": "Ses TOT",
+                    "minutos_semana": "Min 7d",
+                    "minutos_mes": "Min 30d",
+                    "minutos_anno": "Min 365d",
+                    "minutos_total": "Min TOT",
+                    "ultima_fecha": "Última",
+                }
+                st.dataframe(
+                    catalog_show.rename(columns=rename_map).style
+                    .format({
+                        "Int 1-5": "{:.0f}",
+                        "Ses 7d": "{:.0f}", "Ses 30d": "{:.0f}",
+                        "Ses 365d": "{:.0f}", "Ses TOT": "{:.0f}",
+                        "Min 7d": "{:.0f}", "Min 30d": "{:.0f}",
+                        "Min 365d": "{:.0f}", "Min TOT": "{:.0f}",
+                    }, na_rep="—")
+                    .background_gradient(subset=["Ses TOT"], cmap="Blues")
+                    .background_gradient(subset=["Int 1-5"], cmap="RdYlGn_r"),
+                    use_container_width=True, hide_index=True,
+                    height=420,
+                )
+
+                st.caption(
+                    "📖 _Int 1-5_: 1 = muy ligero (calentamiento), 5 = muy "
+                    "intenso (finalización, partidillo). Calculado desde el "
+                    "`intensity_medio` de Oliver, repartido en quintiles."
+                )
+
+                # ── Detalle de un ejercicio ────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 🔎 Detalle de un ejercicio")
+                ej_op = ["(elige uno)"] + catalog["ejercicio"].tolist()
+                ej_pick = st.selectbox(
+                    "Ejercicio",
+                    options=ej_op,
+                    key="cat_ejer_detalle",
+                )
+
+                if ej_pick != "(elige uno)":
+                    df_ej = df_f[df_f["ejercicio"] == ej_pick]
+
+                    # KPIs del ejercicio
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Veces hecho", df_ej["session_id"].nunique())
+                    c2.metric("Minutos totales",
+                              f"{df_ej.groupby('session_id')['duracion_min'].first().sum():.0f}")
+                    c3.metric("Intensidad",
+                              str(int(df_ej["intensidad_1_5"].iloc[0])
+                                  if pd.notna(df_ej["intensidad_1_5"].iloc[0]) else "—"))
+                    c4.metric("Tipo",
+                              str(df_ej["tipo_ejercicio"].iloc[0]) if not df_ej.empty else "—")
+
+                    # Promedios Oliver del ejercicio
+                    st.markdown("**Promedios Oliver (por jugador-sesión)**")
+                    metricas_show = {
+                        "intensity_medio": "Intensidad media",
+                        "dist_total": "Distancia total (m)",
+                        "dist_high_intensity": "Dist alta int (m)",
+                        "n_sprint": "Sprints",
+                        "kcal": "Kcal",
+                        "top_speed_kmh": "Top speed (km/h)",
+                        "n_acc_alta_pos": "Acc altas +",
+                        "n_acc_max_pos": "Acc máx +",
+                    }
+                    promed = {}
+                    for col, label in metricas_show.items():
+                        if col in df_ej.columns:
+                            promed[label] = df_ej[col].mean()
+                    promed_df = pd.DataFrame([promed]).round(1)
+                    st.dataframe(promed_df.style.format("{:.1f}", na_rep="—"),
+                                  use_container_width=True, hide_index=True)
+
+                    # Histórico de ejecuciones
+                    st.markdown("**Histórico de ejecuciones**")
+                    hist = (df_ej.groupby(["session_id", "fecha", "turno"])
+                              .agg(
+                                  duracion_min=("duracion_min", "first"),
+                                  n_jugadores=("jugador", "nunique"),
+                                  intensity_medio=("intensity_medio", "mean"),
+                                  dist_total_med=("dist_total", "mean"),
+                              ).reset_index()
+                              .sort_values("fecha", ascending=False))
+                    hist["fecha"] = hist["fecha"].dt.strftime("%Y-%m-%d")
+                    st.dataframe(
+                        hist.rename(columns={
+                            "session_id": "Session",
+                            "fecha": "Fecha",
+                            "turno": "Turno",
+                            "duracion_min": "Min",
+                            "n_jugadores": "N jug",
+                            "intensity_medio": "Int media",
+                            "dist_total_med": "Dist (m)",
+                        }).style.format({
+                            "Min": "{:.0f}",
+                            "Int media": "{:.1f}",
+                            "Dist (m)": "{:.0f}",
+                            "N jug": "{:.0f}",
+                        }, na_rep="—"),
+                        use_container_width=True, hide_index=True,
+                        height=300,
+                    )
+    except Exception as _e_cat:
+        st.error(f"❌ Error en pestaña 📚 Catálogo: {_e_cat}")
+        import traceback as _tb
+        st.expander("Detalles técnicos").code(_tb.format_exc())
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers compartidos para las pestañas de estadísticas
