@@ -200,8 +200,8 @@ OTROS DETALLES:
   conviértelas con `pd.to_datetime(df['FECHA'], errors='coerce')`.
 - ⚠️ **NO ANIDES COMILLAS DOBLES dentro de f-strings** porque corres en
   Python 3.11 y revienta. Usa comillas simples dentro:
-    BIEN:  `print(f"Hoy es {fecha.strftime('%d/%m')}")`
-    MAL:   `print(f"Hoy es {fecha.strftime("%d/%m")}")`  ← SyntaxError
+    BIEN:  `print(f"Hoy es {{fecha.strftime('%d/%m')}}")`
+    MAL:   `print(f"Hoy es {{fecha.strftime(\"%d/%m\")}}")`  ← SyntaxError
 
 FECHAS:
 - Vienen como strings `YYYY-MM-DD`. Parsea con

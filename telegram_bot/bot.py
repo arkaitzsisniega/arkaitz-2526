@@ -299,8 +299,8 @@ df = pd.DataFrame(ss.worksheet('NOMBRE_HOJA').get_all_records(
 # con coma decimal (74,7) llegan como 747.
 # ⚠️ NO ANIDES comillas dobles dentro de f-strings (Python 3.11). Usa
 # comillas simples dentro:
-#   BIEN:  print(f"Hoy es {f.strftime('%d/%m')}")
-#   MAL:   print(f"Hoy es {f.strftime("%d/%m")}")  ← SyntaxError
+#   BIEN:  print(f"Hoy es {{f.strftime('%d/%m')}}")
+#   MAL:   print(f"Hoy es {{f.strftime(\"%d/%m\")}}")  ← SyntaxError
 # pesos con coma decimal:
 # df['PESO_PRE'] = pd.to_numeric(df['PESO_PRE'].astype(str).str.replace(',','.'), errors='coerce')
 # fechas:
