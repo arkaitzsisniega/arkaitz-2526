@@ -74,6 +74,49 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 📧 Sincronización Gmail ↔ Mail.app (pedido 08/05/2026)
+
+**Síntoma**: correos enviados desde Gmail en el móvil **no aparecen** en
+la app Mail del Mac de oficina. Recibidos sí, pero los enviados desde
+fuera del Mac no se sincronizan.
+
+**Diagnóstico probable**:
+- La cuenta Gmail en Mail.app está configurada como **POP** en lugar
+  de **IMAP**. POP descarga el correo a un solo dispositivo y no
+  comparte estado con otros. Mientras Gmail usa IMAP por defecto
+  desde hace años, configuraciones antiguas pueden seguir en POP.
+- O bien Mail.app **solo sincroniza la bandeja "Recibidos"** y no la
+  carpeta "Enviados" del lado de Gmail.
+
+**Plan a aplicar**:
+
+1. Verificar el tipo de cuenta:
+   - Apple → Preferencias del Sistema → **Cuentas de Internet** →
+     selecciona la cuenta Gmail → ¿pone IMAP o POP?
+
+2. Si está en POP:
+   - Eliminar la cuenta de Mail.app.
+   - Volver a añadirla seleccionando IMAP (la app suele detectarlo
+     automáticamente al elegir "Google" en el wizard).
+
+3. Si ya está en IMAP:
+   - En Mail.app → Preferencias → Cuentas → selecciona Gmail →
+     **"Comportamiento de buzones"** → asegúrate de que la carpeta
+     "Enviados" esté **mapeada** a `[Gmail]/Sent Mail` o equivalente.
+   - En Mail.app → Buzón → **"Volver a sincronizar 'Enviados'"**.
+
+4. Si tras eso sigue mal:
+   - Mira en Gmail web (gmail.com) si los correos enviados desde móvil
+     SÍ aparecen ahí. Si en web sí pero en Mail.app no → problema 100%
+     de Mail.app sincronización. Si en web tampoco → algo raro con la
+     cuenta de móvil.
+
+5. Plan B si Mail.app sigue siendo terco:
+   - Considerar usar solo la web de Gmail desde el navegador. Más
+     ligero y sin sync.
+   - O instalar el cliente Gmail oficial (no hay app oficial para Mac,
+     pero hay alternativas como Mimestream, Spark, Airmail).
+
 ## 🤖 Detector de intención para el bot dev (pedido 08/05/2026)
 
 Antes de pasar el mensaje a Gemini, mirar si matchea con palabras clave
