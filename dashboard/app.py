@@ -3196,6 +3196,16 @@ with tab_cat_ejer:
                     c4.metric("Tipo",
                               str(df_ej["tipo_ejercicio"].iloc[0]) if not df_ej.empty else "—")
 
+                    # ── Gráfico de frecuencia mensual ───────────────────
+                    if df_ej["fecha"].notna().any():
+                        st.markdown("**Frecuencia mensual** (sesiones por mes)")
+                        df_freq = df_ej.groupby("session_id")["fecha"].first().reset_index()
+                        df_freq["mes"] = df_freq["fecha"].dt.to_period("M").astype(str)
+                        freq_serie = df_freq.groupby("mes").size()
+                        if len(freq_serie) > 0:
+                            st.bar_chart(freq_serie, color="#2E7D32",
+                                         use_container_width=True)
+
                     # Promedios Oliver del ejercicio
                     st.markdown("**Promedios Oliver (por jugador-sesión)**")
                     metricas_show = {
