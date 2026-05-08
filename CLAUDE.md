@@ -167,6 +167,15 @@
   en `_VISTA_EJERCICIOS` (37 columnas).
 - Dashboard pestaña **🎯 Ejercicios**: filtros por ejercicio/tipo, ranking por
   jugador con gradiente de colores, comparativa entre ejercicios.
+- Dashboard pestaña **📚 Catálogo** (acceso solo `admin` + `tecnico`):
+  vista agregada por NOMBRE de ejercicio. Filtros: nombre, tipo,
+  intensidad 1-5, jugador, rango fechas. Tabla con sesiones (7d/30d/365d/total),
+  minutos por periodo, intensidad y tipo. Detalle por ejercicio con KPIs,
+  promedios Oliver, gráfico mensual, histórico de ejecuciones.
+- **Escala de intensidad 1-5** (catálogo): por nombre de ejercicio,
+  promedio del `intensity_medio` de Oliver → quintiles globales con `pd.qcut`.
+  1 = ligero (calentamiento, ABP corners) · 5 = muy intenso (4x4x4, partidillos).
+  Si <5 ejercicios distintos, fallback a interpolación min-max.
 
 ## Oliver Sports — funcionamiento
 - `src/oliver_sync.py` — sync incremental (modo MVP) o `--deep` (68 métricas).
@@ -279,6 +288,29 @@ usuario, si la sesión continúa (no `/nuevo`), se prefijan al prompt
 como bloque "[Contexto del bot]" y se vacían. Esto evita el bug clásico
 de "el usuario pidió enlaces hace 2 min y vuelvo a preguntar si quiere
 los enlaces".
+
+### Detector de intención (bot dev) — lenguaje natural → slash commands
+`on_message` en `telegram_bot/bot.py` llama a `_detectar_intent(texto)`
+ANTES de pasar el mensaje a Gemini. Si matchea con un patrón regex
+asociado a un slash command, se ejecuta el handler local y NO se pasa
+por Gemini (instantáneo, sin coste).
+
+Mapeo (~50 variaciones cubiertas):
+- `consolidar`: "consolida", "actualiza los datos", "vuelca los forms",
+  "recalcula las vistas", "actualiza el dashboard", "integra los forms".
+- `enlaces`: "enlaces", "dame enlaces", "mándame los enlaces de hoy",
+  "envía los enlaces al grupo de whatsapp", "genera los enlaces".
+- `oliver_sync`: "sync oliver", "sincroniza oliver", "actualiza oliver",
+  "baja los datos de oliver", "sincroniza gps".
+- `oliver_deep`: "oliver deep", "deep oliver", "análisis profundo de oliver".
+- `ejercicios_sync`: "sync ejercicios", "recalcula los ejercicios",
+  "procesa los ejercicios".
+- `sesion` / `ejercicios_voz`: "apunta la sesión / los ejercicios",
+  "modo sesión / ejercicios", "voy a dictar la sesión / ejercicios".
+- `nuevo`: "nuevo", "reset", "olvida el contexto", "nueva conversación",
+  "empezar de nuevo".
+
+Validado con 46 casos (positivos + negativos), 100% acierto.
 
 ### Comandos explícitos del usuario
 Si el usuario dice **"ponme al día"**, **"recap"**, **"qué ha pasado por Telegram"**
