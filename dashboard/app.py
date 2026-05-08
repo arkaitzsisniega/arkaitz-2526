@@ -8174,304 +8174,303 @@ with tab_editar:
             st.markdown("---")
             plantilla = _formulario_plantilla(key_pref="cr")
 
-            st.markdown("---")
-            st.markdown("#### ⚽ Eventos de gol")
-            st.caption("Una fila por gol. Min en formato **MM:SS**. "
-                        "Pistas 1-4 + portero (modo normal), o pistas 1-5 sin "
-                        "portero (modo portero-jugador).")
-            df_ev_edit = _editor_eventos(plantilla, _ev_dataframe_inicial(),
-                                          key="cr_eventos")
-            # Validación EN VIVO bajo el editor
-            _, warns_live_cr = _normalizar_eventos_para_guardar(df_ev_edit)
-            if warns_live_cr:
-                st.markdown("**⚠️ Avisos sobre los eventos:**")
-                for w in warns_live_cr:
-                    st.warning(w)
-
-            st.markdown("---")
-            st.markdown("#### 📊 Métricas individuales (campo)")
-            st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
-            df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, "")
-            # Defaults vacíos (se rellenan si hay plantilla)
-            df_camp_edit = pd.DataFrame()
-            df_port_edit = pd.DataFrame()
-            df_rot_1t_edit = pd.DataFrame()
-            df_rot_2t_edit = pd.DataFrame()
-            if not plantilla:
-                st.info("Primero selecciona la plantilla del partido arriba.")
-            else:
-                df_camp_edit = _editor_metricas_campo(df_camp_pre, key="cr_metricas_campo")
-                # Validación en vivo
-                warns_met = _validar_metricas_campo(df_camp_edit)
-                if warns_met:
-                    st.markdown("**⚠️ Avisos métricas:**")
-                    for w in warns_met:
-                        st.warning(w)
-                st.markdown("#### 🥅 Métricas de portería")
-                st.caption("Solo aparece si hay porteros en la plantilla.")
-                df_port_edit = _editor_metricas_porteria(df_port_pre, key="cr_metricas_porteria")
-
-                # ── Rotaciones (iter 4) ────────────────────────────────────
+            with st.form("cr_partido_form", clear_on_submit=False):
                 st.markdown("---")
-                st.markdown("#### 🔄 Rotaciones individuales")
+                st.markdown("#### ⚽ Eventos de gol")
+                st.caption("Una fila por gol. Min en formato **MM:SS**. "
+                            "Pistas 1-4 + portero (modo normal), o pistas 1-5 sin "
+                            "portero (modo portero-jugador).")
+                df_ev_edit = _editor_eventos(plantilla, _ev_dataframe_inicial(),
+                                              key="cr_eventos")
+                # Validación EN VIVO bajo el editor
+                _, warns_live_cr = _normalizar_eventos_para_guardar(df_ev_edit)
+                if warns_live_cr:
+                    st.markdown("**⚠️ Avisos sobre los eventos:**")
+                    for w in warns_live_cr:
+                        st.warning(w)
+
+                st.markdown("---")
+                st.markdown("#### 📊 Métricas individuales (campo)")
+                st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
+                df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, "")
+                # Defaults vacíos (se rellenan si hay plantilla)
+                df_camp_edit = pd.DataFrame()
+                df_port_edit = pd.DataFrame()
+                df_rot_1t_edit = pd.DataFrame()
+                df_rot_2t_edit = pd.DataFrame()
+                if not plantilla:
+                    st.info("Primero selecciona la plantilla del partido arriba.")
+                else:
+                    df_camp_edit = _editor_metricas_campo(df_camp_pre, key="cr_metricas_campo")
+                    # Validación en vivo
+                    warns_met = _validar_metricas_campo(df_camp_edit)
+                    if warns_met:
+                        st.markdown("**⚠️ Avisos métricas:**")
+                        for w in warns_met:
+                            st.warning(w)
+                    st.markdown("#### 🥅 Métricas de portería")
+                    st.caption("Solo aparece si hay porteros en la plantilla.")
+                    df_port_edit = _editor_metricas_porteria(df_port_pre, key="cr_metricas_porteria")
+
+                    # ── Rotaciones (iter 4) ────────────────────────────────────
+                    st.markdown("---")
+                    st.markdown("#### 🔄 Rotaciones individuales")
+                    st.caption(
+                        "Una fila por convocado, con duración de cada rotación en MM:SS. "
+                        "Las rotaciones cortas no apuntadas (≤ algunos segundos) se suman "
+                        "al Min Total de la parte aunque no aparezcan aquí. La suma de "
+                        "rotaciones de la parte debe ser ≤ Min de la parte.")
+                    col_rn1, col_rn2 = st.columns(2)
+                    with col_rn1:
+                        n_rot_1t_cr = st.slider(
+                            "Rotaciones a mostrar 1ª parte", 1, 8, 4,
+                            key="cr_n_rot_1t",
+                            help="Sólo muestra las primeras N rotaciones. Las demás se ocultan.")
+                    with col_rn2:
+                        n_rot_2t_cr = st.slider(
+                            "Rotaciones a mostrar 2ª parte", 1, 8, 4,
+                            key="cr_n_rot_2t")
+                    st.markdown("**1ª parte**")
+                    df_rot_1t_pre = _df_rotaciones_inicial(plantilla, "", "1t")
+                    df_rot_1t_edit = _editor_rotaciones(
+                        df_rot_1t_pre, n_rot_1t_cr, "1T", key="cr_rot_1t")
+                    warns_rot_1 = _validar_rotaciones(df_rot_1t_edit)
+                    if warns_rot_1:
+                        st.markdown("**⚠️ Avisos rotaciones 1T:**")
+                        for w in warns_rot_1:
+                            st.warning(w)
+                    st.markdown("**2ª parte**")
+                    df_rot_2t_pre = _df_rotaciones_inicial(plantilla, "", "2t")
+                    df_rot_2t_edit = _editor_rotaciones(
+                        df_rot_2t_pre, n_rot_2t_cr, "2T", key="cr_rot_2t")
+                    warns_rot_2 = _validar_rotaciones(df_rot_2t_edit)
+                    if warns_rot_2:
+                        st.markdown("**⚠️ Avisos rotaciones 2T:**")
+                        for w in warns_rot_2:
+                            st.warning(w)
+
+                # ── Faltas (iter 7) ────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 🟨 Faltas")
                 st.caption(
-                    "Una fila por convocado, con duración de cada rotación en MM:SS. "
-                    "Las rotaciones cortas no apuntadas (≤ algunos segundos) se suman "
-                    "al Min Total de la parte aunque no aparezcan aquí. La suma de "
-                    "rotaciones de la parte debe ser ≤ Min de la parte.")
-                col_rn1, col_rn2 = st.columns(2)
-                with col_rn1:
-                    n_rot_1t_cr = st.slider(
-                        "Rotaciones a mostrar 1ª parte", 1, 8, 4,
-                        key="cr_n_rot_1t",
-                        help="Sólo muestra las primeras N rotaciones. Las demás se ocultan.")
-                with col_rn2:
-                    n_rot_2t_cr = st.slider(
-                        "Rotaciones a mostrar 2ª parte", 1, 8, 4,
-                        key="cr_n_rot_2t")
-                st.markdown("**1ª parte**")
-                df_rot_1t_pre = _df_rotaciones_inicial(plantilla, "", "1t")
-                df_rot_1t_edit = _editor_rotaciones(
-                    df_rot_1t_pre, n_rot_1t_cr, "1T", key="cr_rot_1t")
-                warns_rot_1 = _validar_rotaciones(df_rot_1t_edit)
-                if warns_rot_1:
-                    st.markdown("**⚠️ Avisos rotaciones 1T:**")
-                    for w in warns_rot_1:
-                        st.warning(w)
-                st.markdown("**2ª parte**")
-                df_rot_2t_pre = _df_rotaciones_inicial(plantilla, "", "2t")
-                df_rot_2t_edit = _editor_rotaciones(
-                    df_rot_2t_pre, n_rot_2t_cr, "2T", key="cr_rot_2t")
-                warns_rot_2 = _validar_rotaciones(df_rot_2t_edit)
-                if warns_rot_2:
-                    st.markdown("**⚠️ Avisos rotaciones 2T:**")
-                    for w in warns_rot_2:
-                        st.warning(w)
-
-            # ── Faltas (iter 7) ────────────────────────────────────────
-            st.markdown("---")
-            st.markdown("#### 🟨 Faltas")
-            st.caption(
-                "Una fila por falta. EN_CONTRA = falta que cometemos · "
-                "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
-                "parte → 10m sin barrera."
-            )
-            df_faltas_pre_cr = _df_faltas_inicial()
-            df_faltas_edit_cr = _editor_faltas(
-                plantilla, df_faltas_pre_cr, key="cr_faltas")
-            df_faltas_norm_cr_live, warns_falt_cr = _normalizar_faltas_para_guardar(
-                df_faltas_edit_cr)
-            alertas_falt_cr = _calcular_alertas_faltas(df_faltas_norm_cr_live)
-            for w in warns_falt_cr:
-                st.warning(f"⚠️ {w}")
-            for a in alertas_falt_cr:
-                if a.startswith("⚠️"):
-                    st.error(a)
-                else:
-                    st.warning(a)
-
-            # ── 10 metros / Penaltis (iter 8) ────────────────────────────────
-            st.markdown("---")
-            st.markdown("#### 🎯 10 metros / Penaltis")
-            st.caption(
-                "PENALTI: 6m por falta dentro del área. "
-                "10M: 10m por la 6ª falta del equipo. "
-                "Si va FUERA, además debería sumar como DF del lanzador "
-                "en la tabla de métricas."
-            )
-            df_pen_pre_cr = _df_penaltis_inicial()
-            df_pen_edit_cr = _editor_penaltis(
-                plantilla, df_pen_pre_cr, key="cr_penaltis")
-            _, warns_pen_cr = _normalizar_penaltis_para_guardar(df_pen_edit_cr)
-            for w in warns_pen_cr:
-                st.warning(f"⚠️ {w}")
-
-            # ── Zonas (iter 5) ────────────────────────────────────────
-            st.markdown("---")
-            st.markdown("#### 📍 Zonas de gol y portería")
-            st.caption(
-                "11 zonas de campo (Z1-Z11) + 9 cuadrantes de portería "
-                "(P1-P9). Una tabla por parte. El TOTAL del partido se "
-                "calcula como 1ª + 2ª. **No metas penaltis ni 10m aquí** "
-                "— van en su sección dedicada (penaltis se tiran en la "
-                "convergencia A1+A2+A4+A5; 10m en A4+A5+A8+A9)."
-            )
-            st.markdown("**1ª parte**")
-            df_zonas_pre_cr_1t = _df_zonas_inicial(
-                cab["partido_id"], cab["rival"], cab["fecha"], "1T")
-            df_zonas_edit_cr_1t = _editor_zonas(
-                df_zonas_pre_cr_1t, key="cr_zonas_1t")
-            st.markdown("**2ª parte**")
-            df_zonas_pre_cr_2t = _df_zonas_inicial(
-                cab["partido_id"], cab["rival"], cab["fecha"], "2T")
-            df_zonas_edit_cr_2t = _editor_zonas(
-                df_zonas_pre_cr_2t, key="cr_zonas_2t")
-            # Vista previa del TOTAL (1T + 2T)
-            with st.expander("🔢 Total del partido (1T + 2T) — preview"):
-                _df_total_cr = df_zonas_edit_cr_1t.copy()
-                for c in ("gol_af", "gol_ec", "disp_af", "disp_ec"):
-                    _df_total_cr[c] = (
-                        pd.to_numeric(df_zonas_edit_cr_1t[c], errors="coerce").fillna(0).astype(int)
-                        + pd.to_numeric(df_zonas_edit_cr_2t[c], errors="coerce").fillna(0).astype(int)
-                    )
-                st.dataframe(_df_total_cr, use_container_width=True, hide_index=True)
-
-            # ── Planillas imprimibles (papel/boli) — modo Crear ─────────
-            st.markdown("---")
-            st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
-            st.caption(
-                "**Genera las planillas ANTES del partido** sin necesidad de "
-                "guardarlo todavía. Usa la cabecera y plantilla de arriba. "
-                "Imprime, lleva al partido, apunta a boli, y luego "
-                "transcribes los datos en este mismo form."
-            )
-            if not cab.get("rival") or not plantilla:
-                st.info(
-                    "💡 Rellena al menos el **rival** (cabecera) y la "
-                    "**plantilla** para generar la planilla."
+                    "Una fila por falta. EN_CONTRA = falta que cometemos · "
+                    "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
+                    "parte → 10m sin barrera."
                 )
-            else:
-                cpla1_cr, cpla2_cr = st.columns(2)
-                # Construir datos directos a partir del form
-                _datos_directos_cr = {
-                    "rival": cab["rival"],
-                    "fecha": cab.get("fecha", ""),
-                    "lugar": cab.get("lugar", ""),
-                    "hora": cab.get("hora", ""),
-                    "competicion": cab.get("competicion", ""),
-                    "local_visitante": cab.get("local_visitante", ""),
-                    "jugadores": [
-                        {"dorsal": p.get("dorsal", ""),
-                         "jugador": p.get("jugador", ""),
-                         "posicion": p.get("posicion", "")}
-                        for p in plantilla
-                    ],
-                }
-                with cpla1_cr:
-                    if st.button("🖨 Planilla Arkaitz",
-                                  key="pla_ark_cr", use_container_width=True):
-                        try:
-                            import sys as _sys
-                            from pathlib import Path as _Path
-                            _root = _Path(__file__).resolve().parent.parent
-                            if str(_root) not in _sys.path:
-                                _sys.path.insert(0, str(_root))
-                            from src.pdf_planilla_blank import generar_planilla as _gen
-                            with st.spinner("Generando planillas…"):
-                                pdf_1t = _gen("arkaitz", "1T",
-                                                datos_directos=_datos_directos_cr)
-                                pdf_2t = _gen("arkaitz", "2T",
-                                                datos_directos=_datos_directos_cr)
-                            st.session_state["pla_ark_1t_cr"] = pdf_1t
-                            st.session_state["pla_ark_2t_cr"] = pdf_2t
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                            import traceback as _tb
-                            st.expander("Detalles").code(_tb.format_exc())
-                    if st.session_state.get("pla_ark_1t_cr"):
-                        st.download_button(
-                            "⬇️ Arkaitz 1ª parte",
-                            data=st.session_state["pla_ark_1t_cr"],
-                            file_name=f"planilla_arkaitz_1T_{cab['rival']}.pdf",
-                            mime="application/pdf",
-                            key="dl_ark_1t_cr",
-                            use_container_width=True,
-                        )
-                    if st.session_state.get("pla_ark_2t_cr"):
-                        st.download_button(
-                            "⬇️ Arkaitz 2ª parte",
-                            data=st.session_state["pla_ark_2t_cr"],
-                            file_name=f"planilla_arkaitz_2T_{cab['rival']}.pdf",
-                            mime="application/pdf",
-                            key="dl_ark_2t_cr",
-                            use_container_width=True,
-                        )
-                with cpla2_cr:
-                    if st.button("🖨 Planilla Compañero",
-                                  key="pla_comp_cr", use_container_width=True):
-                        try:
-                            import sys as _sys
-                            from pathlib import Path as _Path
-                            _root = _Path(__file__).resolve().parent.parent
-                            if str(_root) not in _sys.path:
-                                _sys.path.insert(0, str(_root))
-                            from src.pdf_planilla_blank import generar_planilla as _gen
-                            with st.spinner("Generando planilla…"):
-                                # Compa: ahora 1 ÚNICO PDF con ambas partes en
-                                # A4 vertical. El parámetro 'parte' se ignora.
-                                pdf_compa = _gen("compa", "1T",
-                                                  datos_directos=_datos_directos_cr)
-                            st.session_state["pla_comp_cr_pdf"] = pdf_compa
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                    if st.session_state.get("pla_comp_cr_pdf"):
-                        st.download_button(
-                            "⬇️ Compañero (1ª + 2ª parte)",
-                            data=st.session_state["pla_comp_cr_pdf"],
-                            file_name=f"planilla_compa_{cab['rival']}.pdf",
-                            mime="application/pdf",
-                            key="dl_comp_cr",
-                            use_container_width=True,
-                        )
+                df_faltas_pre_cr = _df_faltas_inicial()
+                df_faltas_edit_cr = _editor_faltas(
+                    plantilla, df_faltas_pre_cr, key="cr_faltas")
+                df_faltas_norm_cr_live, warns_falt_cr = _normalizar_faltas_para_guardar(
+                    df_faltas_edit_cr)
+                alertas_falt_cr = _calcular_alertas_faltas(df_faltas_norm_cr_live)
+                for w in warns_falt_cr:
+                    st.warning(f"⚠️ {w}")
+                for a in alertas_falt_cr:
+                    if a.startswith("⚠️"):
+                        st.error(a)
+                    else:
+                        st.warning(a)
 
-            if st.button("💾 Guardar partido", type="primary", key="cr_guardar"):
-                if not cab["rival"]:
-                    st.error("Pon el nombre del rival.")
-                elif not cab["partido_id"]:
-                    st.error("Pon el ID del partido (ej: J27.PEÑISCOLA).")
-                elif not plantilla:
-                    st.error("Selecciona al menos un convocado.")
-                else:
-                    df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
-                        df_ev_edit)
-                    metricas_dict = _normalizar_metricas_para_guardar(
-                        df_camp_edit, df_port_edit)
-                    rot_dict = _normalizar_rotaciones_para_guardar(
-                        df_rot_1t_edit, df_rot_2t_edit)
-                    df_faltas_norm_cr, warns_falt_save_cr = \
-                        _normalizar_faltas_para_guardar(df_faltas_edit_cr)
-                    df_pen_norm_cr, warns_pen_save_cr = \
-                        _normalizar_penaltis_para_guardar(df_pen_edit_cr)
-                    # Autorrellenar marcador desde df_ev_norm
-                    df_pen_norm_cr = _autorellenar_marcador_penaltis(
-                        df_pen_norm_cr, df_ev_norm)
-                    try:
-                        with st.spinner("Guardando…"):
-                            _guardar_cabecera_totales(cab, totales_disp_cr)
-                            n_pl = _guardar_plantilla(
-                                cab["partido_id"], plantilla, cab)
-                            n_met = _guardar_metricas(
-                                cab["partido_id"], metricas_dict, cab)
-                            n_rot = _guardar_rotaciones(
-                                cab["partido_id"], rot_dict)
-                            n_ev = _guardar_eventos(
-                                cab["partido_id"], cab["tipo"], cab["competicion"],
-                                cab["rival"], cab["fecha"], df_ev_norm
-                            )
-                            n_falt = _guardar_faltas(
-                                cab["partido_id"], df_faltas_norm_cr, cab)
-                            n_pen = _guardar_penaltis(
-                                cab["partido_id"], df_pen_norm_cr, cab)
-                            n_zon = _guardar_zonas(
-                                cab["partido_id"],
-                                df_zonas_edit_cr_1t, df_zonas_edit_cr_2t,
-                                cab)
-                        st.success(
-                            f"✅ Partido creado. Cabecera + {n_pl} convocados "
-                            f"+ {n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
-                            f"+ {n_zon} zonas."
+                # ── 10 metros / Penaltis (iter 8) ────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 🎯 10 metros / Penaltis")
+                st.caption(
+                    "PENALTI: 6m por falta dentro del área. "
+                    "10M: 10m por la 6ª falta del equipo. "
+                    "Si va FUERA, además debería sumar como DF del lanzador "
+                    "en la tabla de métricas."
+                )
+                df_pen_pre_cr = _df_penaltis_inicial()
+                df_pen_edit_cr = _editor_penaltis(
+                    plantilla, df_pen_pre_cr, key="cr_penaltis")
+                _, warns_pen_cr = _normalizar_penaltis_para_guardar(df_pen_edit_cr)
+                for w in warns_pen_cr:
+                    st.warning(f"⚠️ {w}")
+
+                # ── Zonas (iter 5) ────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("#### 📍 Zonas de gol y portería")
+                st.caption(
+                    "11 zonas de campo (Z1-Z11) + 9 cuadrantes de portería "
+                    "(P1-P9). Una tabla por parte. El TOTAL del partido se "
+                    "calcula como 1ª + 2ª. **No metas penaltis ni 10m aquí** "
+                    "— van en su sección dedicada (penaltis se tiran en la "
+                    "convergencia A1+A2+A4+A5; 10m en A4+A5+A8+A9)."
+                )
+                st.markdown("**1ª parte**")
+                df_zonas_pre_cr_1t = _df_zonas_inicial(
+                    cab["partido_id"], cab["rival"], cab["fecha"], "1T")
+                df_zonas_edit_cr_1t = _editor_zonas(
+                    df_zonas_pre_cr_1t, key="cr_zonas_1t")
+                st.markdown("**2ª parte**")
+                df_zonas_pre_cr_2t = _df_zonas_inicial(
+                    cab["partido_id"], cab["rival"], cab["fecha"], "2T")
+                df_zonas_edit_cr_2t = _editor_zonas(
+                    df_zonas_pre_cr_2t, key="cr_zonas_2t")
+                # Vista previa del TOTAL (1T + 2T)
+                with st.expander("🔢 Total del partido (1T + 2T) — preview"):
+                    _df_total_cr = df_zonas_edit_cr_1t.copy()
+                    for c in ("gol_af", "gol_ec", "disp_af", "disp_ec"):
+                        _df_total_cr[c] = (
+                            pd.to_numeric(df_zonas_edit_cr_1t[c], errors="coerce").fillna(0).astype(int)
+                            + pd.to_numeric(df_zonas_edit_cr_2t[c], errors="coerce").fillna(0).astype(int)
                         )
-                        for w in warns_ev:
-                            st.warning(f"⚠️ {w}")
-                        for w in warns_falt_save_cr:
-                            st.warning(f"⚠️ {w}")
-                        for w in warns_pen_save_cr:
-                            st.warning(f"⚠️ {w}")
-                        st.cache_data.clear()
-                        st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
-                    except Exception as e:
-                        st.error(f"Error al guardar: {e}")
+                    st.dataframe(_df_total_cr, use_container_width=True, hide_index=True)
+
+                # ── Planillas imprimibles (papel/boli) — modo Crear ─────────
+                st.markdown("---")
+                st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
+                st.caption(
+                    "**Genera las planillas ANTES del partido** sin necesidad de "
+                    "guardarlo todavía. Usa la cabecera y plantilla de arriba. "
+                    "Imprime, lleva al partido, apunta a boli, y luego "
+                    "transcribes los datos en este mismo form."
+                )
+                if not cab.get("rival") or not plantilla:
+                    st.info(
+                        "💡 Rellena al menos el **rival** (cabecera) y la "
+                        "**plantilla** para generar la planilla."
+                    )
+                else:
+                    cpla1_cr, cpla2_cr = st.columns(2)
+                    # Construir datos directos a partir del form
+                    _datos_directos_cr = {
+                        "rival": cab["rival"],
+                        "fecha": cab.get("fecha", ""),
+                        "lugar": cab.get("lugar", ""),
+                        "hora": cab.get("hora", ""),
+                        "competicion": cab.get("competicion", ""),
+                        "local_visitante": cab.get("local_visitante", ""),
+                        "jugadores": [
+                            {"dorsal": p.get("dorsal", ""),
+                             "jugador": p.get("jugador", ""),
+                             "posicion": p.get("posicion", "")}
+                            for p in plantilla
+                        ],
+                    }
+                    with cpla1_cr:
+                        if st.form_submit_button("🖨 Planilla Arkaitz", use_container_width=True):
+                            try:
+                                import sys as _sys
+                                from pathlib import Path as _Path
+                                _root = _Path(__file__).resolve().parent.parent
+                                if str(_root) not in _sys.path:
+                                    _sys.path.insert(0, str(_root))
+                                from src.pdf_planilla_blank import generar_planilla as _gen
+                                with st.spinner("Generando planillas…"):
+                                    pdf_1t = _gen("arkaitz", "1T",
+                                                    datos_directos=_datos_directos_cr)
+                                    pdf_2t = _gen("arkaitz", "2T",
+                                                    datos_directos=_datos_directos_cr)
+                                st.session_state["pla_ark_1t_cr"] = pdf_1t
+                                st.session_state["pla_ark_2t_cr"] = pdf_2t
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                                import traceback as _tb
+                                st.expander("Detalles").code(_tb.format_exc())
+                        if st.session_state.get("pla_ark_1t_cr"):
+                            st.download_button(
+                                "⬇️ Arkaitz 1ª parte",
+                                data=st.session_state["pla_ark_1t_cr"],
+                                file_name=f"planilla_arkaitz_1T_{cab['rival']}.pdf",
+                                mime="application/pdf",
+                                key="dl_ark_1t_cr",
+                                use_container_width=True,
+                            )
+                        if st.session_state.get("pla_ark_2t_cr"):
+                            st.download_button(
+                                "⬇️ Arkaitz 2ª parte",
+                                data=st.session_state["pla_ark_2t_cr"],
+                                file_name=f"planilla_arkaitz_2T_{cab['rival']}.pdf",
+                                mime="application/pdf",
+                                key="dl_ark_2t_cr",
+                                use_container_width=True,
+                            )
+                    with cpla2_cr:
+                        if st.form_submit_button("🖨 Planilla Compañero", use_container_width=True):
+                            try:
+                                import sys as _sys
+                                from pathlib import Path as _Path
+                                _root = _Path(__file__).resolve().parent.parent
+                                if str(_root) not in _sys.path:
+                                    _sys.path.insert(0, str(_root))
+                                from src.pdf_planilla_blank import generar_planilla as _gen
+                                with st.spinner("Generando planilla…"):
+                                    # Compa: ahora 1 ÚNICO PDF con ambas partes en
+                                    # A4 vertical. El parámetro 'parte' se ignora.
+                                    pdf_compa = _gen("compa", "1T",
+                                                      datos_directos=_datos_directos_cr)
+                                st.session_state["pla_comp_cr_pdf"] = pdf_compa
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        if st.session_state.get("pla_comp_cr_pdf"):
+                            st.download_button(
+                                "⬇️ Compañero (1ª + 2ª parte)",
+                                data=st.session_state["pla_comp_cr_pdf"],
+                                file_name=f"planilla_compa_{cab['rival']}.pdf",
+                                mime="application/pdf",
+                                key="dl_comp_cr",
+                                use_container_width=True,
+                            )
+
+                if st.form_submit_button("💾 Guardar partido", type="primary"):
+                    if not cab["rival"]:
+                        st.error("Pon el nombre del rival.")
+                    elif not cab["partido_id"]:
+                        st.error("Pon el ID del partido (ej: J27.PEÑISCOLA).")
+                    elif not plantilla:
+                        st.error("Selecciona al menos un convocado.")
+                    else:
+                        df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
+                            df_ev_edit)
+                        metricas_dict = _normalizar_metricas_para_guardar(
+                            df_camp_edit, df_port_edit)
+                        rot_dict = _normalizar_rotaciones_para_guardar(
+                            df_rot_1t_edit, df_rot_2t_edit)
+                        df_faltas_norm_cr, warns_falt_save_cr = \
+                            _normalizar_faltas_para_guardar(df_faltas_edit_cr)
+                        df_pen_norm_cr, warns_pen_save_cr = \
+                            _normalizar_penaltis_para_guardar(df_pen_edit_cr)
+                        # Autorrellenar marcador desde df_ev_norm
+                        df_pen_norm_cr = _autorellenar_marcador_penaltis(
+                            df_pen_norm_cr, df_ev_norm)
+                        try:
+                            with st.spinner("Guardando…"):
+                                _guardar_cabecera_totales(cab, totales_disp_cr)
+                                n_pl = _guardar_plantilla(
+                                    cab["partido_id"], plantilla, cab)
+                                n_met = _guardar_metricas(
+                                    cab["partido_id"], metricas_dict, cab)
+                                n_rot = _guardar_rotaciones(
+                                    cab["partido_id"], rot_dict)
+                                n_ev = _guardar_eventos(
+                                    cab["partido_id"], cab["tipo"], cab["competicion"],
+                                    cab["rival"], cab["fecha"], df_ev_norm
+                                )
+                                n_falt = _guardar_faltas(
+                                    cab["partido_id"], df_faltas_norm_cr, cab)
+                                n_pen = _guardar_penaltis(
+                                    cab["partido_id"], df_pen_norm_cr, cab)
+                                n_zon = _guardar_zonas(
+                                    cab["partido_id"],
+                                    df_zonas_edit_cr_1t, df_zonas_edit_cr_2t,
+                                    cab)
+                            st.success(
+                                f"✅ Partido creado. Cabecera + {n_pl} convocados "
+                                f"+ {n_met} con métricas + {n_rot} con rotaciones "
+                                f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
+                                f"+ {n_zon} zonas."
+                            )
+                            for w in warns_ev:
+                                st.warning(f"⚠️ {w}")
+                            for w in warns_falt_save_cr:
+                                st.warning(f"⚠️ {w}")
+                            for w in warns_pen_save_cr:
+                                st.warning(f"⚠️ {w}")
+                            st.cache_data.clear()
+                            st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
+                        except Exception as e:
+                            st.error(f"Error al guardar: {e}")
 
         # ────────────────────────────────────────────────────────────────────
         else:
@@ -8579,311 +8578,312 @@ with tab_editar:
                 totales_disp_ed = _formulario_totales_disparos(
                     tot_pre=tot_pre_disp, key_pref=f"ed_{pid_sel}")
 
-                st.markdown("---")
-                st.markdown("#### ⚽ Eventos de gol")
-                st.caption("Una fila por gol. Min en formato **MM:SS**. "
-                            "Pistas 1-4 + portero (modo normal), o pistas 1-5 "
-                            "sin portero (modo portero-jugador).")
-                df_ev_pre_norm = _ev_desde_df_existente(ev_actual)
-                df_ev_edit = _editor_eventos(plantilla, df_ev_pre_norm,
-                                              key=f"ed_eventos_{pid_sel}")
-                # Validación EN VIVO bajo el editor
-                _, warns_live_ed = _normalizar_eventos_para_guardar(df_ev_edit)
-                if warns_live_ed:
-                    st.markdown("**⚠️ Avisos sobre los eventos:**")
-                    for w in warns_live_ed:
-                        st.warning(w)
-
-                # ── Métricas individuales (precargadas del partido) ───────
-                st.markdown("---")
-                st.markdown("#### 📊 Métricas individuales (campo)")
-                st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
-                df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, pid_sel)
-                # Defaults vacíos
-                df_camp_edit_e = pd.DataFrame()
-                df_port_edit_e = pd.DataFrame()
-                df_rot_1t_edit_e = pd.DataFrame()
-                df_rot_2t_edit_e = pd.DataFrame()
-                if not plantilla:
-                    st.info("Selecciona la plantilla arriba para editar las métricas.")
-                else:
-                    df_camp_edit_e = _editor_metricas_campo(
-                        df_camp_pre, key=f"ed_metricas_campo_{pid_sel}")
-                    warns_met_e = _validar_metricas_campo(df_camp_edit_e)
-                    if warns_met_e:
-                        st.markdown("**⚠️ Avisos métricas:**")
-                        for w in warns_met_e:
-                            st.warning(w)
-                    st.markdown("#### 🥅 Métricas de portería")
-                    df_port_edit_e = _editor_metricas_porteria(
-                        df_port_pre, key=f"ed_metricas_porteria_{pid_sel}")
-
-                    # ── Rotaciones (iter 4) ────────────────────────────────
+                with st.form("ed_partido_form", clear_on_submit=False):
                     st.markdown("---")
-                    st.markdown("#### 🔄 Rotaciones individuales")
-                    st.caption(
-                        "Una fila por convocado. La suma de rotaciones de la "
-                        "parte debe ser ≤ Min de la parte (las rotaciones "
-                        "cortas no apuntadas también suman al Min Total).")
-                    col_rn1, col_rn2 = st.columns(2)
-                    with col_rn1:
-                        n_rot_1t_ed = st.slider(
-                            "Rotaciones a mostrar 1ª parte", 1, 8, 8,
-                            key=f"ed_n_rot_1t_{pid_sel}")
-                    with col_rn2:
-                        n_rot_2t_ed = st.slider(
-                            "Rotaciones a mostrar 2ª parte", 1, 8, 8,
-                            key=f"ed_n_rot_2t_{pid_sel}")
-                    st.markdown("**1ª parte**")
-                    df_rot_1t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "1t")
-                    df_rot_1t_edit_e = _editor_rotaciones(
-                        df_rot_1t_pre, n_rot_1t_ed, "1T",
-                        key=f"ed_rot_1t_{pid_sel}")
-                    warns_rot_1 = _validar_rotaciones(df_rot_1t_edit_e)
-                    if warns_rot_1:
-                        st.markdown("**⚠️ Avisos rotaciones 1T:**")
-                        for w in warns_rot_1:
-                            st.warning(w)
-                    st.markdown("**2ª parte**")
-                    df_rot_2t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "2t")
-                    df_rot_2t_edit_e = _editor_rotaciones(
-                        df_rot_2t_pre, n_rot_2t_ed, "2T",
-                        key=f"ed_rot_2t_{pid_sel}")
-                    warns_rot_2 = _validar_rotaciones(df_rot_2t_edit_e)
-                    if warns_rot_2:
-                        st.markdown("**⚠️ Avisos rotaciones 2T:**")
-                        for w in warns_rot_2:
+                    st.markdown("#### ⚽ Eventos de gol")
+                    st.caption("Una fila por gol. Min en formato **MM:SS**. "
+                                "Pistas 1-4 + portero (modo normal), o pistas 1-5 "
+                                "sin portero (modo portero-jugador).")
+                    df_ev_pre_norm = _ev_desde_df_existente(ev_actual)
+                    df_ev_edit = _editor_eventos(plantilla, df_ev_pre_norm,
+                                                  key=f"ed_eventos_{pid_sel}")
+                    # Validación EN VIVO bajo el editor
+                    _, warns_live_ed = _normalizar_eventos_para_guardar(df_ev_edit)
+                    if warns_live_ed:
+                        st.markdown("**⚠️ Avisos sobre los eventos:**")
+                        for w in warns_live_ed:
                             st.warning(w)
 
-                # ── Faltas (iter 7) — modo Editar ──────────────────────
-                st.markdown("---")
-                st.markdown("#### 🟨 Faltas")
-                st.caption(
-                    "Una fila por falta. EN_CONTRA = falta que cometemos · "
-                    "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
-                    "parte → 10m sin barrera."
-                )
-                df_faltas_pre_ed = _df_faltas_desde_sheet(pid_sel)
-                df_faltas_edit_ed = _editor_faltas(
-                    plantilla, df_faltas_pre_ed,
-                    key=f"ed_faltas_{pid_sel}")
-                df_faltas_norm_ed_live, warns_falt_ed = \
-                    _normalizar_faltas_para_guardar(df_faltas_edit_ed)
-                alertas_falt_ed = _calcular_alertas_faltas(df_faltas_norm_ed_live)
-                for w in warns_falt_ed:
-                    st.warning(f"⚠️ {w}")
-                for a in alertas_falt_ed:
-                    if a.startswith("⚠️"):
-                        st.error(a)
+                    # ── Métricas individuales (precargadas del partido) ───────
+                    st.markdown("---")
+                    st.markdown("#### 📊 Métricas individuales (campo)")
+                    st.caption("Una fila por convocado. Min Total se calcula como Min 1T + Min 2T si lo dejas vacío.")
+                    df_camp_pre, df_port_pre = _df_metricas_inicial(plantilla, pid_sel)
+                    # Defaults vacíos
+                    df_camp_edit_e = pd.DataFrame()
+                    df_port_edit_e = pd.DataFrame()
+                    df_rot_1t_edit_e = pd.DataFrame()
+                    df_rot_2t_edit_e = pd.DataFrame()
+                    if not plantilla:
+                        st.info("Selecciona la plantilla arriba para editar las métricas.")
                     else:
-                        st.warning(a)
+                        df_camp_edit_e = _editor_metricas_campo(
+                            df_camp_pre, key=f"ed_metricas_campo_{pid_sel}")
+                        warns_met_e = _validar_metricas_campo(df_camp_edit_e)
+                        if warns_met_e:
+                            st.markdown("**⚠️ Avisos métricas:**")
+                            for w in warns_met_e:
+                                st.warning(w)
+                        st.markdown("#### 🥅 Métricas de portería")
+                        df_port_edit_e = _editor_metricas_porteria(
+                            df_port_pre, key=f"ed_metricas_porteria_{pid_sel}")
 
-                # ── 10 metros / Penaltis (iter 8) — modo Editar ──────────────
-                st.markdown("---")
-                st.markdown("#### 🎯 10 metros / Penaltis")
-                st.caption(
-                    "PENALTI: 6m por falta dentro del área. "
-                    "10M: 10m por la 6ª falta del equipo."
-                )
-                df_pen_pre_ed = _df_penaltis_desde_sheet(pid_sel)
-                df_pen_edit_ed = _editor_penaltis(
-                    plantilla, df_pen_pre_ed, key=f"ed_penaltis_{pid_sel}")
-                _, warns_pen_ed = _normalizar_penaltis_para_guardar(df_pen_edit_ed)
-                for w in warns_pen_ed:
-                    st.warning(f"⚠️ {w}")
+                        # ── Rotaciones (iter 4) ────────────────────────────────
+                        st.markdown("---")
+                        st.markdown("#### 🔄 Rotaciones individuales")
+                        st.caption(
+                            "Una fila por convocado. La suma de rotaciones de la "
+                            "parte debe ser ≤ Min de la parte (las rotaciones "
+                            "cortas no apuntadas también suman al Min Total).")
+                        col_rn1, col_rn2 = st.columns(2)
+                        with col_rn1:
+                            n_rot_1t_ed = st.slider(
+                                "Rotaciones a mostrar 1ª parte", 1, 8, 8,
+                                key=f"ed_n_rot_1t_{pid_sel}")
+                        with col_rn2:
+                            n_rot_2t_ed = st.slider(
+                                "Rotaciones a mostrar 2ª parte", 1, 8, 8,
+                                key=f"ed_n_rot_2t_{pid_sel}")
+                        st.markdown("**1ª parte**")
+                        df_rot_1t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "1t")
+                        df_rot_1t_edit_e = _editor_rotaciones(
+                            df_rot_1t_pre, n_rot_1t_ed, "1T",
+                            key=f"ed_rot_1t_{pid_sel}")
+                        warns_rot_1 = _validar_rotaciones(df_rot_1t_edit_e)
+                        if warns_rot_1:
+                            st.markdown("**⚠️ Avisos rotaciones 1T:**")
+                            for w in warns_rot_1:
+                                st.warning(w)
+                        st.markdown("**2ª parte**")
+                        df_rot_2t_pre = _df_rotaciones_inicial(plantilla, pid_sel, "2t")
+                        df_rot_2t_edit_e = _editor_rotaciones(
+                            df_rot_2t_pre, n_rot_2t_ed, "2T",
+                            key=f"ed_rot_2t_{pid_sel}")
+                        warns_rot_2 = _validar_rotaciones(df_rot_2t_edit_e)
+                        if warns_rot_2:
+                            st.markdown("**⚠️ Avisos rotaciones 2T:**")
+                            for w in warns_rot_2:
+                                st.warning(w)
 
-                # ── Zonas (iter 5+11) — modo Editar ──────────────────────
-                st.markdown("---")
-                st.markdown("#### 📍 Zonas de gol y portería")
-                st.caption(
-                    "Una tabla por parte. El TOTAL del partido se calcula "
-                    "como 1ª + 2ª. **No metas penaltis ni 10m aquí** — van "
-                    "en su sección dedicada (penaltis: convergencia "
-                    "A1+A2+A4+A5; 10m: A4+A5+A8+A9)."
-                )
-                st.markdown("**1ª parte**")
-                df_zonas_pre_ed_1t = _df_zonas_inicial(
-                    pid_sel, m["rival"], str(m["fecha"]), "1T")
-                df_zonas_edit_ed_1t = _editor_zonas(
-                    df_zonas_pre_ed_1t, key=f"ed_zonas_1t_{pid_sel}")
-                st.markdown("**2ª parte**")
-                df_zonas_pre_ed_2t = _df_zonas_inicial(
-                    pid_sel, m["rival"], str(m["fecha"]), "2T")
-                df_zonas_edit_ed_2t = _editor_zonas(
-                    df_zonas_pre_ed_2t, key=f"ed_zonas_2t_{pid_sel}")
-                with st.expander("🔢 Total del partido (1T + 2T) — preview"):
-                    _df_total_ed = df_zonas_edit_ed_1t.copy()
-                    for c in ("gol_af", "gol_ec", "disp_af", "disp_ec"):
-                        _df_total_ed[c] = (
-                            pd.to_numeric(df_zonas_edit_ed_1t[c], errors="coerce").fillna(0).astype(int)
-                            + pd.to_numeric(df_zonas_edit_ed_2t[c], errors="coerce").fillna(0).astype(int)
-                        )
-                    st.dataframe(_df_total_ed, use_container_width=True, hide_index=True)
-
-                # ── Planillas imprimibles (papel/boli) ─────────────────────
-                st.markdown("---")
-                st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
-                st.caption(
-                    "Genera planillas A4 horizontal en blanco para apuntar "
-                    "a boli durante el partido. Cabecera y plantilla "
-                    "pre-rellenadas con los datos de este partido. "
-                    "Se imprimen 2 hojas iguales por planilla (1ª y 2ª "
-                    "parte) para usar una en cada parte."
-                )
-                cpla1, cpla2 = st.columns(2)
-                with cpla1:
-                    if st.button("🖨 Planilla Arkaitz (4 PDFs)",
-                                  key="pla_ark", use_container_width=True,
-                                  help="Tu planilla: disparos, mapas Inter/rival, "
-                                        "portería, goles, faltas. 1T + 2T."):
-                        try:
-                            import sys as _sys
-                            from pathlib import Path as _Path
-                            _root = _Path(__file__).resolve().parent.parent
-                            if str(_root) not in _sys.path:
-                                _sys.path.insert(0, str(_root))
-                            from src.pdf_planilla_blank import generar_planilla as _gen
-                            # Usar datos directos del form (sin abrir Sheet
-                            # de nuevo → evita 429 quota exceeded)
-                            _datos_directos_ed = {
-                                "rival": cab.get("rival", ""),
-                                "fecha": cab.get("fecha", ""),
-                                "lugar": cab.get("lugar", ""),
-                                "hora": cab.get("hora", ""),
-                                "competicion": cab.get("competicion", ""),
-                                "local_visitante": cab.get("local_visitante", ""),
-                                "jugadores": [
-                                    {"dorsal": p.get("dorsal", ""),
-                                     "jugador": p.get("jugador", ""),
-                                     "posicion": p.get("posicion", "")}
-                                    for p in (plantilla or [])
-                                ],
-                            }
-                            with st.spinner("Generando planillas…"):
-                                pdf_1t = _gen("arkaitz", "1T",
-                                                datos_directos=_datos_directos_ed)
-                                pdf_2t = _gen("arkaitz", "2T",
-                                                datos_directos=_datos_directos_ed)
-                            st.session_state[f"pla_ark_1t_{pid_sel}"] = pdf_1t
-                            st.session_state[f"pla_ark_2t_{pid_sel}"] = pdf_2t
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                            import traceback as _tb
-                            st.expander("Detalles").code(_tb.format_exc())
-                    if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
-                        st.download_button(
-                            "⬇️ Arkaitz 1ª parte",
-                            data=st.session_state[f"pla_ark_1t_{pid_sel}"],
-                            file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_ark_1t_{pid_sel}",
-                            use_container_width=True,
-                        )
-                    if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
-                        st.download_button(
-                            "⬇️ Arkaitz 2ª parte",
-                            data=st.session_state[f"pla_ark_2t_{pid_sel}"],
-                            file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_ark_2t_{pid_sel}",
-                            use_container_width=True,
-                        )
-                with cpla2:
-                    if st.button("🖨 Planilla Compañero (4 PDFs)",
-                                  key="pla_comp", use_container_width=True,
-                                  help="Para el compañero: PF/PNF/Robos/Cortes/"
-                                        "BDG/BDP por jugador + córners + bandas. "
-                                        "1T + 2T."):
-                        try:
-                            import sys as _sys
-                            from pathlib import Path as _Path
-                            _root = _Path(__file__).resolve().parent.parent
-                            if str(_root) not in _sys.path:
-                                _sys.path.insert(0, str(_root))
-                            from src.pdf_planilla_blank import generar_planilla as _gen
-                            _datos_directos_ed = {
-                                "rival": cab.get("rival", ""),
-                                "fecha": cab.get("fecha", ""),
-                                "lugar": cab.get("lugar", ""),
-                                "hora": cab.get("hora", ""),
-                                "competicion": cab.get("competicion", ""),
-                                "local_visitante": cab.get("local_visitante", ""),
-                                "jugadores": [
-                                    {"dorsal": p.get("dorsal", ""),
-                                     "jugador": p.get("jugador", ""),
-                                     "posicion": p.get("posicion", "")}
-                                    for p in (plantilla or [])
-                                ],
-                            }
-                            with st.spinner("Generando planilla…"):
-                                # Compa: 1 PDF con ambas partes en A4 vertical
-                                pdf_compa = _gen("compa", "1T",
-                                                  datos_directos=_datos_directos_ed)
-                            st.session_state[f"pla_comp_{pid_sel}"] = pdf_compa
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                    if st.session_state.get(f"pla_comp_{pid_sel}"):
-                        st.download_button(
-                            "⬇️ Compañero (1ª + 2ª parte)",
-                            data=st.session_state[f"pla_comp_{pid_sel}"],
-                            file_name=f"planilla_compa_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_comp_{pid_sel}",
-                            use_container_width=True,
-                        )
-
-                if st.button("💾 Guardar cambios", type="primary", key="ed_guardar"):
-                    df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
-                        df_ev_edit)
-                    metricas_dict_e = _normalizar_metricas_para_guardar(
-                        df_camp_edit_e, df_port_edit_e)
-                    rot_dict_e = _normalizar_rotaciones_para_guardar(
-                        df_rot_1t_edit_e, df_rot_2t_edit_e)
-                    df_faltas_norm_ed, warns_falt_save_ed = \
+                    # ── Faltas (iter 7) — modo Editar ──────────────────────
+                    st.markdown("---")
+                    st.markdown("#### 🟨 Faltas")
+                    st.caption(
+                        "Una fila por falta. EN_CONTRA = falta que cometemos · "
+                        "A_FAVOR = falta que recibimos. La 6ª por equipo en una "
+                        "parte → 10m sin barrera."
+                    )
+                    df_faltas_pre_ed = _df_faltas_desde_sheet(pid_sel)
+                    df_faltas_edit_ed = _editor_faltas(
+                        plantilla, df_faltas_pre_ed,
+                        key=f"ed_faltas_{pid_sel}")
+                    df_faltas_norm_ed_live, warns_falt_ed = \
                         _normalizar_faltas_para_guardar(df_faltas_edit_ed)
-                    df_pen_norm_ed, warns_pen_save_ed = \
-                        _normalizar_penaltis_para_guardar(df_pen_edit_ed)
-                    # Autorrellenar marcador desde df_ev_norm
-                    df_pen_norm_ed = _autorellenar_marcador_penaltis(
-                        df_pen_norm_ed, df_ev_norm)
-                    try:
-                        with st.spinner("Guardando…"):
-                            _guardar_cabecera_totales(cab, totales_disp_ed)
-                            n_pl = _guardar_plantilla(
-                                cab["partido_id"], plantilla, cab) if plantilla else 0
-                            n_met = _guardar_metricas(
-                                cab["partido_id"], metricas_dict_e, cab) \
-                                    if metricas_dict_e else 0
-                            n_rot = _guardar_rotaciones(
-                                cab["partido_id"], rot_dict_e)
-                            n_ev = _guardar_eventos(
-                                cab["partido_id"], cab["tipo"], cab["competicion"],
-                                cab["rival"], cab["fecha"], df_ev_norm
+                    alertas_falt_ed = _calcular_alertas_faltas(df_faltas_norm_ed_live)
+                    for w in warns_falt_ed:
+                        st.warning(f"⚠️ {w}")
+                    for a in alertas_falt_ed:
+                        if a.startswith("⚠️"):
+                            st.error(a)
+                        else:
+                            st.warning(a)
+
+                    # ── 10 metros / Penaltis (iter 8) — modo Editar ──────────────
+                    st.markdown("---")
+                    st.markdown("#### 🎯 10 metros / Penaltis")
+                    st.caption(
+                        "PENALTI: 6m por falta dentro del área. "
+                        "10M: 10m por la 6ª falta del equipo."
+                    )
+                    df_pen_pre_ed = _df_penaltis_desde_sheet(pid_sel)
+                    df_pen_edit_ed = _editor_penaltis(
+                        plantilla, df_pen_pre_ed, key=f"ed_penaltis_{pid_sel}")
+                    _, warns_pen_ed = _normalizar_penaltis_para_guardar(df_pen_edit_ed)
+                    for w in warns_pen_ed:
+                        st.warning(f"⚠️ {w}")
+
+                    # ── Zonas (iter 5+11) — modo Editar ──────────────────────
+                    st.markdown("---")
+                    st.markdown("#### 📍 Zonas de gol y portería")
+                    st.caption(
+                        "Una tabla por parte. El TOTAL del partido se calcula "
+                        "como 1ª + 2ª. **No metas penaltis ni 10m aquí** — van "
+                        "en su sección dedicada (penaltis: convergencia "
+                        "A1+A2+A4+A5; 10m: A4+A5+A8+A9)."
+                    )
+                    st.markdown("**1ª parte**")
+                    df_zonas_pre_ed_1t = _df_zonas_inicial(
+                        pid_sel, m["rival"], str(m["fecha"]), "1T")
+                    df_zonas_edit_ed_1t = _editor_zonas(
+                        df_zonas_pre_ed_1t, key=f"ed_zonas_1t_{pid_sel}")
+                    st.markdown("**2ª parte**")
+                    df_zonas_pre_ed_2t = _df_zonas_inicial(
+                        pid_sel, m["rival"], str(m["fecha"]), "2T")
+                    df_zonas_edit_ed_2t = _editor_zonas(
+                        df_zonas_pre_ed_2t, key=f"ed_zonas_2t_{pid_sel}")
+                    with st.expander("🔢 Total del partido (1T + 2T) — preview"):
+                        _df_total_ed = df_zonas_edit_ed_1t.copy()
+                        for c in ("gol_af", "gol_ec", "disp_af", "disp_ec"):
+                            _df_total_ed[c] = (
+                                pd.to_numeric(df_zonas_edit_ed_1t[c], errors="coerce").fillna(0).astype(int)
+                                + pd.to_numeric(df_zonas_edit_ed_2t[c], errors="coerce").fillna(0).astype(int)
                             )
-                            n_falt = _guardar_faltas(
-                                cab["partido_id"], df_faltas_norm_ed, cab)
-                            n_pen = _guardar_penaltis(
-                                cab["partido_id"], df_pen_norm_ed, cab)
-                            n_zon = _guardar_zonas(
-                                cab["partido_id"],
-                                df_zonas_edit_ed_1t, df_zonas_edit_ed_2t,
-                                cab)
-                        st.success(
-                            f"✅ Guardado: cabecera + {n_pl} convocados + "
-                            f"{n_met} con métricas + {n_rot} con rotaciones "
-                            f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
-                            f"+ {n_zon} zonas."
-                        )
-                        for w in warns_ev:
-                            st.warning(f"⚠️ {w}")
-                        for w in warns_falt_save_ed:
-                            st.warning(f"⚠️ {w}")
-                        for w in warns_pen_save_ed:
-                            st.warning(f"⚠️ {w}")
-                        st.cache_data.clear()
-                        st.info("Refresca para ver los cambios en otras pestañas.")
-                    except Exception as e:
-                        st.error(f"Error al guardar: {e}")
+                        st.dataframe(_df_total_ed, use_container_width=True, hide_index=True)
+
+                    # ── Planillas imprimibles (papel/boli) ─────────────────────
+                    st.markdown("---")
+                    st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
+                    st.caption(
+                        "Genera planillas A4 horizontal en blanco para apuntar "
+                        "a boli durante el partido. Cabecera y plantilla "
+                        "pre-rellenadas con los datos de este partido. "
+                        "Se imprimen 2 hojas iguales por planilla (1ª y 2ª "
+                        "parte) para usar una en cada parte."
+                    )
+                    cpla1, cpla2 = st.columns(2)
+                    with cpla1:
+                        if st.form_submit_button("🖨 Planilla Arkaitz (4 PDFs)",
+                                      use_container_width=True,
+                                      help="Tu planilla: disparos, mapas Inter/rival, "
+                                            "portería, goles, faltas. 1T + 2T."):
+                            try:
+                                import sys as _sys
+                                from pathlib import Path as _Path
+                                _root = _Path(__file__).resolve().parent.parent
+                                if str(_root) not in _sys.path:
+                                    _sys.path.insert(0, str(_root))
+                                from src.pdf_planilla_blank import generar_planilla as _gen
+                                # Usar datos directos del form (sin abrir Sheet
+                                # de nuevo → evita 429 quota exceeded)
+                                _datos_directos_ed = {
+                                    "rival": cab.get("rival", ""),
+                                    "fecha": cab.get("fecha", ""),
+                                    "lugar": cab.get("lugar", ""),
+                                    "hora": cab.get("hora", ""),
+                                    "competicion": cab.get("competicion", ""),
+                                    "local_visitante": cab.get("local_visitante", ""),
+                                    "jugadores": [
+                                        {"dorsal": p.get("dorsal", ""),
+                                         "jugador": p.get("jugador", ""),
+                                         "posicion": p.get("posicion", "")}
+                                        for p in (plantilla or [])
+                                    ],
+                                }
+                                with st.spinner("Generando planillas…"):
+                                    pdf_1t = _gen("arkaitz", "1T",
+                                                    datos_directos=_datos_directos_ed)
+                                    pdf_2t = _gen("arkaitz", "2T",
+                                                    datos_directos=_datos_directos_ed)
+                                st.session_state[f"pla_ark_1t_{pid_sel}"] = pdf_1t
+                                st.session_state[f"pla_ark_2t_{pid_sel}"] = pdf_2t
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                                import traceback as _tb
+                                st.expander("Detalles").code(_tb.format_exc())
+                        if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
+                            st.download_button(
+                                "⬇️ Arkaitz 1ª parte",
+                                data=st.session_state[f"pla_ark_1t_{pid_sel}"],
+                                file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_ark_1t_{pid_sel}",
+                                use_container_width=True,
+                            )
+                        if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
+                            st.download_button(
+                                "⬇️ Arkaitz 2ª parte",
+                                data=st.session_state[f"pla_ark_2t_{pid_sel}"],
+                                file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_ark_2t_{pid_sel}",
+                                use_container_width=True,
+                            )
+                    with cpla2:
+                        if st.form_submit_button("🖨 Planilla Compañero (4 PDFs)",
+                                      use_container_width=True,
+                                      help="Para el compañero: PF/PNF/Robos/Cortes/"
+                                            "BDG/BDP por jugador + córners + bandas. "
+                                            "1T + 2T."):
+                            try:
+                                import sys as _sys
+                                from pathlib import Path as _Path
+                                _root = _Path(__file__).resolve().parent.parent
+                                if str(_root) not in _sys.path:
+                                    _sys.path.insert(0, str(_root))
+                                from src.pdf_planilla_blank import generar_planilla as _gen
+                                _datos_directos_ed = {
+                                    "rival": cab.get("rival", ""),
+                                    "fecha": cab.get("fecha", ""),
+                                    "lugar": cab.get("lugar", ""),
+                                    "hora": cab.get("hora", ""),
+                                    "competicion": cab.get("competicion", ""),
+                                    "local_visitante": cab.get("local_visitante", ""),
+                                    "jugadores": [
+                                        {"dorsal": p.get("dorsal", ""),
+                                         "jugador": p.get("jugador", ""),
+                                         "posicion": p.get("posicion", "")}
+                                        for p in (plantilla or [])
+                                    ],
+                                }
+                                with st.spinner("Generando planilla…"):
+                                    # Compa: 1 PDF con ambas partes en A4 vertical
+                                    pdf_compa = _gen("compa", "1T",
+                                                      datos_directos=_datos_directos_ed)
+                                st.session_state[f"pla_comp_{pid_sel}"] = pdf_compa
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        if st.session_state.get(f"pla_comp_{pid_sel}"):
+                            st.download_button(
+                                "⬇️ Compañero (1ª + 2ª parte)",
+                                data=st.session_state[f"pla_comp_{pid_sel}"],
+                                file_name=f"planilla_compa_{pid_sel}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_comp_{pid_sel}",
+                                use_container_width=True,
+                            )
+
+                    if st.form_submit_button("💾 Guardar cambios", type="primary"):
+                        df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
+                            df_ev_edit)
+                        metricas_dict_e = _normalizar_metricas_para_guardar(
+                            df_camp_edit_e, df_port_edit_e)
+                        rot_dict_e = _normalizar_rotaciones_para_guardar(
+                            df_rot_1t_edit_e, df_rot_2t_edit_e)
+                        df_faltas_norm_ed, warns_falt_save_ed = \
+                            _normalizar_faltas_para_guardar(df_faltas_edit_ed)
+                        df_pen_norm_ed, warns_pen_save_ed = \
+                            _normalizar_penaltis_para_guardar(df_pen_edit_ed)
+                        # Autorrellenar marcador desde df_ev_norm
+                        df_pen_norm_ed = _autorellenar_marcador_penaltis(
+                            df_pen_norm_ed, df_ev_norm)
+                        try:
+                            with st.spinner("Guardando…"):
+                                _guardar_cabecera_totales(cab, totales_disp_ed)
+                                n_pl = _guardar_plantilla(
+                                    cab["partido_id"], plantilla, cab) if plantilla else 0
+                                n_met = _guardar_metricas(
+                                    cab["partido_id"], metricas_dict_e, cab) \
+                                        if metricas_dict_e else 0
+                                n_rot = _guardar_rotaciones(
+                                    cab["partido_id"], rot_dict_e)
+                                n_ev = _guardar_eventos(
+                                    cab["partido_id"], cab["tipo"], cab["competicion"],
+                                    cab["rival"], cab["fecha"], df_ev_norm
+                                )
+                                n_falt = _guardar_faltas(
+                                    cab["partido_id"], df_faltas_norm_ed, cab)
+                                n_pen = _guardar_penaltis(
+                                    cab["partido_id"], df_pen_norm_ed, cab)
+                                n_zon = _guardar_zonas(
+                                    cab["partido_id"],
+                                    df_zonas_edit_ed_1t, df_zonas_edit_ed_2t,
+                                    cab)
+                            st.success(
+                                f"✅ Guardado: cabecera + {n_pl} convocados + "
+                                f"{n_met} con métricas + {n_rot} con rotaciones "
+                                f"+ {n_ev} eventos + {n_falt} faltas + {n_pen} penaltis/10m "
+                                f"+ {n_zon} zonas."
+                            )
+                            for w in warns_ev:
+                                st.warning(f"⚠️ {w}")
+                            for w in warns_falt_save_ed:
+                                st.warning(f"⚠️ {w}")
+                            for w in warns_pen_save_ed:
+                                st.warning(f"⚠️ {w}")
+                            st.cache_data.clear()
+                            st.info("Refresca para ver los cambios en otras pestañas.")
+                        except Exception as e:
+                            st.error(f"Error al guardar: {e}")
 
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña ✏️ Editar partido: {_e_tab}')
