@@ -1374,6 +1374,77 @@ async def _check_recordatorio_deep(ctx: ContextTypes.DEFAULT_TYPE):
         log.warning("Error en check de recordatorio: %s", e)
 
 
+# ─── Recordatorio semanal: revisar catálogo de ejercicios ───────────────────
+async def _check_ejercicios_lunes(ctx: ContextTypes.DEFAULT_TYPE):
+    """Cada lunes a las 8:00 (Madrid). Lee `_EJERCICIOS` y avisa al usuario
+    de cuántos ejercicios distintos se han registrado la semana pasada,
+    invitándole a pasar por la pestaña 📚 Catálogo del dashboard para
+    revisar si hay nombres parecidos que fusionar.
+    """
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        creds_path = PROJECT_DIR / "google_credentials.json"
+        if not creds_path.exists():
+            return
+        creds = Credentials.from_service_account_file(
+            str(creds_path),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        ss = gspread.authorize(creds).open("Arkaitz - Datos Temporada 2526")
+        ws = ss.worksheet("_EJERCICIOS")
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return
+        header = rows[0]
+        try:
+            i_fecha = header.index("fecha")
+            i_nombre = header.index("nombre_ejercicio")
+        except ValueError:
+            return
+
+        hoy = _dt.date.today()
+        hace_7 = hoy - _dt.timedelta(days=7)
+        nuevos = set()
+        total_filas_semana = 0
+        for r in rows[1:]:
+            if len(r) <= max(i_fecha, i_nombre):
+                continue
+            fecha_txt = (r[i_fecha] or "").strip()
+            nombre = (r[i_nombre] or "").strip()
+            if not fecha_txt or not nombre or nombre.startswith("#"):
+                continue
+            try:
+                f = _dt.date.fromisoformat(fecha_txt[:10])
+            except ValueError:
+                continue
+            if hace_7 <= f <= hoy:
+                nuevos.add(nombre)
+                total_filas_semana += 1
+
+        if not nuevos:
+            return  # nada que revisar esta semana
+
+        listado = "\n".join(f"• {n}" for n in sorted(nuevos)[:20])
+        suf = ("\n…" if len(nuevos) > 20 else "")
+        await ctx.bot.send_message(
+            ALLOWED_CHAT_ID,
+            f"📋 *Revisión semanal del catálogo*\n\n"
+            f"La semana pasada se han registrado {total_filas_semana} "
+            f"ejercicio(s) en {len(nuevos)} nombre(s) distinto(s):\n\n"
+            f"{listado}{suf}\n\n"
+            f"Pásate por la pestaña *📚 Catálogo* del dashboard "
+            f"(sección 🛠 Limpieza, sólo admin) por si hay nombres "
+            f"parecidos que conviene fusionar.",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        log.warning("Error en recordatorio semanal de ejercicios: %s", e)
+
+
 # ─── Recordatorios con fecha específica ──────────────────────────────────────
 # Archivo JSON con lista de {"fecha": "YYYY-MM-DD", "mensaje": "...", "hecho": bool}
 # Se revisa cada 24h; los que lleguen a su fecha y no estén hechos se envían.
@@ -1814,7 +1885,19 @@ def main():
             first=45,            # 15s después del otro check
             name="recordatorios_fecha",
         )
-        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas específicas)")
+        # Recordatorio semanal de ejercicios: lunes 8:00 hora Madrid
+        try:
+            from zoneinfo import ZoneInfo
+            hora_lunes = _dt.time(8, 0, tzinfo=ZoneInfo("Europe/Madrid"))
+        except Exception:
+            hora_lunes = _dt.time(8, 0)  # fallback sin tz
+        app.job_queue.run_daily(
+            _check_ejercicios_lunes,
+            time=hora_lunes,
+            days=(0,),  # 0 = lunes en python-telegram-bot
+            name="ejercicios_revision_semanal",
+        )
+        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas + lunes 8h)")
     else:
         log.warning("job_queue no disponible (instala python-telegram-bot[job-queue]); "
                     "sin recordatorios automáticos")

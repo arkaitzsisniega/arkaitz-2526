@@ -3255,6 +3255,169 @@ with tab_cat_ejer:
                         use_container_width=True, hide_index=True,
                         height=300,
                     )
+
+            # ════════════════════════════════════════════════════════════
+            # 🛠 LIMPIEZA DEL CATÁLOGO (solo admin)
+            # ════════════════════════════════════════════════════════════
+            if es_admin():
+                st.markdown("---")
+                st.markdown("### 🛠 Limpieza del catálogo")
+                st.caption(
+                    "Sólo visible para admin. Sirve para fusionar nombres de "
+                    "ejercicios que son el mismo pero están escritos distinto "
+                    "(typos, dictado, mayúsculas/minúsculas, '4x5' vs '5x4', "
+                    "etc.). Las fusiones se aplican directamente sobre la hoja "
+                    "`_EJERCICIOS` del Sheet."
+                )
+
+                # Cargar la hoja cruda _EJERCICIOS (no la vista) para poder editar
+                try:
+                    ej_raw_ws = get_spreadsheet().worksheet("_EJERCICIOS")
+                    ej_raw_vals = ej_raw_ws.get_all_values()
+                except Exception as _e_ej_raw:
+                    st.warning(f"No pude leer _EJERCICIOS: {_e_ej_raw}")
+                    ej_raw_vals = []
+
+                if len(ej_raw_vals) <= 1:
+                    st.info("La hoja `_EJERCICIOS` está vacía.")
+                else:
+                    ej_raw_header = ej_raw_vals[0]
+                    try:
+                        col_nombre = ej_raw_header.index("nombre_ejercicio")
+                    except ValueError:
+                        col_nombre = 3  # fallback
+                    # Filas con nombre real (saltar comentarios y vacías)
+                    ej_raw_filas = [
+                        (i + 2, r)  # 1-based + 1 cabecera
+                        for i, r in enumerate(ej_raw_vals[1:])
+                        if (len(r) > col_nombre
+                            and r[col_nombre].strip()
+                            and not r[col_nombre].strip().startswith("#"))
+                    ]
+
+                    # ── Tabla de nombres únicos con frecuencia ──
+                    nombres_serie = pd.Series([r[col_nombre].strip()
+                                              for _, r in ej_raw_filas])
+                    cuenta = nombres_serie.value_counts().reset_index()
+                    cuenta.columns = ["nombre", "veces"]
+
+                    # Anexar tipo + última vez con la _VISTA
+                    if "ejercicio" in ejercicios.columns:
+                        ult_uso = (ejercicios.groupby("ejercicio")["fecha"].max()
+                                   .dt.strftime("%Y-%m-%d").to_dict())
+                        tipo_uso = (ejercicios.groupby("ejercicio")["tipo_ejercicio"]
+                                    .first().to_dict()) if "tipo_ejercicio" in ejercicios.columns else {}
+                        min_total = (ejercicios.groupby("ejercicio")["duracion_min"]
+                                     .first().to_dict()) if "duracion_min" in ejercicios.columns else {}
+                        cuenta["tipo"] = cuenta["nombre"].map(tipo_uso).fillna("—")
+                        cuenta["última_vez"] = cuenta["nombre"].map(ult_uso).fillna("—")
+                        cuenta["min_total"] = cuenta["nombre"].map(
+                            lambda n: round(float(min_total.get(n, 0)) * cuenta.loc[
+                                cuenta["nombre"] == n, "veces"
+                            ].iloc[0], 0) if n in min_total else 0
+                        )
+
+                    st.markdown("**Catálogo actual (todos los nombres únicos):**")
+                    st.dataframe(cuenta, use_container_width=True, hide_index=True,
+                                 height=300)
+
+                    # ── Sugerencias de fusión por similitud ──
+                    st.markdown("**Sugerencias de fusión** (nombres parecidos):")
+                    from difflib import SequenceMatcher
+
+                    def _norm(s: str) -> str:
+                        return (s.lower()
+                                .replace("á", "a").replace("é", "e")
+                                .replace("í", "i").replace("ó", "o")
+                                .replace("ú", "u").replace("ñ", "n")
+                                .strip())
+
+                    nombres_unicos = cuenta["nombre"].tolist()
+                    grupos = []  # lista de listas de nombres parecidos
+                    visto = set()
+                    for i, n1 in enumerate(nombres_unicos):
+                        if n1 in visto:
+                            continue
+                        grupo = [n1]
+                        for n2 in nombres_unicos[i + 1:]:
+                            if n2 in visto:
+                                continue
+                            sim = SequenceMatcher(None, _norm(n1), _norm(n2)).ratio()
+                            if sim >= 0.80:
+                                grupo.append(n2)
+                                visto.add(n2)
+                        if len(grupo) > 1:
+                            grupos.append(grupo)
+                            visto.add(n1)
+
+                    if not grupos:
+                        st.success("✅ No detecto nombres parecidos. Catálogo limpio.")
+                    else:
+                        st.caption(
+                            f"Detectados {len(grupos)} grupo(s) de nombres con "
+                            "similitud ≥ 80%. Elige el nombre canónico y pulsa "
+                            "Fusionar para renombrar todas las apariciones."
+                        )
+                        for gi, grupo in enumerate(grupos):
+                            with st.expander(
+                                f"Grupo {gi + 1}: {' · '.join(grupo[:3])}"
+                                + ("…" if len(grupo) > 3 else ""),
+                                expanded=False,
+                            ):
+                                # Tabla del grupo
+                                df_grp = cuenta[cuenta["nombre"].isin(grupo)].sort_values(
+                                    "veces", ascending=False)
+                                st.dataframe(df_grp, use_container_width=True,
+                                             hide_index=True)
+
+                                col_a, col_b = st.columns([3, 1])
+                                with col_a:
+                                    canonico = st.selectbox(
+                                        "Nombre canónico (los demás se renombran a este)",
+                                        options=grupo,
+                                        index=0,
+                                        key=f"canonico_grp_{gi}",
+                                    )
+                                with col_b:
+                                    if st.button(f"Fusionar grupo {gi + 1}",
+                                                 key=f"btn_fusionar_{gi}",
+                                                 type="primary"):
+                                        # Aplicar el rename en _EJERCICIOS
+                                        a_renombrar = [n for n in grupo if n != canonico]
+                                        if not a_renombrar:
+                                            st.warning("Nada que renombrar.")
+                                        else:
+                                            cambios = 0
+                                            try:
+                                                # Recargar valores frescos
+                                                vals = ej_raw_ws.get_all_values()
+                                                updates = []
+                                                for i, r in enumerate(vals[1:], start=2):
+                                                    if (len(r) > col_nombre
+                                                        and r[col_nombre].strip() in a_renombrar):
+                                                        # Cell A1 notation: col 0 → A, 1 → B...
+                                                        col_letter = chr(ord("A") + col_nombre)
+                                                        updates.append({
+                                                            "range": f"{col_letter}{i}",
+                                                            "values": [[canonico]],
+                                                        })
+                                                        cambios += 1
+                                                if updates:
+                                                    ej_raw_ws.batch_update(updates)
+                                                st.success(
+                                                    f"✅ Renombradas {cambios} fila(s) "
+                                                    f"a «{canonico}». Recarga la pestaña "
+                                                    "y re-ejecuta `/ejercicios_sync` en "
+                                                    "el bot para refrescar la _VISTA."
+                                                )
+                                                st.cache_data.clear()
+                                            except Exception as _e_merge:
+                                                st.error(f"Error fusionando: {_e_merge}")
+
+                    st.caption(
+                        "💡 Tras fusionar: lanza `/ejercicios_sync` en el bot para "
+                        "que la `_VISTA_EJERCICIOS` use los nombres consolidados."
+                    )
     except Exception as _e_cat:
         st.error(f"❌ Error en pestaña 📚 Catálogo: {_e_cat}")
         import traceback as _tb
