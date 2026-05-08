@@ -25,6 +25,48 @@
 
 ## 📅 ESTA SEMANA (a partir del lunes 11/5)
 
+### 🟢 Lunes 11/5 — primera cosa nada más abrir
+
+- [ ] **Activar nueva versión de bot_datos en el Mac viejo** — pendiente
+      desde el sábado 9/5 (commit `39fec29`). Cambios incluidos:
+      - Modelo: `gemini-2.0-flash` → `gemini-2.5-flash` (mejor function
+        calling, sigue gratis).
+      - Recovery automático cuando Gemini "termina mudo" tras un tool call
+        (bug conocido — antes salía error fatal "finish_reason=1", ahora
+        hace 1 retry forzado pidiendo respuesta natural).
+      - Diagnóstico fino de errores (distingue STOP/SAFETY/MAX_TOKENS/
+        MALFORMED_TOOL con mensaje distinto).
+      - System prompt ampliado con sección "PREGUNTAS ANALÍTICAS"
+        (combinar carga + wellness + peso + semáforo en una tool call
+        para preguntas tipo "cómo está X esta semana") + ejemplo 13 con
+        código.
+
+      **Comando a pegar en el Mac viejo (ssh) tras conectarse:**
+
+      ```bash
+      cd ~/Desktop/Arkaitz && git pull && launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot_datos && sleep 4 && ps aux | grep bot_datos | grep -v grep
+      ```
+
+      Espero ver un PID nuevo (distinto del 1225 actual) en la salida.
+
+- [ ] **Verificar bot_datos** tras reiniciarlo — pregúntale por Telegram:
+
+      > "Qué tal ha entrenado Cecilio esta semana? Como está?"
+
+      Comportamiento esperado:
+      1. Mensaje de progreso "🔧 Consultando los datos del Sheet…".
+      2. Respuesta natural tipo "Cecilio: 3 sesiones, carga 2.180,
+         ACWR 1,1 verde. Wellness 13,5. Peso estable. En general OK."
+      3. **Si vuelve a fallar**, copiar mensaje literal del bot y
+         retomarlo en la siguiente sesión de código.
+
+      Riesgo apuntado: Google a veces baja rate-limits del free tier
+      sin avisar. Si ves "quota exceeded", bajar a 2.0 Flash con
+      `GEMINI_MODEL=gemini-2.0-flash` en `telegram_bot_datos/.env`
+      (sin tocar código).
+
+### 🟢 Resto de la semana
+
 - [ ] **Catálogo de ejercicios — uso real** — ir a la pestaña 📚 Catálogo,
       sección 🛠 Limpieza (admin), revisar nombres parecidos y fusionar.
       El bot dev avisará cada lunes a las 8:00.
