@@ -867,12 +867,37 @@ def datos():
         est_jug = cargar("_VISTA_EST_JUGADOR")
     except Exception:
         est_jug = pd.DataFrame()
+    # ── Helper para normalizar columnas de fecha que pueden venir como
+    # serial numérico de Excel/Sheets (UNFORMATTED) o como string YYYY-MM-DD.
+    # Sin esto, EST_PARTIDOS/EST_EVENTOS pueden mostrar "41524" en vez de
+    # "2013-09-04" y descolocar el orden por fecha del selector Editar.
+    def _norm_fecha_serie(s):
+        if s.empty:
+            return s
+        def _conv(v):
+            if v is None or v == "" or (isinstance(v, float) and pd.isna(v)):
+                return ""
+            if isinstance(v, (int, float)):
+                try:
+                    if 1 < float(v) < 100000:
+                        return (pd.Timestamp("1899-12-30")
+                                + pd.Timedelta(days=int(v))).strftime("%Y-%m-%d")
+                except (ValueError, OverflowError):
+                    pass
+                return str(v)
+            return str(v).strip()
+        return s.map(_conv)
+
     try:
         est_partidos = cargar("EST_PARTIDOS")
+        if "fecha" in est_partidos.columns:
+            est_partidos["fecha"] = _norm_fecha_serie(est_partidos["fecha"])
     except Exception:
         est_partidos = pd.DataFrame()
     try:
         est_eventos = cargar("EST_EVENTOS")
+        if "fecha" in est_eventos.columns:
+            est_eventos["fecha"] = _norm_fecha_serie(est_eventos["fecha"])
     except Exception:
         est_eventos = pd.DataFrame()
     try:
@@ -8166,10 +8191,17 @@ with tab_editar:
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
             st.markdown("#### 🏁 Cabecera del partido")
-            cab = _formulario_cabecera(key_pref="cr")
-
-            # Totales de disparo por parte (opcional, expansible)
-            totales_disp_cr = _formulario_totales_disparos(key_pref="cr")
+            # Cabecera + totales en su propio form para que ESCRIBIR
+            # (rival, fecha, hora, partido_id, gf, gc...) NO dispare un
+            # re-render por keystroke. Al pulsar "⏭ Aplicar cabecera"
+            # los valores se commitean y la página se refresca para
+            # mostrar la plantilla y el form de tablas con esos datos.
+            with st.form("cr_cabecera_form", clear_on_submit=False):
+                cab = _formulario_cabecera(key_pref="cr")
+                # Totales de disparo por parte (opcional, expansible)
+                totales_disp_cr = _formulario_totales_disparos(key_pref="cr")
+                st.form_submit_button("⏭ Aplicar cabecera",
+                                       use_container_width=False)
 
             st.markdown("---")
             plantilla = _formulario_plantilla(key_pref="cr")
@@ -8525,16 +8557,20 @@ with tab_editar:
                             local_def = False
 
                 st.markdown("#### 🏁 Cabecera del partido")
-                cab = _formulario_cabecera(
-                    rival_def=m["rival"],
-                    fecha_def=fecha_default,
-                    comp_def=m["tipo"],
-                    hora_def=hora_def, lugar_def=lugar_def,
-                    gf_def=gf_act, gc_def=gc_act,
-                    partido_id_def=pid_sel,
-                    local_def=local_def,
-                    key_pref="ed",
-                )
+                # Wrap en form para evitar re-render por keystroke
+                with st.form("ed_cabecera_form", clear_on_submit=False):
+                    cab = _formulario_cabecera(
+                        rival_def=m["rival"],
+                        fecha_def=fecha_default,
+                        comp_def=m["tipo"],
+                        hora_def=hora_def, lugar_def=lugar_def,
+                        gf_def=gf_act, gc_def=gc_act,
+                        partido_id_def=pid_sel,
+                        local_def=local_def,
+                        key_pref="ed",
+                    )
+                    st.form_submit_button("⏭ Aplicar cambios de cabecera",
+                                           use_container_width=False)
 
                 # Plantilla precargada (de EST_PLANTILLAS si existe)
                 st.markdown("---")
