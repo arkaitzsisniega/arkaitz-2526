@@ -1,8 +1,58 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-04-30`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-08`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
 qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
+
+---
+
+## 🔔 ESTADO 8/5/2026 — Limpieza profunda + fix marcar lesión
+
+### Servidor 24/7 → producción confirmada
+- Los 3 bots corren con launchd KeepAlive=true en el Mac viejo.
+- 9 apps borradas del Mac viejo (Big Sur installer 12 GB, Chrome,
+  Keynote, Zoom, SmowlCM, VLC, AnyDesk, RDP, Tuxera) → ~14,7 GB.
+- 3 daemons huérfanos eliminados (Tuxera NTFS agent, Zoom daemon,
+  Office licensing helper).
+- Spotlight desactivado en todos los volúmenes (≈80 MB RAM persistente).
+- `/Users/Shared/Previously Relocated Items` y caches limpiadas.
+- `purge` ejecutado → 800+ MB RAM liberados al instante.
+- Resultado RAM: 3272 MB usados → 2460 MB · libres: 823 MB → 1635 MB.
+- Bots verificados vivos tras toda la limpieza (PIDs 959, 912, 427).
+
+### Mac de oficina (Mac personal del usuario) → segunda tanda
+- ~8,6 GB liberados eliminando apps que no usa (Steam, Minecraft,
+  Amazon Music, uTorrent, Wondershare, Claude ShipIt) y bloat de Google
+  (GoogleUpdater 697 MB + Chrome OptGuideOnDeviceModel 4 GB).
+- Pendiente para el final de la próxima sesión: 10 GB del bundle
+  `~/Library/Application Support/Claude/vm_bundles/claudevm.bundle`
+  (la VM local de Claude Desktop, hay que cerrar Claude para borrarla).
+
+### Mail.app del Mac de oficina
+- Síntoma: correos enviados desde Gmail móvil no aparecían en Mail Mac.
+- Descartado: tipo de cuenta (IMAP correcto), límite de carpeta IMAP
+  en Gmail (configurado a "sin límite"), reconstrucción de buzón.
+- Plan B en marcha: eliminar cuenta Txubas y re-añadirla. Forzando
+  re-descarga limpia desde Gmail. Pendiente verificación final tras
+  sincronización completa (5-15 min).
+
+### Marcar jugador como lesionado desde el bot
+- Síntoma anterior: el bot dev "Alfred" intentaba copiar 50 líneas de
+  Python para escribir a BORG y LESIONES, y Gemini metía typos
+  (`ueva` por `nueva`, etc.) → la mitad de las veces fallaba.
+- Solución: nuevo script `src/marcar_lesion.py` con API limpia
+  (`JUGADOR FECHA [TURNO]`, flags `--dry-run/--tipo/--zona/--lado`),
+  idempotente, autodetecta turno consultando SESIONES.
+- System prompt de Alfred simplificado: ahora invoca el script con
+  bash en una sola línea en vez de copiar código complejo.
+- Probado real con PANI (8/5/2026): BORG fila 3881='L', LESIONES fila
+  501 añadida. Idempotencia OK.
+- Commit: `5eda501` (`marcar lesion: script idempotente + prompt simplificado`).
+
+### Pendiente del usuario tras esta sesión
+- Verificar que tras re-añadir cuenta Txubas, los correos de marzo
+  aparecen en Mail.app.
+- Borrar el bundle de Claude (10 GB) cuando cerremos Claude Desktop.
 
 ---
 
@@ -441,6 +491,36 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
   - Asistencias: confirmar que solo se cuentan las nuestras.
   - Fecha del partido: comprobar columna exacta.
   - **Picado cómodo** y **app tablet en directo** aún pendientes.
+
+### 🆕 Mejoras Streamlit pendientes (8/5/2026)
+
+1. **🚦 ACWR no aparece en el semáforo por jugador** — la métrica está
+   en `_VISTA_CARGA` (acwr_ewma) y en `_VISTA_SEMAFORO` (acwr_estado),
+   pero el render del semáforo no la pinta o queda vacía. Investigar
+   qué columna usa la pestaña Semáforo y por qué se queda en blanco.
+
+2. **🏋️ Carga de sesiones de GYM** — cuando hacemos sesión de gimnasio,
+   el jugador tiene carga alta (encoder, fuerza), pero como no hay
+   Oliver no se cuantifica. Plantear:
+   - sRPE (BORG × MIN) ya cubre la carga subjetiva, ¿se está mostrando?
+   - Añadir hoja `_ENCODER` o columna en SESIONES con métrica objetiva
+     de gym (ej. tonelaje total, reps × peso medio, RPE alto > X reps).
+   - Decidir cómo combinarlo con ACWR: ¿inflarlo para que entre en el
+     cómputo, o crear ACWR_GYM separado?
+   - Hablar con Arkaitz sobre qué dato del encoder es mejor proxy de
+     carga (potencia media, n_reps×peso, etc.).
+
+3. **🗂 Normalizar ejercicios y categorización semanal** — la hoja
+   `_EJERCICIOS` acumula nombres parecidos (4x5 vs 5x4, mal dictados,
+   sinónimos). Crear:
+   - Vista en Streamlit con TODOS los nombres únicos + frecuencia +
+     fechas + minutos totales.
+   - Botón para fusionar nombres (renombrar uno a otro en _EJERCICIOS).
+   - Campo de categoría (técnico/táctico/físico/transición/otros).
+   - Recordatorio del bot dev una vez por semana ("revisa los
+     ejercicios nuevos de la semana") con JobQueue.
+   - A futuro: estadísticas por categoría (cuántas veces/mes,
+     minutos acumulados, jugador con más participación, etc.).
 
 ### Próximos
 1. ~~**Documento de fisios**~~ ✅ CERRADO el 5/5/2026: Sheet

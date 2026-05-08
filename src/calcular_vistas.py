@@ -197,12 +197,17 @@ def vista_semanal(carga_df):
             borg_medio = float(jdf[jdf["FECHA"].dt.isocalendar().week ==
                                    lun.isocalendar()[1]]["BORG"].mean()) if sesiones else np.nan
 
-            # ACWR al último día de la semana (domingo)
+            # ACWR al último día de la semana DISPONIBLE.
+            # Para semanas pasadas → domingo (igual que antes).
+            # Para la semana en curso → último día con datos (= hoy o el
+            # último día con sesión registrada). Antes daba NaN si el
+            # domingo todavía no había llegado, dejando el semáforo vacío.
             domingo = lun + pd.Timedelta(days=6)
-            if domingo in ratio.index:
-                acwr_val    = round(float(ratio[domingo]), 3)
-                aguda_val   = round(float(aguda[domingo]), 1)
-                cronica_val = round(float(cronica[domingo]), 1)
+            ult_dia = min(domingo, ratio.index.max())
+            if ult_dia in ratio.index and ult_dia >= lun:
+                acwr_val    = round(float(ratio[ult_dia]), 3)
+                aguda_val   = round(float(aguda[ult_dia]), 1)
+                cronica_val = round(float(cronica[ult_dia]), 1)
             else:
                 acwr_val = aguda_val = cronica_val = np.nan
 

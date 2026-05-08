@@ -1,6 +1,44 @@
 # 📌 Pendientes para la próxima vez en la oficina
 
-> Doc actualizado el 8 de mayo 2026 (Madrid).
+> Doc actualizado el 8 de mayo 2026 (Madrid) — sesión tarde.
+
+## ✅ Hecho 8 mayo 2026 (tarde — limpieza profunda + Mail + lesión)
+
+### Mac viejo (servidor) — limpieza completa
+- 9 apps borradas (~14,7 GB): Big Sur installer, Chrome, Keynote, Zoom,
+  SmowlCM, VLC, AnyDesk, Remote Desktop Connection, Tuxera Disk Manager.
+- Caches usuario, /Users/Shared/Previously Relocated Items, logs ASL.
+- Spotlight desactivado en todos los volúmenes (-80 MB RAM permanente).
+- 3 daemons huérfanos eliminados (Tuxera, Zoom, Office licensing).
+- `sudo purge` → +800 MB RAM libres al instante.
+- Resultado RAM: 3272 MB → 2460 MB usados (1635 MB libres tras todo).
+- Bots verificados vivos con mismos PIDs (959, 912, 427).
+
+### Mac de oficina — segunda tanda
+- ~8,6 GB liberados: Steam (1,2), Minecraft (1,2), Amazon Music (662 M),
+  uTorrent Web (83 M), Wondershare leftover (300 M), Claude ShipIt cache
+  (681 M), GoogleUpdater (697 M), Chrome OptGuideOnDeviceModel (4 GB),
+  Chrome optimization_guide_model_store (126 M).
+- Pendiente para CIERRE de la próxima sesión: 10 GB del bundle
+  `~/Library/Application Support/Claude/vm_bundles/claudevm.bundle`
+  (hay que CERRAR Claude Desktop primero, luego `mv` a /tmp).
+
+### Mail.app
+- Síntoma cerrado parcial: correos del móvil ya aparecen en los más
+  recientes; faltaban los de marzo. Se descartó tipo de cuenta (IMAP),
+  buzones (`[Gmail]/Enviados` correcto) y límite IMAP de Gmail (sin
+  límite). Reconstruir buzón no bastó.
+- Ejecutado plan B: eliminar cuenta Txubas → re-añadir vía Google.
+- **Pendiente verificar** cuando termine la re-descarga: que los
+  correos de marzo aparezcan en `Enviados` de Txubas.
+
+### Bot dev (Alfred) — fix marcar lesión
+- Nuevo script `src/marcar_lesion.py`: API limpia, idempotente, escribe
+  BORG ('L') + LESIONES en una sola llamada bash.
+- System prompt simplificado para que Gemini llame al script en lugar
+  de copiar 50 líneas de Python (donde metía typos).
+- Validado real con PANI (08/05/2026): BORG fila 3881, LESIONES fila 501.
+- Commit `5eda501` pusheado, server actualizado y bot reiniciado.
 
 ## ✅ Hecho hoy (8 mayo 2026)
 
@@ -33,64 +71,25 @@ Decisión 08/05/2026: Arkaitz va habitualmente a oficina, no necesita
 acceso remoto al servidor. Si en algún momento lo necesita, montamos
 **ZeroTier** (gratis, soporta Catalina nativo, ~5 min de setup).
 
-### 🧹 Limpieza profunda del Mac viejo servidor
+### 🧹 Limpieza profunda del Mac viejo servidor — ✅ CERRADO 8/5/2026
 
-El Mac viejo aún tiene archivos antiguos de la mujer de Arkaitz + apps
-heredadas. Todo se puede borrar: el Mac viejo solo tiene que servir como
-servidor de bots.
+Hecho. Resumen arriba en "Hecho 8 mayo 2026 (tarde)". No había datos
+antiguos de la mujer (no había user folders extra). Todo lo demás
+desinstalado o desactivado.
 
-Plan a aplicar cuando estemos delante:
+### 🚀 Más optimización del Mac de oficina — ✅ MAYORÍA HECHA 8/5/2026
 
-1. Auditar uso de disco
-   ```bash
-   du -sh /Users/* 2>/dev/null | sort -rh
-   du -sh /Applications/* 2>/dev/null | sort -rh | head -30
-   df -h /
-   ```
+Segunda tanda hecha (8,6 GB liberados, ver arriba). Pendiente:
+- 10 GB del bundle de Claude Desktop al CIERRE de la próxima sesión.
+- Si en algún futuro Safari/WebKit van otra vez pesados: cerrar
+  pestañas viejas, revisar extensiones.
 
-2. Borrar datos personales antiguos (de la mujer). Mover a `/tmp` antes
-   de borrar de verdad, por si acaso.
+### 📧 Sincronización Gmail ↔ Mail.app — 🟡 EN VERIFICACIÓN 8/5/2026
 
-3. Quitar apps no necesarias. El Mac viejo SOLO necesita: Python 3.11 +
-   ffmpeg, Git, SSH, Terminal. Todo lo demás (iWork, iLife, navegadores
-   extra, software de oficina, juegos, etc.) → desinstalar.
-
-4. Quitar login items no esenciales.
-
-5. Limpiar caches y logs viejos:
-   ```bash
-   sudo rm -rf /private/var/log/asl/*.asl
-   rm -rf ~/Library/Caches/*
-   ```
-
-6. Verificar tras la limpieza:
-   - `ps aux | grep bot` → 3 procesos vivos
-   - `df -h /` → espacio libre razonable
-   - `top -l 1 | head -10` → RAM disponible
-
-### 🚀 Más optimización del Mac de oficina
-
-Ya hicimos primera tanda. Mejoras siguientes a estudiar:
-
-1. **Spotlight**: revisar `mdworker_shared`. Si está reindexando algo
-   constantemente, excluir carpetas pesadas.
-2. **Caches de Safari/WebKit**: eran 475 MB en varios procesos. Cerrar
-   pestañas viejas, revisar extensiones.
-3. **Plugins de la barra de menús**: cada uno suele ser un proceso.
-4. **Análisis de uso de disco**:
-   ```bash
-   df -h /
-   du -sh ~/Library/Caches/* 2>/dev/null | sort -rh | head -10
-   du -sh ~/Library/Application\ Support/* 2>/dev/null | sort -rh | head -10
-   ```
-
-### 📧 Sincronización Gmail ↔ Mail.app
-
-**Síntoma**: correos enviados desde Gmail en el móvil no aparecen en
-la app Mail del Mac de oficina.
-
-**Plan**: verificar tipo de cuenta (POP vs IMAP), reconfigurar como IMAP
-si está en POP, asegurar mapeo de carpeta "Enviados" a `[Gmail]/Sent Mail`.
+Plan B ejecutado (eliminar cuenta + re-añadirla). Pendiente confirmar
+que tras la re-descarga aparecen los correos antiguos. Si vuelve a
+fallar: investigar `Mail > Settings > Accounts > Avanzado` o reinstalar
+Mail (último recurso).
 
 ### 🆕 Pestaña Streamlit "Catálogo de ejercicios" — FUTURAS MEJORAS
 
