@@ -1390,6 +1390,96 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     _append_log(chat_id, user_name, prompt, response, kind=kind)
 
 
+def _detectar_intent(texto: str) -> Optional[str]:
+    """Detecta si un mensaje en lenguaje natural pide ejecutar un slash
+    command conocido. Devuelve el nombre del comando (sin barra) o None.
+
+    Diseño: matching de palabras clave/expresiones regulares simples.
+    Filosofía: si tengo dudas, devuelvo None y el mensaje va al LLM.
+    """
+    t = texto.strip().lower()
+    # Quitar el "alfred" / "asistente" / "bot" / signos de puntuación al inicio
+    t = re.sub(r'^(?:alfred|asistente|bot|hey|oye|hola)[,\.\s]+', '', t)
+    t = t.rstrip('.?!')
+
+    # Detección palabra por palabra (más predecible que regex compleja)
+    INTENTS = [
+        # (nombre_comando, lista_de_patrones_regex)
+        ("consolidar", [
+            r'\bconsolida(?:r|me)?\b',
+            r'\blanza(?:r)?\s+consolidar?\b',
+            r'\bactualiza(?:r)?\s+(?:los\s+)?(?:datos|forms?)\b',
+            r'\bvuelca(?:r)?\s+(?:los\s+)?forms?\b',
+        ]),
+        ("enlaces", [
+            r'^enlaces?$',
+            r'\bdame\s+(?:los\s+)?enlaces?\b',
+            r'\bm[aá]ndame\s+(?:los\s+)?enlaces?\b',
+            r'\bp[aá]same\s+(?:los\s+)?enlaces?\b',
+            r'\benlaces?\s+(?:de\s+)?hoy\b',
+            r'\benlaces?\s+(?:del\s+)?d[ií]a\b',
+            r'\bgenera(?:r)?\s+(?:los\s+)?enlaces?\b',
+        ]),
+        ("oliver_sync", [
+            r'\bsync\s+oliver\b',
+            r'\bsincroniza(?:r)?\s+oliver\b',
+            r'\boliver\s+sync\b',
+            r'\bactualiza(?:r)?\s+oliver\b',
+            r'\bbaja(?:r)?\s+(?:los\s+)?datos\s+(?:de\s+)?oliver\b',
+        ]),
+        ("oliver_deep", [
+            r'\boliver\s+deep\b',
+            r'\b(?:an[aá]lisis\s+)?profundo\s+(?:de\s+)?oliver\b',
+            r'\boliver\s+profundo\b',
+        ]),
+        ("ejercicios_sync", [
+            r'\bsync\s+(?:de\s+)?ejercicios\b',
+            r'\bejercicios\s+sync\b',
+            r'\bsincroniza(?:r)?\s+(?:los\s+)?ejercicios\b',
+            r'\bactualiza(?:r)?\s+(?:los\s+)?ejercicios\b',
+            r'\brecalcula(?:r)?\s+(?:los\s+)?ejercicios\b',
+        ]),
+        ("sesion", [
+            r'^apunta\s+(?:la\s+)?sesi[oó]n\b',
+            r'\bmodo\s+sesi[oó]n\b',
+            r'^sesi[oó]n$',
+            r'\b(?:quiero|voy a)\s+apuntar\s+(?:la\s+)?sesi[oó]n\b',
+        ]),
+        ("ejercicios_voz", [
+            r'^apunta\s+(?:los\s+)?ejercicios\b',
+            r'\bmodo\s+ejercicios\b',
+            r'\b(?:quiero|voy a)\s+apuntar\s+(?:los\s+)?ejercicios\b',
+        ]),
+        ("nuevo", [
+            r'^/?nuevo$',
+            r'^empiez(?:a|alo|amos)\s+de\s+cero$',
+            r'^olvida(?:r|lo)?\s+(?:el\s+)?contexto$',
+            r'^nueva\s+conversaci[oó]n$',
+        ]),
+    ]
+
+    for cmd, patterns in INTENTS:
+        for pat in patterns:
+            if re.search(pat, t, flags=re.IGNORECASE):
+                return cmd
+    return None
+
+
+# Mapping de intent → handler async
+def _intent_handler(cmd: str):
+    """Devuelve el handler async asociado al intent (None si no matchea)."""
+    return {
+        "consolidar": cmd_consolidar,
+        "enlaces": cmd_enlaces,
+        "oliver_sync": cmd_oliver_sync,
+        "oliver_deep": cmd_oliver_deep,
+        "ejercicios_sync": cmd_ejercicios_sync,
+        "sesion": cmd_sesion_voz,
+        "ejercicios_voz": cmd_ejercicios_voz,
+        "nuevo": cmd_nuevo,
+    }.get(cmd)
+
+
 async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _authorized(update):
         log.warning("Acceso denegado desde chat_id=%s (@%s)",
@@ -1425,6 +1515,21 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     prompt, "(procesado como /sesion)", kind="texto")
         await _procesar_audio_sesion(prompt, update, ctx)
         return
+
+    # Detector de intención: si el mensaje matchea con un slash command
+    # conocido, ejecutamos el handler local sin pasar por Gemini (más
+    # rápido, más fiable, mismos mensajes de progreso que el slash).
+    intent = _detectar_intent(prompt)
+    if intent:
+        handler = _intent_handler(intent)
+        if handler:
+            log.info("[%s] intent detectado: %s -> %s",
+                     chat_id, prompt[:80].replace('\n', ' '), intent)
+            _append_log(chat_id,
+                        (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                        prompt, f"(detectado como /{intent})", kind="texto")
+            await handler(update, ctx)
+            return
 
     await _process_prompt(prompt, update, ctx)
 
