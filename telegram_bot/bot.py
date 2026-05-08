@@ -328,6 +328,82 @@ df = pd.DataFrame(ss.worksheet('NOMBRE_HOJA').get_all_records(
 # df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')
 ```
 
+ACCIONES COMUNES DE ESCRITURA AL SHEET:
+
+1) **Marcar jugador como LESIONADO hoy** (ej. "apunta a Pani como lesionado"):
+   → ESCRIBIR EN 2 HOJAS: BORG y LESIONES.
+
+   ```python
+   import pandas as pd, gspread, datetime
+   from google.oauth2.service_account import Credentials
+   creds = Credentials.from_service_account_file(
+       '{PROJECT_DIR}/google_credentials.json',
+       scopes=['https://www.googleapis.com/auth/spreadsheets',
+               'https://www.googleapis.com/auth/drive'])
+   ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
+
+   JUGADOR = 'PANI'              # MAYÚSCULAS, formato roster
+   FECHA = '2026-05-08'           # YYYY-MM-DD
+   TURNO = 'M'                    # M / T / P (mira SESIONES si dudas)
+
+   # ── 1) BORG: marcar 'L' (Lesion) en la fila correspondiente ──
+   ws_borg = ss.worksheet('BORG')
+   borg = ws_borg.get_all_values()
+   header = borg[0]
+   col_fecha = header.index('FECHA')
+   col_turno = header.index('TURNO')
+   col_jug = header.index('JUGADOR')
+   col_borg = header.index('BORG')
+   row_idx = None
+   for i, r in enumerate(borg[1:], start=2):  # 1-indexed
+       if (len(r) > col_borg
+           and r[col_fecha] == FECHA
+           and r[col_turno] == TURNO
+           and r[col_jug] == JUGADOR):
+           row_idx = i
+           break
+   if row_idx:
+       ws_borg.update_cell(row_idx, col_borg + 1, 'L')
+       print(f"BORG fila {{row_idx}} actualizada: {{JUGADOR}} = L")
+   else:
+       new_row = ['' for _ in header]
+       new_row[col_fecha] = FECHA
+       new_row[col_turno] = TURNO
+       new_row[col_jug] = JUGADOR
+       new_row[col_borg] = 'L'
+       ws_borg.append_row(new_row, value_input_option='USER_ENTERED')
+       print(f"BORG: nueva fila para {{JUGADOR}} con BORG=L")
+
+   # ── 2) LESIONES: anadir fila con la lesión (cabecera fila 2!) ──
+   ws_les = ss.worksheet('LESIONES')
+   les = ws_les.get_all_values()
+   header_les = les[1]            # ⚠️ FILA 2 es la cabecera real
+   ci_jug = header_les.index('JUGADOR')
+   ci_fec = header_les.index('FECHA LESIÓN')
+   nueva = ['' for _ in header_les]
+   nueva[ci_jug] = JUGADOR
+   nueva[ci_fec] = FECHA
+   # Resto (TIPO LESIÓN, ZONA CORPORAL, MECANISMO, DÍAS BAJA EST., etc.)
+   # se deja vacío para que el fisio lo rellene después con el detalle.
+   ws_les.append_row(nueva, value_input_option='USER_ENTERED')
+   print(f"LESIONES: anadida fila para {{JUGADOR}} ({{FECHA}})")
+   ```
+
+   Después: dile a Arkaitz "✅ Apuntado: PANI=L en BORG y nueva fila en
+   LESIONES (sin detalle, lo rellena el fisio luego)".
+
+2) **Otros estados en BORG** (S/A/D/N/NC) — mismo patrón pero solo en BORG:
+   - S = Selección (jugador con su selección nacional)
+   - A = Ausencia (no convocado)
+   - D = Descanso (rotación)
+   - N = No entrena (no especificado)
+   - NC = No calificado
+
+3) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
+   alimenta Google Forms automáticamente. Tampoco a `_VISTA_*` (se
+   regeneran solas). Solo escribe a hojas crudas: BORG, PESO, WELLNESS,
+   LESIONES, FISIO, SESIONES, _EJERCICIOS.
+
 ROSTER OFICIAL (cómo se guarda cada jugador):
 PORTEROS PRIMER: J.HERRERO, J.GARCIA
 CAMPO PRIMER: CECILIO, CHAGUINHA, RAUL, HARRISON, RAYA, JAVI, PANI,
