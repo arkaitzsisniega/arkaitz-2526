@@ -7891,13 +7891,13 @@ with tab_editar:
                                 # A4 vertical. El parámetro 'parte' se ignora.
                                 pdf_compa = _gen("compa", "1T",
                                                   datos_directos=_datos_directos_cr)
-                            st.session_state["pla_comp_cr"] = pdf_compa
+                            st.session_state["pla_comp_cr_pdf"] = pdf_compa
                         except Exception as e:
                             st.error(f"Error: {e}")
-                    if st.session_state.get("pla_comp_cr"):
+                    if st.session_state.get("pla_comp_cr_pdf"):
                         st.download_button(
                             "⬇️ Compañero (1ª + 2ª parte)",
-                            data=st.session_state["pla_comp_cr"],
+                            data=st.session_state["pla_comp_cr_pdf"],
                             file_name=f"planilla_compa_{cab['rival']}.pdf",
                             mime="application/pdf",
                             key="dl_comp_cr",
