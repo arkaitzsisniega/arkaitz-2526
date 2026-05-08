@@ -130,6 +130,14 @@ def escribir_vista(ss, nombre_hoja, df):
 # ── VISTA 1: CARGA POR SESIÓN ─────────────────────────────────────────────────
 # Une SESIONES + BORG. Una fila por (jugador × sesión).
 
+# Factor de corrección para sesiones que incluyen GYM. Los jugadores
+# tienden a subestimar el BORG cuando reportan una sola cifra para una
+# sesión combinada (GYM + TEC-TAC), porque mentalmente "olvidan" la parte
+# de gimnasio. Aplicamos un x1.25 a la carga total cuando TIPO_SESION
+# contiene "GYM" (en cualquier combinación).
+FACTOR_GYM = 1.25
+
+
 def vista_carga(ses, borg):
     # Unir BORG con info de sesión
     df = borg.merge(
@@ -141,6 +149,9 @@ def vista_carga(ses, borg):
     # BORG crudo con letras se preserva en `borg` (entrada) para vista_recuento.
     df["BORG"]  = pd.to_numeric(df["BORG"], errors="coerce")
     df["CARGA"] = df["BORG"] * pd.to_numeric(df["MINUTOS"], errors="coerce")
+    # Aplicar factor de corrección a sesiones con GYM
+    es_gym = df["TIPO_SESION"].astype(str).str.contains("GYM", case=False, na=False)
+    df.loc[es_gym, "CARGA"] = df.loc[es_gym, "CARGA"] * FACTOR_GYM
     df["FECHA_STR"]  = df["FECHA"].dt.strftime("%Y-%m-%d")
     df["DIA_SEMANA"] = df["FECHA"].dt.day_name()
     df = df.sort_values(["FECHA", "JUGADOR"])
