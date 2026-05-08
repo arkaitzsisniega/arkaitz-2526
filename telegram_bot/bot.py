@@ -46,7 +46,7 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "").strip()
 PROJECT_DIR     = Path(os.getenv("PROJECT_DIR", str(HERE.parent))).expanduser().resolve()
 LLM_TIMEOUT     = int(os.getenv("LLM_TIMEOUT", "600"))
 GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL    = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+GEMINI_MODEL    = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 GEMINI_MAX_STEPS = int(os.getenv("GEMINI_MAX_STEPS", "12"))
 HISTORY_MAX_TURNS = int(os.getenv("HISTORY_MAX_TURNS", "16"))
 
@@ -364,17 +364,61 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    Arkaitz. Si falla algo, NO inventes Python alternativo: dile a Arkaitz el
    error literal y para.
 
-2) **Otros estados en BORG** (S/A/D/N/NC) — mismo patrón pero solo en BORG:
-   - S = Selección (jugador con su selección nacional)
-   - A = Ausencia (no convocado)
-   - D = Descanso (rotación)
-   - N = No entrena (no especificado)
-   - NC = No calificado
+2) **Otros estados en BORG (S/A/D/N/NC) o Borg numérico**:
+   → USA SIEMPRE el script `src/apuntar_borg.py`. NO escribas Python a mano.
+     Es idempotente: si la fila existe se actualiza, si no se añade.
 
-3) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_borg.py JUGADOR YYYY-MM-DD VALOR [TURNO]
+   ```
+
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_borg.py CARLOS 2026-05-08 7
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_borg.py PANI 2026-05-08 S        # Selección
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_borg.py JAVI 2026-05-08 D T      # Descanso, turno T
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_borg.py CARLOS 2026-05-08 7 --dry-run
+   ```
+
+   Estados: S=Selección · A=Ausencia · L=Lesión (mejor marcar_lesion.py) ·
+            N=No entrena · D=Descanso · NC=No calificado.
+
+3) **Apuntar PESO (PRE / POST / H2O)**:
+   → USA SIEMPRE el script `src/apuntar_peso.py`. Idempotente.
+     Solo se actualizan los campos que pasas; los demás se quedan como están.
+
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_peso.py JUGADOR YYYY-MM-DD [TURNO] --pre N --post N --h2o N
+   ```
+
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_peso.py CARLOS 2026-05-08 --pre 75.4
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_peso.py PIRATA 2026-05-08 T --pre 78.2 --post 77.5
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_peso.py JAVI 2026-05-08 --pre 71 --post 70.4 --h2o 45.2
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_peso.py PANI 2026-05-08 --pre 70.5 --dry-run
+   ```
+
+   Validación: pesos fuera de 40-200 kg se rechazan automáticamente
+   (filtro fisiológico). Coma o punto decimal funcionan ambos.
+
+4) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
    alimenta Google Forms automáticamente. Tampoco a `_VISTA_*` (se
    regeneran solas). Solo escribe a hojas crudas: BORG, PESO, WELLNESS,
    LESIONES, FISIO, SESIONES, _EJERCICIOS.
+
+5) **REGLA GENERAL para escribir al Sheet**: si existe un script
+   `src/apuntar_*.py` o `src/marcar_*.py` para la acción, **úsalo SIEMPRE**.
+   Solo escribe Python con gspread directamente cuando NO existe un script
+   curado para la operación que necesitas.
+
+⚠️ MUY IMPORTANTE — RESPUESTA TRAS CADA TOOL CALL:
+Después de ejecutar un tool (python, bash, write_file, edit_file), SIEMPRE
+genera una respuesta de TEXTO en español al usuario. NO termines mudo
+después de obtener datos. El usuario está esperando que le hables, no
+solo que ejecutes scripts. Si un script falla, dilo en humano
+("no me sale", "el script ha dado un error en X") en lugar de quedarte
+en silencio.
 
 ROSTER OFICIAL (cómo se guarda cada jugador):
 PORTEROS PRIMER: J.HERRERO, J.GARCIA
@@ -669,6 +713,10 @@ async def _run_gemini(prompt: str, continue_session: bool = True,
     )
 
     progress_sent = False
+    # Wake-up automático cuando Gemini "termina mudo" tras un tool call
+    # (bug conocido de Gemini Flash con function calling).
+    wake_ups_usados = 0
+    WAKE_UPS_MAX = 1
 
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
@@ -680,8 +728,61 @@ async def _run_gemini(prompt: str, continue_session: bool = True,
                 cand = candidates[0]
                 content = getattr(cand, "content", None)
                 if not content or not getattr(content, "parts", None):
-                    finish = getattr(cand, "finish_reason", "?")
-                    return -1, "", f"Gemini terminó sin contenido (finish_reason={finish})."
+                    # Diagnóstico fino del finish_reason
+                    # 1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER,
+                    # 6=BLOCKLIST, 7=PROHIBITED, 8=SPII, 9=MALFORMED_FUNCTION_CALL,
+                    # 10=IMAGE_SAFETY, 12=UNEXPECTED_TOOL_CALL, 13=TOO_MANY_TOOL_CALLS
+                    finish_raw = getattr(cand, "finish_reason", None)
+                    try:
+                        finish_int = int(finish_raw) if finish_raw is not None else -1
+                    except (TypeError, ValueError):
+                        finish_int = -1
+
+                    # Caso 1: STOP sin contenido tras tool call → wake-up forzado
+                    if (finish_int == 1
+                            and step > 0
+                            and wake_ups_usados < WAKE_UPS_MAX):
+                        wake_ups_usados += 1
+                        log.warning(
+                            "[%s] finish_reason=STOP sin contenido tras tool. "
+                            "Forzando wake-up (%d/%d).",
+                            chat_id, wake_ups_usados, WAKE_UPS_MAX,
+                        )
+                        history.append({
+                            "role": "user",
+                            "parts": [{"text": (
+                                "Produce ahora una respuesta en español, en "
+                                "lenguaje natural, basándote en lo que acabas "
+                                "de obtener. Sigue el tono y formato del "
+                                "system prompt (frases cortas, números concretos, "
+                                "tono de compañero). No uses más herramientas, "
+                                "solo responde."
+                            )}],
+                        })
+                        continue
+
+                    # SAFETY / filtros
+                    if finish_int in (3, 6, 7, 8, 10):
+                        return (-1, "",
+                                f"Gemini bloqueó por filtros de contenido "
+                                f"(finish_reason={finish_int}). Reformula la "
+                                f"petición.")
+
+                    # MAX_TOKENS
+                    if finish_int == 2:
+                        return (-1, "",
+                                "Respuesta cortada por longitud. Pide en bloques "
+                                "más pequeños.")
+
+                    # Tools rotos
+                    if finish_int in (9, 12, 13):
+                        return (-1, "",
+                                f"Problema al usar las herramientas "
+                                f"(finish_reason={finish_int}). Simplifica la "
+                                f"petición.")
+
+                    return (-1, "",
+                            f"Gemini terminó sin contenido (finish_reason={finish_int}).")
 
                 parts = list(content.parts)
                 fcalls = []

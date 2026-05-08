@@ -27,8 +27,23 @@
 
 ### 🟢 Lunes 11/5 — primera cosa nada más abrir
 
-- [ ] **Activar nueva versión de bot_datos en el Mac viejo** — pendiente
-      desde el sábado 9/5 (commit `39fec29`). Cambios incluidos:
+- [ ] **Activar nuevas versiones de Alfred Y bot_datos en el Mac viejo** —
+      pendientes desde el sábado 9/5. Cambios:
+
+      **Alfred (telegram_bot/bot.py)**:
+      - Modelo: `gemini-2.0-flash` → `gemini-2.5-flash` (consistencia con
+        bot_datos, mejor function calling).
+      - Recovery automático finish_reason=1 (mismo que bot_datos).
+      - Diagnóstico fino de errores Gemini.
+      - Nuevos scripts curados que sustituyen el "escribir Python a mano":
+        - `src/apuntar_borg.py` para apuntar BORG (número o estado S/A/L/N/D/NC).
+        - `src/apuntar_peso.py` para apuntar peso PRE/POST/H2O.
+        - `src/marcar_lesion.py` ya existía. Suma 3 ahora.
+      - System prompt actualizado con instrucciones de cuándo usar cada
+        script + regla "respuesta natural tras cada tool".
+
+      **bot_datos (telegram_bot_datos/bot_datos.py)**, ya en la nota de
+      antes (commit `39fec29`):
       - Modelo: `gemini-2.0-flash` → `gemini-2.5-flash` (mejor function
         calling, sigue gratis).
       - Recovery automático cuando Gemini "termina mudo" tras un tool call
@@ -41,13 +56,30 @@
         para preguntas tipo "cómo está X esta semana") + ejemplo 13 con
         código.
 
-      **Comando a pegar en el Mac viejo (ssh) tras conectarse:**
+      **Comando a pegar en el Mac viejo (ssh) — reinicia AMBOS bots:**
 
       ```bash
-      cd ~/Desktop/Arkaitz && git pull && launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot_datos && sleep 4 && ps aux | grep bot_datos | grep -v grep
+      cd ~/Desktop/Arkaitz && git pull && \
+        launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot && \
+        launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot_datos && \
+        sleep 4 && ps aux | grep -E "telegram_bot.*bot\.py|bot_datos" | grep -v grep
       ```
 
-      Espero ver un PID nuevo (distinto del 1225 actual) en la salida.
+      Espero ver 2 PIDs nuevos (Alfred y bot_datos), distintos a los
+      últimos conocidos.
+
+- [ ] **Verificar Alfred** tras reiniciarlo — pruebas sugeridas por
+      Telegram:
+
+      > "Alfred, apunta a Carlos un Borg de 7 hoy"
+      > → debería llamar `apuntar_borg.py` y confirmar.
+
+      > "Apunta el peso pre de Pirata, 78 kg hoy"
+      > → debería llamar `apuntar_peso.py --pre 78`.
+
+      > "Cómo está Cecilio esta semana?"
+      > → debería responder en lenguaje natural tipo "Cecilio: 3
+      >    sesiones, carga 2.180, ACWR 1,1 verde…".
 
 - [ ] **Verificar bot_datos** tras reiniciarlo — pregúntale por Telegram:
 
@@ -90,6 +122,25 @@
       escáner regex sea perfecto. Una segunda cuenta con solo lectura
       lo hace imposible aunque alguien encuentre cómo saltarse el
       escáner.)*
+
+- [ ] **Alfred con visión (foto → datos)** — Gemini 2.5 Flash soporta
+      imágenes gratis. Caso real: sacas foto de la planilla del partido
+      escrita a mano y Alfred extrae los datos al Sheet. Implementación
+      ~1-2h. *Riesgo*: la fiabilidad depende de la calidad de la foto y a
+      veces el modelo inventa números si la foto está borrosa. Hay que
+      hacerlo CON PASO DE VALIDACIÓN: Alfred extrae, te muestra los datos
+      antes de guardar, tú confirmas. Cuando lo abordemos, definir
+      primero qué tipo de fotos (planilla, hoja Excel impresa, captura
+      Oliver…) y qué hojas-destino.
+
+- [ ] **Memoria persistente Alfred / bot_datos** — hoy si launchd
+      reinicia el bot (cosa habitual), se pierde el hilo de la
+      conversación. Solución: persistir las últimas N interacciones a
+      disco (`telegram_bot/conversaciones/<chat_id>.jsonl` o similar).
+      *Esfuerzo*: ~2h. *Riesgo*: bajo si lo limitamos a las últimas 10-15
+      interacciones por chat. Hacerlo cuando notes que es un problema
+      real (si reinicios accidentales te están haciendo perder contexto
+      con frecuencia).
 
 ---
 
