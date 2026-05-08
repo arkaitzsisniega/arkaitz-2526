@@ -198,6 +198,10 @@ OTROS DETALLES:
   `pd.to_numeric(df['BORG'], errors='coerce').notna()`.
 - Las fechas vienen como string `'YYYY-MM-DD'`. Para filtrar por rango,
   conviértelas con `pd.to_datetime(df['FECHA'], errors='coerce')`.
+- ⚠️ **NO ANIDES COMILLAS DOBLES dentro de f-strings** porque corres en
+  Python 3.11 y revienta. Usa comillas simples dentro:
+    BIEN:  `print(f"Hoy es {fecha.strftime('%d/%m')}")`
+    MAL:   `print(f"Hoy es {fecha.strftime("%d/%m")}")`  ← SyntaxError
 
 FECHAS:
 - Vienen como strings `YYYY-MM-DD`. Parsea con
@@ -969,10 +973,17 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
             )
         else:
             msg_user = "⚠️ No me sale ahora. Pídeselo a Arkaitz si urge."
-        msg_tecnico = f"\n\n_(detalle técnico para Arkaitz: {detalle[:500]}...)_" if len(detalle) > 30 else ""
-        msg_final = msg_user + msg_tecnico
+        # IMPORTANTE: texto plano (no Markdown) — el detalle puede tener
+        # caracteres especiales (^, paréntesis, _, *) que rompen el parser
+        # de Telegram con BadRequest.
+        msg_final = msg_user
+        if len(detalle) > 30:
+            msg_final += f"\n\n(detalle técnico: {detalle[:500]}...)"
         for chunk in _chunks(msg_final):
-            await update.message.reply_text(chunk, parse_mode="Markdown")
+            try:
+                await update.message.reply_text(chunk)  # plain text
+            except Exception as _e_send:
+                log.warning("No pude enviar msg de error: %s", _e_send)
         _append_log(chat_id, user_name, prompt, msg_final, kind=kind)
         return
 

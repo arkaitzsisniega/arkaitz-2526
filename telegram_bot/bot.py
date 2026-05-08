@@ -297,6 +297,10 @@ df = pd.DataFrame(ss.worksheet('NOMBRE_HOJA').get_all_records(
     value_render_option=gspread.utils.ValueRenderOption.unformatted))
 # ⚠️ SIEMPRE con value_render_option=UNFORMATTED: sin esto los números
 # con coma decimal (74,7) llegan como 747.
+# ⚠️ NO ANIDES comillas dobles dentro de f-strings (Python 3.11). Usa
+# comillas simples dentro:
+#   BIEN:  print(f"Hoy es {f.strftime('%d/%m')}")
+#   MAL:   print(f"Hoy es {f.strftime("%d/%m")}")  ← SyntaxError
 # pesos con coma decimal:
 # df['PESO_PRE'] = pd.to_numeric(df['PESO_PRE'].astype(str).str.replace(',','.'), errors='coerce')
 # fechas:
@@ -1442,13 +1446,18 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
         elif "networkerror" in det_low or "connecterror" in det_low:
             msg_user = "⚠️ Se cayó la red del servidor. Reintenta en 1-2 min."
         else:
-            msg_user = f"⚠️ No me sale ahora ({type(detalle).__name__})."
-        msg_full = msg_user + (
-            f"\n\n_(detalle técnico: {detalle[:600]}...)_"
-            if len(detalle) > 30 else ""
-        )
+            msg_user = "⚠️ No me sale ahora."
+        # IMPORTANTE: enviar como TEXTO PLANO (no Markdown). El detalle del
+        # error puede contener ^, paréntesis desbalanceados, _, *, etc., que
+        # rompen el parser de Markdown de Telegram (BadRequest).
+        msg_full = msg_user
+        if len(detalle) > 30:
+            msg_full += f"\n\n(detalle técnico: {detalle[:600]}...)"
         for chunk in _chunks(msg_full):
-            await update.message.reply_text(chunk, parse_mode="Markdown")
+            try:
+                await update.message.reply_text(chunk)  # sin parse_mode = texto plano
+            except Exception as _send_err:
+                log.warning("No pude enviar el msg de error: %s", _send_err)
         _append_log(chat_id, user_name, prompt, msg_full, kind=kind)
         return
 
