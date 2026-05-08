@@ -456,10 +456,10 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
 ## 🔜 Hilos abiertos (orden sugerido)
 
 ### Próxima sesión — pendientes inmediatos
-1. ⚠️ **J25.INDUSTRIAS no se está extrayendo**: tras el sync sigue sin
-   aparecer en EST_PARTIDOS. Investigar por qué (¿hoja vacía? ¿filtro
-   descarta? ¿nombre con espacios o tilde?). Listar partidos en
-   `Estadisticas2526.xlsx` y comparar con los que llegan al Sheet.
+1. ~~⚠️ J25.INDUSTRIAS no se está extrayendo~~ ✅ CERRADO 8/5/2026:
+   verificado, está en EST_PARTIDOS (13 jugadores), EST_EVENTOS (6 goles)
+   y EST_TOTALES_PARTIDO (3-3 vs INDUSTRIAS, 2026-04-18 en Barcelona).
+   Problema resuelto en algún sync posterior.
 2. ✏️ **Fecha J17.ELPOZO**: Arkaitz la corrigió en Excel; ahora aparece
    2026-10-10 en EST_PARTIDOS. Confirmar con él si esa es la fecha
    correcta tras su edición.
