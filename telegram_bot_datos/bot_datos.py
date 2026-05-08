@@ -527,6 +527,113 @@ async def _transcribir(audio_path: str) -> str:
 # Conversación en memoria por chat_id. Si el bot se reinicia, se pierde.
 _conv_history: Dict[int, List[Dict[str, Any]]] = {}
 
+# ── Validación de SOLO LECTURA (cinturón de seguridad) ─────────────────────
+# El system prompt dice "solo lectura" pero hay que enforcearlo a nivel de
+# código por si Gemini malinterpreta o un usuario malicioso fuerza una
+# operación de escritura. Cualquier patrón de escritura se rechaza ANTES
+# de ejecutar.
+_PATRONES_BLOQUEADOS_PYTHON = [
+    # Métodos gspread que modifican el Sheet
+    (r"\.update_cell\s*\(",            "update_cell"),
+    (r"\.update_acell\s*\(",           "update_acell"),
+    (r"\.update_cells\s*\(",           "update_cells"),
+    (r"\.update_values\s*\(",          "update_values"),
+    (r"\.append_row\s*\(",             "append_row"),
+    (r"\.append_rows\s*\(",            "append_rows"),
+    (r"\.batch_update\s*\(",           "batch_update"),
+    (r"\.batch_clear\s*\(",            "batch_clear"),
+    (r"\.delete_row\s*\(",             "delete_row"),
+    (r"\.delete_rows\s*\(",            "delete_rows"),
+    (r"\.delete_columns?\s*\(",        "delete_column(s)"),
+    (r"\.insert_row\s*\(",             "insert_row"),
+    (r"\.insert_rows\s*\(",            "insert_rows"),
+    (r"\.insert_cols?\s*\(",           "insert_col(s)"),
+    (r"\.add_worksheet\s*\(",          "add_worksheet"),
+    (r"\.del_worksheet\s*\(",          "del_worksheet"),
+    (r"\.duplicate\s*\(",              "duplicate"),
+    (r"\.copy_to\s*\(",                "copy_to"),
+    (r"\.batch_format\s*\(",           "batch_format"),
+    (r"\.merge_cells\s*\(",            "merge_cells"),
+    (r"\.unmerge_cells\s*\(",          "unmerge_cells"),
+    (r"\.add_protected_range",         "add_protected_range"),
+    (r"\.delete_protected_range",      "delete_protected_range"),
+    # Escritura de archivos
+    (r"open\s*\([^)]*['\"][wax]\+?b?['\"]",         "open() en modo escritura"),
+    (r"open\s*\([^)]*mode\s*=\s*['\"][wax]\+?b?['\"]",  "open(mode='w'/'a'/'x')"),
+    (r"\.write_text\s*\(",             "Path.write_text"),
+    (r"\.write_bytes\s*\(",            "Path.write_bytes"),
+    # Borrado / movimiento de archivos
+    (r"os\.remove\s*\(",               "os.remove"),
+    (r"os\.unlink\s*\(",               "os.unlink"),
+    (r"os\.rmdir\s*\(",                "os.rmdir"),
+    (r"os\.makedirs\s*\(",             "os.makedirs"),
+    (r"os\.rename\s*\(",               "os.rename"),
+    (r"shutil\.rmtree\s*\(",           "shutil.rmtree"),
+    (r"shutil\.move\s*\(",             "shutil.move"),
+    (r"shutil\.copy\w*\s*\(",          "shutil.copy*"),
+    # Subprocess / system (puede ejecutar cualquier cosa)
+    (r"os\.system\s*\(",               "os.system"),
+    (r"subprocess\.\w+\s*\(",          "subprocess.*"),
+    (r"\bPopen\s*\(",                  "Popen"),
+    # Eval / exec dinámico
+    (r"\beval\s*\(",                   "eval()"),
+    (r"\bexec\s*\(",                   "exec()"),
+    (r"__import__\s*\(\s*['\"]os['\"]", "__import__('os') sospechoso"),
+]
+
+_PATRONES_BLOQUEADOS_BASH = [
+    (r"\brm\s+",                       "rm"),
+    (r"\bmv\s+",                       "mv"),
+    (r"\bcp\s+",                       "cp"),
+    (r"\bchmod\s+",                    "chmod"),
+    (r"\bchown\s+",                    "chown"),
+    (r"\bmkdir\s+",                    "mkdir"),
+    (r"\brmdir\s+",                    "rmdir"),
+    (r"\btouch\s+",                    "touch"),
+    (r"(^|\s|;|\|)>\s*\S",             "redirección > (escritura)"),
+    (r"(^|\s|;|\|)>>\s*\S",            "redirección >> (append)"),
+    (r"\btee\b",                       "tee"),
+    (r"\bgit\s+(commit|push|add|rm|mv|reset|checkout|merge|rebase|stash|tag|init|clone|pull)\b",
+                                       "git mutador"),
+    (r"\bsudo\b",                      "sudo"),
+    (r"\bdd\s+",                       "dd"),
+    (r"\bmkfs\b",                      "mkfs"),
+    (r"\bshutdown\b",                  "shutdown"),
+    (r"\breboot\b",                    "reboot"),
+    (r"\bkillall\b",                   "killall"),
+    (r"\bcurl\b.*-X\s+(POST|PUT|DELETE|PATCH)\b",   "curl mutador (-X POST/PUT/...)"),
+    (r"\bcurl\b.*--data\b",            "curl --data (POST)"),
+    (r"\bwget\b.*-O\s+",               "wget -O (escribe archivo)"),
+    (r"\bsed\b.*-i\b",                 "sed -i (modifica archivo)"),
+]
+
+
+def _validar_solo_lectura_python(code: str) -> Optional[str]:
+    """Comprueba si el código Python contiene operaciones de escritura
+    prohibidas. Devuelve None si OK, mensaje de error si bloqueado."""
+    for pat, nombre in _PATRONES_BLOQUEADOS_PYTHON:
+        if re.search(pat, code):
+            return (
+                f"❌ Operación bloqueada por seguridad: detectada `{nombre}`.\n"
+                f"Este bot es de SOLO LECTURA — no puede modificar Sheets, "
+                f"archivos ni ejecutar comandos del sistema. Reformula la "
+                f"consulta sin escribir nada."
+            )
+    return None
+
+
+def _validar_solo_lectura_bash(cmd: str) -> Optional[str]:
+    """Comprueba si el comando bash contiene operaciones prohibidas."""
+    for pat, nombre in _PATRONES_BLOQUEADOS_BASH:
+        if re.search(pat, cmd):
+            return (
+                f"❌ Comando bloqueado por seguridad: detectado `{nombre}`.\n"
+                f"Este bot es de SOLO LECTURA. Solo se permiten comandos de "
+                f"consulta (ls, head, grep, etc.) sin escritura."
+            )
+    return None
+
+
 # Definición de herramientas (function calling). Solo lectura.
 TOOLS_BOT_DATOS = [
     {
@@ -603,6 +710,14 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             code = args.get("code", "")
             if not code.strip():
                 return "ERROR: código vacío."
+            # ── Cinturón de seguridad: solo lectura ──
+            error_validacion = _validar_solo_lectura_python(code)
+            if error_validacion:
+                log.warning(
+                    "[bot_datos] Bloqueado código con escritura: %s...",
+                    code[:200].replace("\n", " "),
+                )
+                return error_validacion
             # Usamos el mismo Python con el que corre el bot (venv 3.11), que
             # tiene gspread/pandas/etc. instalados con versiones coherentes.
             # /usr/bin/python3 (sistema 3.8 en Catalina) crasheaba con SIGSEGV
@@ -637,11 +752,14 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             cmd = args.get("command", "").strip()
             if not cmd:
                 return "ERROR: comando vacío."
-            # Heurística defensiva: bloquear comandos obviamente destructivos
-            BLOCK = ["rm -rf /", "git push", "git commit", "git reset --hard",
-                     "git checkout --", "shutdown", "reboot"]
-            if any(b in cmd for b in BLOCK):
-                return f"ERROR: comando bloqueado por seguridad ({cmd[:60]})"
+            # ── Cinturón de seguridad: solo lectura ──
+            error_validacion = _validar_solo_lectura_bash(cmd)
+            if error_validacion:
+                log.warning(
+                    "[bot_datos] Bloqueado comando con escritura: %s",
+                    cmd[:200],
+                )
+                return error_validacion
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True,
                 cwd=str(PROJECT_DIR), timeout=120,
