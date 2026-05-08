@@ -572,8 +572,14 @@ async def _gemini_call_with_retry(model, history, max_retries: int = 3):
     raise last_err
 
 
-async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, str, str]:
-    """Llama a Gemini con tool-use loop. Mantiene historial conversacional."""
+async def _run_gemini(prompt: str, continue_session: bool = True,
+                       progress_cb=None) -> Tuple[int, str, str]:
+    """Llama a Gemini con tool-use loop. Mantiene historial conversacional.
+
+    `progress_cb`: callable async opcional que se llama UNA vez al detectar
+    el primer tool call (señal de respuesta lenta). No se llama en queries
+    instantáneas.
+    """
     chat_id = ALLOWED_CHAT_ID  # bot dev es mono-usuario; key por chat_id
     if not continue_session:
         _conv_history.pop(chat_id, None)
@@ -588,6 +594,8 @@ async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, 
         system_instruction=system_eff,
         tools=TOOLS_BOT_DEV,
     )
+
+    progress_sent = False
 
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
@@ -610,6 +618,13 @@ async def _run_gemini(prompt: str, continue_session: bool = True) -> Tuple[int, 
                         fcalls.append(fc)
 
                 if fcalls:
+                    # Notificar al usuario en el primer tool call
+                    if progress_cb is not None and not progress_sent:
+                        try:
+                            await progress_cb("🔧 Trabajando en ello, dame un momento…")
+                            progress_sent = True
+                        except Exception:
+                            pass
                     history.append({"role": "model", "parts": parts})
                     tool_response_parts = []
                     for fc in fcalls:
@@ -1394,8 +1409,16 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     stop = asyncio.Event()
     typing_task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
 
+    async def _progress(text: str):
+        try:
+            await update.message.reply_text(text)
+        except Exception:
+            pass
+
     try:
-        rc, out, err = await _run_gemini(prompt_final, continue_session=continuar)
+        rc, out, err = await _run_gemini(prompt_final,
+                                            continue_session=continuar,
+                                            progress_cb=_progress)
     finally:
         stop.set()
         try:
