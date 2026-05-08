@@ -331,66 +331,24 @@ df = pd.DataFrame(ss.worksheet('NOMBRE_HOJA').get_all_records(
 ACCIONES COMUNES DE ESCRITURA AL SHEET:
 
 1) **Marcar jugador como LESIONADO hoy** (ej. "apunta a Pani como lesionado"):
-   → ESCRIBIR EN 2 HOJAS: BORG y LESIONES.
+   → USA SIEMPRE el script `src/marcar_lesion.py`. NO escribas Python a mano.
+     El script ya escribe en BORG (con 'L') y en LESIONES de forma idempotente.
 
-   ```python
-   import pandas as pd, gspread, datetime
-   from google.oauth2.service_account import Credentials
-   creds = Credentials.from_service_account_file(
-       '{PROJECT_DIR}/google_credentials.json',
-       scopes=['https://www.googleapis.com/auth/spreadsheets',
-               'https://www.googleapis.com/auth/drive'])
-   ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
-
-   JUGADOR = 'PANI'              # MAYÚSCULAS, formato roster
-   FECHA = '2026-05-08'           # YYYY-MM-DD
-   TURNO = 'M'                    # M / T / P (mira SESIONES si dudas)
-
-   # ── 1) BORG: marcar 'L' (Lesion) en la fila correspondiente ──
-   ws_borg = ss.worksheet('BORG')
-   borg = ws_borg.get_all_values()
-   header = borg[0]
-   col_fecha = header.index('FECHA')
-   col_turno = header.index('TURNO')
-   col_jug = header.index('JUGADOR')
-   col_borg = header.index('BORG')
-   row_idx = None
-   for i, r in enumerate(borg[1:], start=2):  # 1-indexed
-       if (len(r) > col_borg
-           and r[col_fecha] == FECHA
-           and r[col_turno] == TURNO
-           and r[col_jug] == JUGADOR):
-           row_idx = i
-           break
-   if row_idx:
-       ws_borg.update_cell(row_idx, col_borg + 1, 'L')
-       print(f"BORG fila {{row_idx}} actualizada: {{JUGADOR}} = L")
-   else:
-       new_row = ['' for _ in header]
-       new_row[col_fecha] = FECHA
-       new_row[col_turno] = TURNO
-       new_row[col_jug] = JUGADOR
-       new_row[col_borg] = 'L'
-       ws_borg.append_row(new_row, value_input_option='USER_ENTERED')
-       print(f"BORG: nueva fila para {{JUGADOR}} con BORG=L")
-
-   # ── 2) LESIONES: anadir fila con la lesión (cabecera fila 2!) ──
-   ws_les = ss.worksheet('LESIONES')
-   les = ws_les.get_all_values()
-   header_les = les[1]            # ⚠️ FILA 2 es la cabecera real
-   ci_jug = header_les.index('JUGADOR')
-   ci_fec = header_les.index('FECHA LESIÓN')
-   nueva = ['' for _ in header_les]
-   nueva[ci_jug] = JUGADOR
-   nueva[ci_fec] = FECHA
-   # Resto (TIPO LESIÓN, ZONA CORPORAL, MECANISMO, DÍAS BAJA EST., etc.)
-   # se deja vacío para que el fisio lo rellene después con el detalle.
-   ws_les.append_row(nueva, value_input_option='USER_ENTERED')
-   print(f"LESIONES: anadida fila para {{JUGADOR}} ({{FECHA}})")
+   Llamada estándar (turno se autodetecta de SESIONES si lo omites):
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_lesion.py JUGADOR YYYY-MM-DD
    ```
 
-   Después: dile a Arkaitz "✅ Apuntado: PANI=L en BORG y nueva fila en
-   LESIONES (sin detalle, lo rellena el fisio luego)".
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_lesion.py PANI 2026-05-08
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_lesion.py PIRATA 2026-05-08 T
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_lesion.py PANI 2026-05-08 --dry-run
+   ```
+
+   El script imprime un resumen tras `---MSG---` que puedes pasar tal cual a
+   Arkaitz. Si falla algo, NO inventes Python alternativo: dile a Arkaitz el
+   error literal y para.
 
 2) **Otros estados en BORG** (S/A/D/N/NC) — mismo patrón pero solo en BORG:
    - S = Selección (jugador con su selección nacional)
