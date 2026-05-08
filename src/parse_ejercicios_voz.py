@@ -1,18 +1,20 @@
 """
 parse_ejercicios_voz.py — Procesa una transcripción de audio describiendo
-los ejercicios de un entrenamiento, los estructura con Claude Code, los
+los ejercicios de un entrenamiento, los estructura con Gemini, los
 inserta en la hoja _EJERCICIOS y lanza la sincronización con Oliver.
 
 Uso (lee transcripción de stdin):
-  echo "Hoy hemos hecho 10 min de movilidad..." | /usr/bin/python3 src/parse_ejercicios_voz.py
+  echo "Hoy hemos hecho 10 min de movilidad..." | python3 src/parse_ejercicios_voz.py
+
+Variables de entorno:
+  GEMINI_API_KEY   (obligatoria) — key de aistudio.google.com.
+  GEMINI_MODEL     (opcional, default gemini-2.5-flash-lite).
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 import warnings
 from datetime import date, datetime, timezone
@@ -20,6 +22,18 @@ from pathlib import Path
 
 import gspread
 from google.oauth2.service_account import Credentials
+import google.generativeai as genai
+
+# Cargar .env del bot (si lo encuentra) para tener GEMINI_API_KEY disponible
+try:
+    from dotenv import load_dotenv
+    _ROOT_TMP = Path(__file__).parent.parent.resolve()
+    for _envp in [_ROOT_TMP / "telegram_bot" / ".env", _ROOT_TMP / ".env"]:
+        if _envp.is_file():
+            load_dotenv(_envp)
+            break
+except Exception:
+    pass
 
 warnings.filterwarnings("ignore")
 
@@ -35,27 +49,11 @@ SCOPES = [
 MSG_SEP = "---MSG---"
 
 
-# ─── Localizar Claude Code (mismo método que el bot) ────────────────────────
-def find_claude_bin():
-    in_path = shutil.which("claude")
-    if in_path:
-        return in_path
-    base = Path.home() / "Library/Application Support/Claude/claude-code"
-    if not base.is_dir():
-        return None
-    versions = sorted(
-        (v for v in base.iterdir() if v.is_dir() and re.match(r"^\d", v.name)),
-        key=lambda p: tuple(int(x) for x in p.name.split(".") if x.isdigit()),
-        reverse=True,
-    )
-    for v in versions:
-        c = v / "claude.app/Contents/MacOS/claude"
-        if c.is_file() and os.access(c, os.X_OK):
-            return str(c)
-    return None
-
-
-CLAUDE_BIN = find_claude_bin()
+# ─── Configurar Gemini ──────────────────────────────────────────────────────
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 
 # ─── Pedir a Claude Code que estructure los ejercicios ──────────────────────
@@ -128,33 +126,41 @@ JSON_SCHEMA = json.dumps({
 
 
 def claude_extraer(transcripcion: str) -> dict:
-    if not CLAUDE_BIN:
-        raise RuntimeError("No encuentro el binario de Claude Code.")
+    """Mantiene el nombre histórico por compatibilidad. Internamente usa Gemini."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Falta GEMINI_API_KEY en el entorno.")
     prompt = PROMPT_EXTRACTOR.replace("__TEXTO__", transcripcion)
-    proc = subprocess.run(
-        [CLAUDE_BIN, "-p", "--dangerously-skip-permissions",
-         "--output-format", "json",
-         "--json-schema", JSON_SCHEMA, prompt],
-        capture_output=True, text=True, timeout=180,
-        cwd=str(ROOT),
+    model = genai.GenerativeModel(model_name=GEMINI_MODEL)
+    response = model.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0.0,
+            "response_mime_type": "application/json",
+            "max_output_tokens": 1024,
+        },
     )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Claude exit {proc.returncode}: {(proc.stderr or proc.stdout)[:500]}")
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        raise RuntimeError("Gemini devolvió respuesta vacía.")
+    cand = candidates[0]
+    content = getattr(cand, "content", None)
+    if not content or not getattr(content, "parts", None):
+        finish = getattr(cand, "finish_reason", "?")
+        raise RuntimeError(f"Gemini terminó sin contenido (finish_reason={finish}).")
+    text = ""
+    for p in content.parts:
+        t = getattr(p, "text", None)
+        if t:
+            text += t
+    text = text.strip()
     try:
-        envelope = json.loads(proc.stdout.strip())
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Salida no es JSON: {e}\n{proc.stdout[:500]}")
-    if envelope.get("is_error"):
-        raise RuntimeError(f"Claude reportó error: {envelope.get('result') or envelope}")
-    structured = envelope.get("structured_output")
-    if not structured:
-        # Fallback: el `result` puede contener el JSON como texto
-        result = (envelope.get("result") or "").strip()
-        m = re.search(r"\{.*\}", result, re.DOTALL)
-        if not m:
-            raise RuntimeError(f"Claude no devolvió structured_output ni JSON en result:\n{envelope}")
-        structured = json.loads(m.group(0))
-    return structured
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        raise RuntimeError(f"Gemini no devolvió JSON parseable: {text[:300]}")
+    return json.loads(m.group(0))
 
 
 # ─── Conexión Sheet ─────────────────────────────────────────────────────────
