@@ -27,19 +27,23 @@ Verificar después con una pregunta al bot de datos:
 
 Tiene que devolver un número correcto en kg (no algo como 740 kg).
 
-## 🌐 Fase 8 — Tailscale (acceso remoto al servidor)
+## 🌐 Fase 8 — Acceso remoto al servidor (DESCARTADO 08/05/2026, "si hace falta")
 
-Para poder gestionar los bots desde casa también, no solo desde la oficina.
-Pasos:
-1. En el Mac viejo: instalar Tailscale (https://tailscale.com/download), 
-   iniciar sesión con la cuenta de Arkaitz.
-2. En el Mac de oficina y/o el iPhone: instalar Tailscale, iniciar sesión 
-   con la misma cuenta.
-3. A partir de ahí, en lugar de `ssh arkaitz@10.48.0.113` se usa
-   `ssh arkaitz@<nombre-tailscale-del-mac-viejo>` y funciona desde cualquier
-   red.
+Tailscale en Catalina **NO es trivial**:
+- App Store: requiere macOS 11+.
+- .pkg standalone: requiere macOS 11+.
+- `brew install tailscale`: necesita Go que requiere macOS Monterey 12+.
 
-Coste: **gratis** (free tier de Tailscale cubre hasta 100 dispositivos personales).
+Alternativas si en el futuro hace falta acceso remoto:
+- **ZeroTier** — gratis para uso personal, soporta Catalina nativo.
+  `brew install --cask zerotier-one`. 5-10 min de setup.
+- **Tailscale antiguo .pkg** (versión ~1.56 o anterior). Habría que
+  buscar la URL exacta y comprobar compatibilidad.
+- **WireGuard standalone** (config manual, más curro).
+
+Decisión 08/05/2026: Arkaitz va habitualmente a oficina, no necesita
+acceso remoto al servidor. Si en algún momento lo necesita, montamos
+ZeroTier en una sesión.
 
 ## 🔁 Fase 10 — Test de reboot real (cierre del setup 24/7)
 
