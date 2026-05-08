@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import json
 import asyncio
 import datetime as _dt
@@ -818,7 +819,7 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
         proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/python3", str(PROJECT_DIR / "src" / "oliver_sync.py"),
+            sys.executable, str(PROJECT_DIR / "src" / "oliver_sync.py"),
             cwd=str(PROJECT_DIR),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -836,7 +837,7 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if proc.returncode == 0:
         # Recalcular cruces
         proc2 = await asyncio.create_subprocess_exec(
-            "/usr/bin/python3", str(PROJECT_DIR / "src" / "calcular_vistas.py"),
+            sys.executable, str(PROJECT_DIR / "src" / "calcular_vistas.py"),
             cwd=str(PROJECT_DIR),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )

@@ -680,7 +680,7 @@ async def cmd_nuevo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def _run_oliver_sync(deep: bool = False) -> Tuple[int, str, str]:
     """Ejecuta el script de sincronización de Oliver en el proyecto."""
-    py = "/usr/bin/python3"
+    py = sys.executable
     args = [py, str(PROJECT_DIR / "src" / "oliver_sync.py")]
     if deep:
         args.append("--deep")
@@ -717,7 +717,7 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if rc == 0:
         await update.message.reply_text("✓ Oliver sincronizado. Recalculando cruces…")
         proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/python3", str(PROJECT_DIR / "src" / "calcular_vistas.py"),
+            sys.executable, str(PROJECT_DIR / "src" / "calcular_vistas.py"),
             cwd=str(PROJECT_DIR),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -756,7 +756,7 @@ async def _run_script(path: Path, *args, timeout: int = 600) -> Tuple[int, str, 
     """Ejecuta un script Python del proyecto con el Python del sistema
     (que tiene gspread instalado globalmente)."""
     proc = await asyncio.create_subprocess_exec(
-        "/usr/bin/python3", str(path), *args,
+        sys.executable, str(path), *args,
         cwd=str(PROJECT_DIR),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -931,7 +931,7 @@ async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: Co
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
         proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/python3", str(PROJECT_DIR / "src" / "parse_ejercicios_voz.py"),
+            sys.executable, str(PROJECT_DIR / "src" / "parse_ejercicios_voz.py"),
             cwd=str(PROJECT_DIR),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -1000,7 +1000,7 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
         proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/python3", str(PROJECT_DIR / "src" / "parse_sesion_voz.py"),
+            sys.executable, str(PROJECT_DIR / "src" / "parse_sesion_voz.py"),
             cwd=str(PROJECT_DIR),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
