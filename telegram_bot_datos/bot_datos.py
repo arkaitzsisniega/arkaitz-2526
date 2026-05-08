@@ -51,7 +51,7 @@ ALLOWED_CHAT_IDS_ST = os.getenv("ALLOWED_CHAT_IDS", "").strip()
 PROJECT_DIR         = Path(os.getenv("PROJECT_DIR", str(HERE.parent))).expanduser().resolve()
 LLM_TIMEOUT         = int(os.getenv("LLM_TIMEOUT", "300"))
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 # Cuántas iteraciones de tool-use permitir antes de cortar (defensa anti-bucle).
 GEMINI_MAX_STEPS    = int(os.getenv("GEMINI_MAX_STEPS", "8"))
 # Cuántas vueltas (user+model) guardamos en memoria por chat antes de truncar.
@@ -424,6 +424,53 @@ print(df[['JUGADOR','EST_L','EST_S','EST_A','SESIONES_CON_DATOS','TOTAL_SESIONES
 # Para días reales de baja, si te lo piden, abre LESIONES y resta fechas.
 ```
 
+13) "¿Cómo está / va Cecilio esta semana?" → ANALÍTICA: combinar carga +
+    wellness + peso + alertas en UNA sola tool call:
+```python
+import pandas as pd, gspread, datetime
+from google.oauth2.service_account import Credentials
+creds = Credentials.from_service_account_file(
+    '{PROJECT_DIR}/google_credentials.json',
+    scopes=['https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'])
+ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
+
+JUG = 'CECILIO'
+hoy = datetime.date.today()
+lunes = hoy - datetime.timedelta(days=hoy.weekday())
+URO = gspread.utils.ValueRenderOption.unformatted
+
+# 1) Semáforo (foto del estado actual)
+sem = pd.DataFrame(ss.worksheet('_VISTA_SEMAFORO').get_all_records(value_render_option=URO))
+print('=== SEMÁFORO ===')
+print(sem[sem['JUGADOR']==JUG].to_string(index=False))
+
+# 2) Carga esta semana
+carga = pd.DataFrame(ss.worksheet('_VISTA_CARGA').get_all_records(value_render_option=URO))
+carga['FECHA'] = pd.to_datetime(carga['FECHA'], errors='coerce')
+m_sem = (carga['JUGADOR']==JUG) & (carga['FECHA']>=pd.Timestamp(lunes))
+print('\\n=== CARGA SEMANA ===')
+print(carga.loc[m_sem, ['FECHA','TURNO','TIPO_SESION','MINUTOS','BORG','CARGA']].to_string(index=False))
+
+# 3) Wellness esta semana
+well = pd.DataFrame(ss.worksheet('_VISTA_WELLNESS').get_all_records(value_render_option=URO))
+well['FECHA'] = pd.to_datetime(well['FECHA'], errors='coerce')
+m_w = (well['JUGADOR']==JUG) & (well['FECHA']>=pd.Timestamp(lunes))
+print('\\n=== WELLNESS SEMANA ===')
+print(well.loc[m_w, ['FECHA','SUENO','FATIGA','MOLESTIAS','ANIMO','TOTAL']].to_string(index=False))
+
+# 4) Peso PRE últimos días
+peso = pd.DataFrame(ss.worksheet('_VISTA_PESO').get_all_records(value_render_option=URO))
+peso['FECHA'] = pd.to_datetime(peso['FECHA'], errors='coerce')
+m_p = peso['JUGADOR']==JUG
+print('\\n=== PESO ÚLT 5 ===')
+print(peso.loc[m_p, ['FECHA','PESO_PRE','DESVIACION_BASELINE']].sort_values('FECHA').tail(5).to_string(index=False))
+```
+→ Tras el tool, RESPONDES en texto: "Cecilio esta semana: 3 sesiones,
+   carga total 2.180, ACWR 1,1 (verde). Wellness medio 13,5/20 — algo
+   justo pero estable. Peso PRE -0,8 kg vs base, dentro del rango. En
+   general OK, sin alertas." (números inventados — usa los reales).
+
 POLÍTICA DE FALLOS:
 Si tu primer intento devuelve "0 filas" o un error, prueba:
 1. Cambiar `==` por `str.contains` (jugador con alias).
@@ -432,6 +479,33 @@ Si tu primer intento devuelve "0 filas" o un error, prueba:
 Si tras 2 intentos sigue sin salir, **dile al usuario que no
 encuentras el dato y por qué**, en lenguaje natural — no le pidas
 "el nombre exacto de la columna", busca tú.
+
+🧠 PREGUNTAS ANALÍTICAS (no solo datos puntuales):
+Cuando te preguntan tipo **"¿cómo va Carlos esta semana?"**, **"qué tal
+está Cecilio"**, **"cómo lleva la carga Pirata"** — NO basta con un dato.
+Tienes que combinar 2-3 fuentes y dar una **valoración cualitativa**.
+
+Patrón recomendado para "cómo está/va X":
+1. UNA sola tool call con un script Python que cargue las hojas
+   relevantes (`_VISTA_SEMAFORO`, `_VISTA_CARGA`, `_VISTA_WELLNESS`,
+   `_VISTA_PESO`, opcionalmente `LESIONES`) filtradas por ese jugador
+   y la última semana.
+2. Imprime un resumen estructurado (carga, wellness, peso, alertas).
+3. **OBLIGATORIO**: tras recibir el resultado del tool, GENERA texto
+   natural con tu valoración. No te quedes mudo. Ejemplo:
+   "Cecilio esta semana: 4 sesiones, carga 3.200 (ACWR 1.05, verde).
+   Wellness medio 14/20, sin alertas. Peso estable (-0,3 kg vs base).
+   En general bien, sigue el patrón habitual."
+
+⚠️ MUY IMPORTANTE — RESPUESTA DE TEXTO TRAS CADA TOOL:
+Después de ejecutar un tool (python o bash), SIEMPRE genera una
+respuesta de TEXTO en español al usuario. NO termines en silencio
+después de obtener datos. El usuario está esperando que le hables,
+no solo que ejecutes scripts.
+
+Si un script falla o devuelve poca data, dilo con tus palabras
+("no me sale el dato de X esta semana", "no encuentro entradas de
+wellness de Pirata desde el lunes") en vez de quedarte mudo.
 
 MÉTRICAS — qué significan los valores:
 - Borg (RPE) 0-10: percepción de esfuerzo.
@@ -858,6 +932,10 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True,
     )
 
     progress_sent = False
+    # Cuántas veces hemos forzado un "wake up" del modelo cuando termina mudo
+    # tras un tool call. Lo limitamos para evitar bucles si está realmente mal.
+    wake_ups_usados = 0
+    WAKE_UPS_MAX = 1
 
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
@@ -872,9 +950,67 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True,
                 cand = candidates[0]
                 content = getattr(cand, "content", None)
                 if not content or not getattr(content, "parts", None):
-                    # Puede ser un block por safety u otra causa
-                    finish = getattr(cand, "finish_reason", "?")
-                    return -1, "", f"Gemini terminó sin contenido (finish_reason={finish})."
+                    # ── Diagnóstico fino de finish_reason ──
+                    # Códigos de Gemini API:
+                    #   1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER,
+                    #   6=BLOCKLIST, 7=PROHIBITED_CONTENT, 8=SPII,
+                    #   9=MALFORMED_FUNCTION_CALL, 10=IMAGE_SAFETY,
+                    #   12=UNEXPECTED_TOOL_CALL, 13=TOO_MANY_TOOL_CALLS
+                    finish_raw = getattr(cand, "finish_reason", None)
+                    try:
+                        finish_int = int(finish_raw) if finish_raw is not None else -1
+                    except (TypeError, ValueError):
+                        finish_int = -1
+
+                    # Caso 1: STOP (1) sin contenido tras un tool call. Es el bug
+                    # conocido de Gemini 2.0/2.5 Flash con function calling: el
+                    # modelo "termina" sin generar texto final. Forzamos un
+                    # mensaje al usuario para que produzca la respuesta natural.
+                    if (finish_int == 1
+                            and step > 0
+                            and wake_ups_usados < WAKE_UPS_MAX):
+                        wake_ups_usados += 1
+                        log.warning(
+                            "[%s] finish_reason=STOP sin contenido tras tool call. "
+                            "Forzando wake-up (%d/%d).",
+                            chat_id, wake_ups_usados, WAKE_UPS_MAX,
+                        )
+                        history.append({
+                            "role": "user",
+                            "parts": [{"text": (
+                                "Produce ahora una respuesta en español, en "
+                                "lenguaje natural, basándote en los datos que "
+                                "acabas de obtener. Sigue el tono y formato del "
+                                "system prompt (frases cortas, números concretos, "
+                                "como compañero del cuerpo técnico). "
+                                "No uses más herramientas, solo responde."
+                            )}],
+                        })
+                        continue
+
+                    # Caso 2: SAFETY o filtros similares
+                    if finish_int in (3, 6, 7, 8, 10):
+                        return (-1, "",
+                                f"Gemini bloqueó la respuesta por filtros de "
+                                f"contenido (finish_reason={finish_int}). Si crees "
+                                f"que es un falso positivo, reformula la pregunta.")
+
+                    # Caso 3: MAX_TOKENS
+                    if finish_int == 2:
+                        return (-1, "",
+                                "La respuesta de Gemini fue cortada por longitud. "
+                                "Pídele datos en bloques más pequeños.")
+
+                    # Caso 4: tool call malformado o exceso de tools
+                    if finish_int in (9, 12, 13):
+                        return (-1, "",
+                                f"Gemini tuvo un problema al usar las "
+                                f"herramientas (finish_reason={finish_int}). "
+                                f"Reformula la pregunta más simple.")
+
+                    # Otros casos (incl. 1 sin tool previo, o desconocidos)
+                    return (-1, "",
+                            f"Gemini terminó sin contenido (finish_reason={finish_int}).")
 
                 parts = list(content.parts)
 
