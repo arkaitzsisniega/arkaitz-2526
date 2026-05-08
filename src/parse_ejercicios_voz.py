@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import warnings
 from datetime import date, datetime, timezone
@@ -302,7 +303,7 @@ def main():
         print(MSG_SEP, flush=True)
         print("🔄 Cruzando con datos de Oliver…", flush=True)
         proc = subprocess.run(
-            ["/usr/bin/python3", str(ROOT / "src" / "oliver_ejercicios.py")],
+            [sys.executable, str(ROOT / "src" / "oliver_ejercicios.py")],
             capture_output=True, text=True, timeout=900, cwd=str(ROOT),
         )
         if proc.returncode == 0:

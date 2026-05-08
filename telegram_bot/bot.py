@@ -913,9 +913,10 @@ async def cmd_ejercicios_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _modo_ejercicios_voz[chat_id] = _dt.datetime.now().timestamp()
     await update.message.reply_text(
         "🎤 *Modo ejercicios activado.*\n\n"
-        "Mándame ahora un audio describiendo los ejercicios del entreno "
-        "(qué hicisteis, en qué orden y duración aproximada). En cuanto "
-        "lo recibas y lo transcriba, lo estructuro y lo meto en el Sheet.\n\n"
+        "Mándame ahora un audio (o un texto) describiendo los ejercicios "
+        "del entreno (qué hicisteis, en qué orden y duración aproximada). "
+        "En cuanto lo reciba lo transcribo, lo estructuro, lo meto en "
+        "`_EJERCICIOS` y lanzo el cruce con Oliver automáticamente.\n\n"
         "_Si el GPS se encendió después de algún ejercicio (movilidad, etc.), "
         "menciónalo en el audio y lo tendré en cuenta._\n\n"
         "Tienes 15 min para mandar el audio.",
@@ -1652,6 +1653,10 @@ def main():
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
+    # /ejercicios = activa modo voz/texto + tras procesar lanza oliver_ejercicios
+    # automáticamente (parse_ejercicios_voz.py ya hace el chain). El nombre
+    # antiguo /ejercicios_voz se mantiene como alias por retrocompatibilidad.
+    app.add_handler(CommandHandler("ejercicios", cmd_ejercicios_voz))
     app.add_handler(CommandHandler("ejercicios_voz", cmd_ejercicios_voz))
     app.add_handler(CommandHandler("sesion", cmd_sesion_voz))
     app.add_handler(CallbackQueryHandler(on_callback_query))
