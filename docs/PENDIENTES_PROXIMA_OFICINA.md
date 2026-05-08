@@ -70,6 +70,29 @@ crearía conflicto de `getUpdates` con Telegram). Opciones:
 - Mover `arrancar_bots.sh` a `archive/` o renombrarlo `arrancar_bots_OBSOLETO.sh`.
 - O simplemente acordarse de no doble-clicarlo nunca más.
 
+## 🤖 Detector de intención para el bot dev (pedido 08/05/2026)
+
+Antes de pasar el mensaje a Gemini, mirar si matchea con palabras clave
+y disparar el handler local correspondiente. Beneficios: instantáneo,
+sin coste Gemini, mismos mensajes de progreso que el slash command.
+
+Mapeo inicial (ampliable):
+- "consolida" / "consolidar" / "lanza consolidar" / "actualiza datos" → `cmd_consolidar`
+- "enlaces" / "enlaces de hoy" / "mándame los enlaces" → `cmd_enlaces`
+- "sync oliver" / "sincroniza oliver" / "actualiza oliver" → `cmd_oliver_sync`
+- "oliver deep" / "análisis profundo oliver" → `cmd_oliver_deep`
+- "ejercicios sync" / "sync ejercicios" → `cmd_ejercicios_sync`
+- "apunta la sesión" / "modo sesión" → `cmd_sesion_voz`
+- "apunta ejercicios" / "modo ejercicios" → `cmd_ejercicios_voz`
+- "nuevo" / "olvida" / "empieza de cero" → `cmd_nuevo`
+
+Implementación: nueva función `_detectar_intent(texto: str) -> Optional[callable]`
+en `telegram_bot/bot.py`. Antes de llamar a `_process_prompt` desde
+`on_message`, comprobar el intent y, si matchea, llamar al handler.
+Si no matchea, seguir con Gemini como ahora.
+
+Tiempo estimado: 20-30 min.
+
 ## 🚀 Más optimización del Mac de oficina (continuación 07/05/2026)
 
 Ya hicimos primera tanda (desactivamos 18 launchd plists no usados).
