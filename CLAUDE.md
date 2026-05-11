@@ -22,12 +22,42 @@
 
 - **Datos**: Google Sheets (`Arkaitz - Datos Temporada 2526`) como base de datos central.
   - Hojas crudas: `SESIONES`, `BORG`, `PESO`, `WELLNESS`, `LESIONES`, `FISIO`.
-  - Hojas vista pre-calculadas: `_VISTA_CARGA`, `_VISTA_SEMANAL`, `_VISTA_PESO`, `_VISTA_WELLNESS`, `_VISTA_SEMAFORO`, `_VISTA_RECUENTO`.
+  - Hojas vista pre-calculadas: `_VISTA_CARGA`, `_VISTA_SEMANAL`, `_VISTA_PESO`, `_VISTA_WELLNESS`, `_VISTA_SEMAFORO`, `_VISTA_RECUENTO`, `_VISTA_OLIVER`, `_VISTA_EJERCICIOS`.
+  - Estadísticas de partido: `EST_PARTIDOS`, `EST_EVENTOS`, `EST_PLANTILLAS`, `EST_TOTALES_PARTIDO`, `EST_PENALTIS_10M`, `EST_SCOUTING_PEN_10M` (v2 con 17 cols, detalle táctico), `EST_DISPAROS_ZONAS`, `EST_FALTAS`.
+  - Roster: `JUGADORES_ROSTER` (canónicos = HERRERO/GARCIA/GONZALO, sin J. ni Gonza).
 - **Pipeline**: `src/calcular_vistas.py` lee hojas crudas → calcula métricas (ACWR EWMA, monotonía, fatiga, baselines, semáforos) → escribe hojas `_VISTA_*`.
-- **Dashboard**: `dashboard/app.py` (Streamlit). Lee solo las `_VISTA_*` y renderiza 6 pestañas (Semáforo, Carga, Peso, Wellness, Lesiones, Recuento).
+  - Carga en partidos = BORG × min_real (de EST_PARTIDOS), no MINUTOS_SESION. Antes inflaba al suplente y subestimaba al titular.
+  - Factor GYM ×1.25 para sesiones con "GYM" en TIPO_SESION (compensa subestimación mental).
+- **Dashboard**: `dashboard/app.py` (Streamlit). 10+ pestañas: Semáforo, Carga, Peso, Wellness, Lesiones, Recuento, Oliver, Ejercicios, Catálogo, Estadísticas, Scouting, Faltas/Penaltis, Editar partido.
 - **Deploy**: Streamlit Cloud, autodeploy desde GitHub `arkaitzsisniega/arkaitz-2526` branch `main`. Credenciales en `st.secrets`.
-- **Auth Google Sheets**: service account `arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com`. Credenciales locales en `google_credentials.json` (gitignored).
-- **Bot Telegram**: `telegram_bot/` — proxy a Claude Code CLI. Solo responde a `ALLOWED_CHAT_ID`.
+- **Auth Google Sheets**: service account `arkaitz-bot@norse-ward-494106-q6.iam.gserviceaccount.com`. Credenciales locales en `google_credentials.json` (gitignored). Opcional: SA read-only para bot_datos (ver `docs/sa_readonly_bot_datos.md`).
+- **Normalización de nombres**: módulo central `src/aliases_jugadores.py`. SIEMPRE usar `norm_jugador()` cuando se procesen nombres de jugadores; nunca hardcodear listas.
+
+## Scripts curados (usa SIEMPRE estos, no Python a mano)
+
+Para que Alfred no invente código con typos al escribir al Sheet:
+
+- `src/apuntar_borg.py JUGADOR FECHA VALOR [TURNO]` — número 1-10 o estado S/A/L/N/D/NC/NJ.
+- `src/apuntar_peso.py JUGADOR FECHA [TURNO] --pre N --post N --h2o N`.
+- `src/apuntar_wellness.py JUGADOR FECHA --sueno N --fatiga N --molestias N --animo N`.
+- `src/apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X]`.
+- `src/marcar_lesion.py JUGADOR FECHA [TURNO]` — escribe BORG ('L') + LESIONES.
+- `src/auditar_sheet.py [--verbose]` — detecta inconsistencias.
+- `src/prepost_estado.py [FECHA]` — quién hizo PRE/POST/BORG.
+
+Todos idempotentes, con `--dry-run`, validación, y output con `---MSG---` para que Alfred capte la respuesta.
+
+## Bots Telegram
+
+- `telegram_bot/` (Alfred, dev, solo Arkaitz). Gemini 2.5 Flash, lectura+escritura.
+  Comandos: `/start`, `/id`, `/nuevo`, `/oliver_sync`, `/oliver_deep`, `/oliver_token`,
+  `/enlaces`, `/enlaces_hoy`, `/consolidar`, `/prepost [FECHA]`, `/auditar [verbose]`,
+  `/ejercicios_sync`, `/ejercicios`, `/sesion`.
+  Soporta **VOZ** (Whisper local) y **FOTOS** (Gemini Vision: extrae datos de planillas
+  escritas a mano, capturas Excel, etc.).
+- `telegram_bot_datos/` (consultas, multi-usuario para cuerpo técnico). Gemini 2.5
+  Flash. **Solo lectura** enforced por código (regex scanner + SA readonly opcional).
+- `gastos_bot/` (gastos personales, Sheet aparte, Gemini Flash-Lite).
 
 ## Python
 
