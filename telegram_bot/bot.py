@@ -501,6 +501,10 @@ CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 - /enlaces: genera enlaces PRE+POST genéricos del día.
 - /prepost: lista quién ha hecho PRE/POST/BORG de la última sesión
   (o de la fecha que se pase: /prepost 2026-05-10).
+- /auditar: audita BORG/PESO/WELLNESS/SESIONES y detecta errores
+  (jugador fuera del roster, BORG fuera de rango 0-10, pesos imposibles,
+  H2O raros, sesiones duplicadas, fechas vacías). Añade "verbose" para
+  ver el detalle: `/auditar verbose`.
 - /oliver_sync, /oliver_deep: sync con Oliver Sports.
 - /ejercicios_sync: lee hoja _EJERCICIOS y descarga timelines.
 - /sesion: apunta una sesión a SESIONES.
@@ -1378,6 +1382,32 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_auditar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Ejecuta src/auditar_sheet.py y devuelve el resumen de incidencias
+    detectadas en BORG/PESO/WELLNESS/SESIONES."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    args = ctx.args if hasattr(ctx, "args") else []
+    # /auditar verbose → detalle. Default: agrupado.
+    script_args = ["--verbose"] if any(a.lower() == "verbose" for a in args) else []
+    rc, out, err = await _run_script(
+        PROJECT_DIR / "src" / "auditar_sheet.py",
+        *script_args,
+    )
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error en auditoría (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        update.effective_chat.id,
+        "/auditar ejecutado: enviada al usuario la auditoría de hojas crudas. "
+        "NO le preguntes si quiere las incidencias, ya las tiene."
+    )
+
+
 async def cmd_prepost(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Devuelve el estado PRE/POST/BORG de la última sesión. Si hubo doble
     (M+T) el mismo día, muestra ambos. Si pasan una fecha como argumento
@@ -1829,6 +1859,15 @@ def _detectar_intent(texto: str) -> Optional[str]:
     # Detección palabra por palabra. Orden = prioridad (más específico
     # primero). El primero que matchee gana.
     INTENTS = [
+        # /auditar — auditar hojas crudas en busca de errores
+        ("auditar", [
+            r'\baudita(?:r|me)?\b',
+            r'\baudit(?:o|or[ií]a)?\b',
+            r'\brevisa(?:r)?\s+(?:el\s+)?(?:sheet|excel|datos)\b',
+            r'\bbusca(?:r)?\s+(?:los\s+)?(?:errores|inconsistencias|fallos)\b',
+            r'\bhay\s+(?:algun(?:os?)?\s+)?(?:error|fallo|inconsistencia)\b',
+            r'\binconsistencias?\b',
+        ]),
         # /prepost — estado de PRE/POST/BORG de la última sesión.
         ("prepost", [
             r'\bprepost\b',
@@ -1924,6 +1963,7 @@ def _intent_handler(cmd: str):
         "consolidar": cmd_consolidar,
         "enlaces": cmd_enlaces,
         "prepost": cmd_prepost,
+        "auditar": cmd_auditar,
         "oliver_sync": cmd_oliver_sync,
         "oliver_deep": cmd_oliver_deep,
         "ejercicios_sync": cmd_ejercicios_sync,
@@ -2270,6 +2310,7 @@ def main():
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
+    app.add_handler(CommandHandler("auditar", cmd_auditar))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     # /ejercicios = activa modo voz/texto + tras procesar lanza oliver_ejercicios
     # automáticamente (parse_ejercicios_voz.py ya hace el chain). El nombre
