@@ -7,21 +7,61 @@
 
 ## 🔥 MAÑANA NADA MÁS ABRIR (12 mayo, según conectes al server)
 
-- [ ] **Investigar fallo audios Telegram** (11/5 tarde-noche): mandó 2
-      audios (uno a Alfred, otro a bot_datos) preguntando por Raya y sus
-      últimas 10 sesiones. **NINGUNO de los dos respondió**. Acciones:
-      1. `ps aux | grep -E "telegram_bot.*bot\.py|bot_datos" | grep -v grep`
-         para ver si los bots siguen vivos.
-      2. `tail -60 ~/Desktop/Arkaitz/logs/bot.err.log` y
-         `tail -60 ~/Desktop/Arkaitz/logs/bot_datos.err.log` para ver
-         excepciones.
-      3. Test de control: mandar el MISMO mensaje pero en texto. Si
-         responde con texto → problema en Whisper (transcripción).
-         Si no responde con texto → problema Gemini o flujo.
-      4. Hipótesis principales:
-         - Whisper se atascó al cargar modelo tras un reinicio del bot.
-         - Gemini 2.5 Flash rate-limit / caída de Google AI Studio.
-         - on_voice atrapó excepción que no se envió al usuario.
+### 1) PRIMERO: investigar fallo audios Telegram (11/5 tarde-noche)
+Mandó 2 audios (uno a Alfred, otro a bot_datos) preguntando por Raya y
+sus últimas 10 sesiones. **NINGUNO de los dos respondió**. Acciones:
+1. `ps aux | grep -E "telegram_bot.*bot\.py|bot_datos" | grep -v grep`
+   para ver si los bots siguen vivos.
+2. `tail -60 ~/Desktop/Arkaitz/logs/bot.err.log` y
+   `tail -60 ~/Desktop/Arkaitz/logs/bot_datos.err.log` para ver
+   excepciones.
+3. Test de control: mandar el MISMO mensaje pero en texto. Si
+   responde con texto → problema en Whisper (transcripción).
+   Si no responde con texto → problema Gemini o flujo.
+4. Hipótesis principales:
+   - Whisper se atascó al cargar modelo tras un reinicio del bot.
+   - Gemini 2.5 Flash rate-limit / caída de Google AI Studio.
+   - on_voice atrapó excepción que no se envió al usuario.
+
+### 2) DESPUÉS: seguir puliendo crono PWA del iPad
+Estado actual (rama actual, commits del 11/5):
+- `07707c7` campo horizontal con arcos del área correctos
+- `b78bceb` A11 sin decoración engañosa
+- `ea18159` campo geometría Arkaitz + bug banquillo + amarilla visual + botón TIEMPOS
+- `0dc8176` reloj cuenta atrás + tanda penaltis
+- `a879f11` ajuste reloj ± + zero-confirm + auto-disparos
+- `d2220bc` fix bug timer pausa/resume
+
+**Lo siguiente a probar / ajustar (lo dijo el 11/5 antes de cerrar)**:
+
+- [ ] **Dirección de ataque por parte**: ahora el campo siempre asume
+      "atacante hacia la derecha". En realidad cada equipo ataca en una
+      dirección distinta cada parte. Idea de Arkaitz: en `/nuevo`
+      añadir selector "¿Hacia dónde ataca Inter en la 1ª parte?
+      (izquierda / derecha)". De ahí se deduce automáticamente:
+      - Inter 2ª parte = opuesto a 1ª.
+      - Rival siempre opuesto al Inter en esa parte.
+      Implicación en el componente Campo: cuando se pinte el mapa, el
+      campo debería girar según el equipo del evento y la parte actual.
+      Las zonas A1-A11 siempre relativas al atacante.
+
+- [ ] **Probar en iPad real** todo lo construido:
+      - Cronómetro cuenta atrás, ± ajuste, auto-pausa fin de parte.
+      - Tap jugador → menú acciones individuales.
+      - Modales gol/falta/pen/10m sin confirmaciones (zero-click).
+      - Falta con SIN ASIGNAR + RIVAL/MANO.
+      - Tanda de penaltis (con competición KO).
+      - Bug banquillo (crono jugador en banquillo SE PARA con reloj parado).
+      - Amarilla visual (anillo amarillo sin pisar el color de minutos).
+      - Botón TIEMPOS (tabla por jugador).
+      - Campo HORIZONTAL con arcos del área centrados en el poste.
+
+- [ ] **Pendientes de MVP que NO ha tocado aún**:
+      - Pantalla resumen del partido (lista de eventos + tiempos +
+        export Sheet).
+      - PWA real (manifest + service worker para instalar en iPad).
+      - Sync a Google Sheet al final (hoja EST_PARTIDOS / EST_EVENTOS).
+      - /acciones standalone (sin partido en curso).
 
 ---
 
