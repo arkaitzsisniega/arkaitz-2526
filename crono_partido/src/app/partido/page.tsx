@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { usePartido } from "@/lib/store";
 import { ROSTER } from "@/lib/roster";
 import { formatMMSS, colorTiempoPista, colorTiempoBanquillo } from "@/lib/utils";
-
-type AccionInd = "pf" | "pnf" | "robos" | "cortes" | "bdg" | "bdp" | "disparo";
+import { Campo } from "@/components/Campo";
+import { Porteria } from "@/components/Porteria";
+import type { ContadoresJugador, ResultadoDisparo } from "@/lib/db";
 
 export default function PartidoPage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function PartidoPage() {
     partido, cargado,
     segundosTurnoActual, segundosBanquillo, segundosParte,
     segundosPartidoTotal, segundosEnParte,
-    play, pausa, avanzarParte, cambiarJugador,
+    play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion,
   } = usePartido();
 
@@ -56,7 +57,7 @@ export default function PartidoPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-3">
       {/* HEADER */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
           <div className="text-6xl font-mono font-bold tabular-nums">
             {formatMMSS(segParte)}
@@ -77,6 +78,20 @@ export default function PartidoPage() {
             : <button onClick={pausa} className="px-5 py-3 bg-orange-700 hover:bg-orange-600 rounded-lg text-lg font-bold">⏸ PAUSAR</button>}
           <button onClick={avanzarParte} className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">⏭ parte</button>
         </div>
+      </div>
+
+      {/* Botones de ajuste de reloj */}
+      <div className="flex items-center gap-2 mb-3 text-sm">
+        <span className="text-zinc-500 text-xs">Ajustar reloj:</span>
+        <button onClick={() => ajustarReloj(-60)}
+          className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono">−1:00</button>
+        <button onClick={() => ajustarReloj(-10)}
+          className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono">−0:10</button>
+        <button onClick={() => ajustarReloj(+10)}
+          className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono">+0:10</button>
+        <button onClick={() => ajustarReloj(+60)}
+          className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 font-mono">+1:00</button>
+        <span className="text-zinc-600 text-[10px] ml-2">(ajusta también tiempo de jugadores en pista)</span>
       </div>
 
       <div className="grid grid-cols-[1fr_320px] gap-3 mb-3">
@@ -117,6 +132,13 @@ export default function PartidoPage() {
               <tr><td className="py-1">Faltas</td><td className="text-center text-xl font-bold">{sFalt.inter}</td><td className="text-center text-xl font-bold">{sFalt.rival}</td></tr>
               <tr><td className="py-1">Amarillas</td><td className="text-center text-xl font-bold">{sAma.inter}</td><td className="text-center text-xl font-bold">{sAma.rival}</td></tr>
               <tr><td className="py-1">T. muertos</td><td className="text-center text-xl font-bold">{sTM.inter}</td><td className="text-center text-xl font-bold">{sTM.rival}</td></tr>
+              <tr className="border-t border-zinc-800">
+                <td className="py-1 text-xs text-zinc-500">Dispar. rival</td>
+                <td></td>
+                <td className="text-center text-sm">
+                  {partido.disparosRival.puerta}p / {partido.disparosRival.fuera}f
+                </td>
+              </tr>
             </tbody>
           </table>
           {sFalt.inter >= 6 && (
@@ -130,7 +152,7 @@ export default function PartidoPage() {
 
       {/* BANQUILLO */}
       <div className="bg-zinc-900 rounded-xl p-3 mb-3">
-        <h2 className="text-zinc-400 text-sm mb-2">BANQUILLO (toca + CAMBIO para meterlo)</h2>
+        <h2 className="text-zinc-400 text-sm mb-2">BANQUILLO</h2>
         <div className="grid grid-cols-6 gap-2">
           {banquillo.map((nombre) => {
             const seg = segundosBanquillo(nombre);
@@ -194,20 +216,22 @@ export default function PartidoPage() {
             cambiarJugador(sale, entra);
             setModalAccionInd(null);
           }}
-          onAccion={(tipo) => incAccion(modalAccionInd.jugador, tipo, 1)}
-          onDisparo={(detalles) => {
-            // Por ahora guardamos disparos como acción individual + evento custom.
-            // En el MVP1 incrementamos contadores; el detalle (zona/resultado/etc.)
-            // se mete en el evento para revisión final.
-            registrarEvento({
-              tipo: "gol", // truco: si es gol, evento "gol". Si no, no creamos evento.
-              equipo: "INTER",
-              goleador: modalAccionInd.jugador,
-              cuarteto: enPista.filter((n) => n !== modalAccionInd.jugador),
-            } as any);
-            // Cierre
+          onContador={(tipo) => {
+            incAccion(modalAccionInd.jugador, tipo, 1);
+            setModalAccionInd(null);
           }}
-          onResetCierre={() => setModalAccionInd(null)}
+          onDisparo={(detalles) => {
+            // Registrar como evento "disparo" (no es gol, si fuera gol se usaría GOL).
+            registrarEvento({
+              tipo: "disparo",
+              equipo: "INTER",
+              jugador: modalAccionInd.jugador,
+              resultado: detalles.resultado,
+              zonaCampo: detalles.zonaCampo || undefined,
+              zonaPorteria: detalles.zonaPorteria || undefined,
+            } as any);
+            setModalAccionInd(null);
+          }}
         />
       )}
 
@@ -216,7 +240,10 @@ export default function PartidoPage() {
           enPista={enPista}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalFalta(false)}
-          onConfirmar={(ev) => { registrarEvento(ev as any); setModalFalta(false); }}
+          onConfirmar={(ev) => {
+            registrarEvento(ev as any);
+            setModalFalta(false);
+          }}
         />
       )}
 
@@ -225,7 +252,10 @@ export default function PartidoPage() {
           enPista={enPista}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalGol(false)}
-          onConfirmar={(ev) => { registrarEvento(ev as any); setModalGol(false); }}
+          onConfirmar={(ev, penaltiExtra) => {
+            registrarEvento(ev as any, penaltiExtra);
+            setModalGol(false);
+          }}
         />
       )}
 
@@ -261,7 +291,7 @@ export default function PartidoPage() {
   );
 }
 
-// ──────────────── COMPONENTES ────────────────
+// ──────────────── COMPONENTES BÁSICOS ────────────────
 
 function BotonAccion(props: { label: string; color: string; onClick: () => void }) {
   return (
@@ -276,11 +306,11 @@ function ModalShell(props: { titulo: string; onCerrar: () => void; children: Rea
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
       onClick={props.onCerrar}>
-      <div className={`bg-zinc-900 rounded-xl p-5 w-full ${props.maxW || "max-w-3xl"} max-h-[90vh] overflow-y-auto`}
+      <div className={`bg-zinc-900 rounded-xl p-5 w-full ${props.maxW || "max-w-4xl"} max-h-[95vh] overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="text-2xl font-bold">{props.titulo}</h2>
-          <button onClick={props.onCerrar} className="text-zinc-400 text-3xl leading-none">×</button>
+          <button onClick={props.onCerrar} className="text-zinc-400 text-3xl leading-none px-2">×</button>
         </div>
         {props.children}
       </div>
@@ -305,24 +335,19 @@ function ChipsJugador(props: {
   );
 }
 
-const ZONAS_CAMPO = ["Z1","Z2","Z3","Z4","Z5","Z6","Z7","Z8","Z9","Z10","Z11"];
-const ZONAS_PORTERIA = ["P1","P2","P3","P4","P5","P6","P7","P8","P9"];
-
-function GridZonas(props: { zonas: string[]; sel: string; onSel: (z: string) => void; cols?: number }) {
-  const cols = props.cols ?? 3;
+function Paso(props: { n: number; titulo: string; activo: boolean; children: React.ReactNode }) {
   return (
-    <div className={`grid grid-cols-${cols} gap-2`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0,1fr))` }}>
-      {props.zonas.map((z) => (
-        <button key={z} onClick={() => props.onSel(z)}
-          className={`py-3 rounded font-bold ${
-            props.sel === z ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-200"
-          }`}>{z}</button>
-      ))}
+    <div className={`mb-3 ${props.activo ? "" : "opacity-50"}`}>
+      <h3 className="text-sm text-zinc-400 mb-2">
+        <span className="bg-zinc-800 px-2 py-0.5 rounded-full text-xs mr-2">{props.n}</span>
+        {props.titulo}
+      </h3>
+      {props.children}
     </div>
   );
 }
 
-// ──────────────── MODAL CAMBIO ────────────────
+// ──────────────── MODAL CAMBIO (auto-confirm al seleccionar entra) ────────────────
 
 function ModalCambio(props: {
   enPista: string[]; banquillo: string[]; saleInicial: string;
@@ -330,104 +355,106 @@ function ModalCambio(props: {
   onConfirmar: (sale: string, entra: string) => void;
 }) {
   const [sale, setSale] = useState(props.saleInicial);
-  const [entra, setEntra] = useState("");
   return (
-    <ModalShell titulo="🔄 Cambio" onCerrar={props.onCerrar}>
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <h3 className="text-sm text-zinc-400 mb-2">SALE de pista</h3>
-          <ChipsJugador opciones={props.enPista} seleccionado={sale} onSelect={setSale} />
-        </div>
-        <div>
-          <h3 className="text-sm text-zinc-400 mb-2">ENTRA a pista</h3>
-          <ChipsJugador opciones={props.banquillo} seleccionado={entra} onSelect={setEntra} />
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <button onClick={props.onCerrar} className="px-4 py-2 bg-zinc-700 rounded">Cancelar</button>
-        <button
-          disabled={!sale || !entra || sale === entra}
-          onClick={() => props.onConfirmar(sale, entra)}
-          className="px-4 py-2 bg-blue-700 disabled:opacity-40 rounded font-bold">
-          Confirmar cambio
-        </button>
-      </div>
+    <ModalShell titulo="🔄 Cambio" onCerrar={props.onCerrar} maxW="max-w-2xl">
+      <Paso n={1} titulo="SALE de pista" activo={!sale}>
+        <ChipsJugador opciones={props.enPista} seleccionado={sale} onSelect={setSale} />
+      </Paso>
+      {sale && (
+        <Paso n={2} titulo={`ENTRA por ${sale} (tap = aplicar)`} activo={true}>
+          <div className="flex flex-wrap gap-2">
+            {props.banquillo.map((n) => (
+              <button key={n}
+                onClick={() => props.onConfirmar(sale, n)}
+                className="px-4 py-3 bg-blue-700 hover:bg-blue-600 rounded text-base font-bold">
+                {n}
+              </button>
+            ))}
+          </div>
+        </Paso>
+      )}
     </ModalShell>
   );
 }
 
 // ──────────────── MODAL FALTA ────────────────
-// "A favor" = nos la hacen → quién la recibe (de nuestros) + opcional rival anónimo
-// "En contra" = la hacemos → quién la comete + opción "rival" (mano, etc.)
+// Flujo: equipo → jugador (o SIN ASIGNAR / RIVAL-MANO) → zona campo → cierra.
 
 function ModalFalta(props: {
   enPista: string[]; rivalNombre: string;
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
-  const [equipo, setEquipo] = useState<"INTER" | "RIVAL">("INTER");
-  const [jugador, setJugador] = useState("");
-  const [esManoOAnon, setEsManoOAnon] = useState(false);
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
+  const [jugador, setJugador] = useState<string>("");
+  const [sinAsignar, setSinAsignar] = useState(false);
+  const [rivalMano, setRivalMano] = useState(false);
 
-  // INTER = la hace nuestro jugador → "en contra"
-  // RIVAL = la hace rival, la recibimos nosotros → "a favor"
-  // En la columna stat del Sheet, las faltas se cuentan EN CONTRA del que las hace.
-  // Aquí: equipo=INTER → falta en contra de Inter; equipo=RIVAL → falta en contra del rival.
+  const aplicar = (zonaCampo?: string) => {
+    const ev: any = { tipo: "falta", equipo };
+    if (jugador) ev.jugador = jugador;
+    if (sinAsignar) ev.sinAsignar = true;
+    if (rivalMano) ev.rivalMano = true;
+    if (zonaCampo) ev.zonaCampo = zonaCampo;
+    props.onConfirmar(ev);
+  };
 
   return (
     <ModalShell titulo="⚠️ Falta" onCerrar={props.onCerrar}>
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => { setEquipo("INTER"); setEsManoOAnon(false); setJugador(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
-          }`}>
-          La COMETEMOS nosotros
-        </button>
-        <button onClick={() => { setEquipo("RIVAL"); setEsManoOAnon(false); setJugador(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
-          }`}>
-          La COMETE {props.rivalNombre}
-        </button>
-      </div>
-
-      <div className="mb-4">
-        <h3 className="text-sm text-zinc-400 mb-2">
-          {equipo === "INTER"
-            ? "¿Qué jugador nuestro la comete? (o anónimo/mano)"
-            : "¿Qué jugador nuestro la recibe? (o sin asignar)"}
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          {props.enPista.map((n) => (
-            <button key={n}
-              onClick={() => { setJugador(n); setEsManoOAnon(false); }}
-              className={`px-3 py-2 rounded text-base ${
-                jugador === n && !esManoOAnon ? "bg-blue-700" : "bg-zinc-800"
-              }`}>{n}</button>
-          ))}
-          <button
-            onClick={() => { setJugador(""); setEsManoOAnon(true); }}
-            className={`px-3 py-2 rounded text-base ${
-              esManoOAnon ? "bg-purple-700" : "bg-zinc-800"
-            }`}>
-            {equipo === "INTER" ? "RIVAL/MANO" : "SIN ASIGNAR"}
-          </button>
+      <Paso n={1} titulo="¿Qué equipo la comete?" activo={!equipo}>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => { setEquipo("INTER"); }}
+            className={`px-6 py-4 rounded text-lg font-bold ${
+              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+            }`}>La COMETEMOS nosotros</button>
+          <button onClick={() => { setEquipo("RIVAL"); }}
+            className={`px-6 py-4 rounded text-lg font-bold ${
+              equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
+            }`}>La COMETE {props.rivalNombre}</button>
         </div>
-      </div>
+      </Paso>
 
-      <div className="flex gap-2 justify-end">
-        <button onClick={props.onCerrar} className="px-4 py-2 bg-zinc-700 rounded">Cancelar</button>
-        <button
-          onClick={() => {
-            const ev: any = { tipo: "falta", equipo };
-            if (jugador) ev.jugador = jugador;
-            if (esManoOAnon) ev.rivalMano = true;
-            props.onConfirmar(ev);
-          }}
-          className="px-4 py-2 bg-green-700 rounded font-bold">
-          Confirmar
-        </button>
-      </div>
+      {equipo && (
+        <Paso n={2}
+          titulo={
+            equipo === "INTER"
+              ? "¿Qué jugador la comete? (o sin asignar / RIVAL-MANO)"
+              : "¿Quién la recibe? (o sin asignar)"
+          }
+          activo={!jugador && !sinAsignar && !rivalMano}>
+          <div className="flex flex-wrap gap-2">
+            {props.enPista.map((n) => (
+              <button key={n}
+                onClick={() => { setJugador(n); setSinAsignar(false); setRivalMano(false); }}
+                className={`px-3 py-2 rounded text-base ${
+                  jugador === n ? "bg-blue-700" : "bg-zinc-800"
+                }`}>{n}</button>
+            ))}
+            <button onClick={() => { setJugador(""); setSinAsignar(true); setRivalMano(false); }}
+              className={`px-3 py-2 rounded text-base ${
+                sinAsignar ? "bg-zinc-500" : "bg-zinc-800"
+              }`}>SIN ASIGNAR</button>
+            {equipo === "INTER" && (
+              <button onClick={() => { setJugador(""); setRivalMano(true); setSinAsignar(false); }}
+                className={`px-3 py-2 rounded text-base ${
+                  rivalMano ? "bg-purple-700" : "bg-zinc-800"
+                }`}>RIVAL / MANO</button>
+            )}
+          </div>
+        </Paso>
+      )}
+
+      {equipo && (jugador || sinAsignar || rivalMano) && (
+        <Paso n={3} titulo="Zona del campo donde se produce (tap = aplicar)" activo>
+          <Campo onSelect={(z) => aplicar(z)} />
+          <div className="mt-2 flex justify-end">
+            <button onClick={() => aplicar(undefined)}
+              className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-xs">
+              Saltar zona y guardar
+            </button>
+          </div>
+        </Paso>
+      )}
     </ModalShell>
   );
 }
@@ -439,34 +466,46 @@ function ModalAmarilla(props: {
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
-  const [equipo, setEquipo] = useState<"INTER" | "RIVAL">("INTER");
-  const [jugador, setJugador] = useState("");
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
+
+  const aplicar = (jugador?: string) => {
+    const ev: any = { tipo: "amarilla", equipo };
+    if (jugador) ev.jugador = jugador;
+    props.onConfirmar(ev);
+  };
+
   return (
-    <ModalShell titulo="🟨 Tarjeta amarilla" onCerrar={props.onCerrar}>
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => { setEquipo("INTER"); setJugador(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
-          }`}>INTER</button>
-        <button onClick={() => { setEquipo("RIVAL"); setJugador(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
-          }`}>{props.rivalNombre}</button>
-      </div>
-      {equipo === "INTER" && (
-        <div className="mb-4">
-          <h3 className="text-sm text-zinc-400 mb-2">Jugador (opcional)</h3>
-          <ChipsJugador opciones={props.enPista} seleccionado={jugador} onSelect={setJugador} />
+    <ModalShell titulo="🟨 Tarjeta amarilla" onCerrar={props.onCerrar} maxW="max-w-2xl">
+      <Paso n={1} titulo="Equipo" activo={!equipo}>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setEquipo("INTER")}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+            }`}>INTER</button>
+          <button onClick={() => { setEquipo("RIVAL"); }}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
+            }`}>{props.rivalNombre}</button>
         </div>
+      </Paso>
+      {equipo === "INTER" && (
+        <Paso n={2} titulo="Jugador (tap = aplicar) o saltar" activo>
+          <div className="flex flex-wrap gap-2">
+            {props.enPista.map((n) => (
+              <button key={n} onClick={() => aplicar(n)}
+                className="px-3 py-2 rounded bg-blue-700 hover:bg-blue-600">{n}</button>
+            ))}
+            <button onClick={() => aplicar(undefined)}
+              className="px-3 py-2 rounded bg-zinc-700">SIN ASIGNAR</button>
+          </div>
+        </Paso>
       )}
-      <div className="flex gap-2 justify-end">
-        <button onClick={props.onCerrar} className="px-4 py-2 bg-zinc-700 rounded">Cancelar</button>
-        <button onClick={() => {
-          const ev: any = { tipo: "amarilla", equipo };
-          if (jugador) ev.jugador = jugador;
-          props.onConfirmar(ev);
-        }} className="px-4 py-2 bg-green-700 rounded font-bold">Confirmar</button>
-      </div>
+      {equipo === "RIVAL" && (
+        <Paso n={2} titulo="Confirmar amarilla a rival" activo>
+          <button onClick={() => aplicar(undefined)}
+            className="w-full py-4 rounded bg-red-700 hover:bg-red-600 font-bold">Aplicar</button>
+        </Paso>
+      )}
     </ModalShell>
   );
 }
@@ -482,9 +521,9 @@ function ModalTM(props: {
     <ModalShell titulo="🛑 Tiempo muerto" onCerrar={props.onCerrar} maxW="max-w-md">
       <div className="grid grid-cols-2 gap-3">
         <button onClick={() => props.onConfirmar("INTER")}
-          className="py-6 bg-blue-700 rounded text-xl font-bold">INTER</button>
+          className="py-6 bg-blue-700 hover:bg-blue-600 rounded text-xl font-bold">INTER</button>
         <button onClick={() => props.onConfirmar("RIVAL")}
-          className="py-6 bg-red-700 rounded text-xl font-bold">{props.rivalNombre}</button>
+          className="py-6 bg-red-700 hover:bg-red-600 rounded text-xl font-bold">{props.rivalNombre}</button>
       </div>
     </ModalShell>
   );
@@ -501,78 +540,124 @@ const ACCIONES_GOL = [
 function ModalGol(props: {
   enPista: string[]; rivalNombre: string;
   onCerrar: () => void;
-  onConfirmar: (ev: any) => void;
+  /** penaltiExtra: extras a pasar al store cuando acción=Penalti/10m. */
+  onConfirmar: (ev: any, penaltiExtra?: { penaltiTipo?: "penalti" | "diezm"; penaltiPorteroRival?: string }) => void;
 }) {
-  const [equipo, setEquipo] = useState<"INTER" | "RIVAL">("INTER");
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
   const [goleador, setGoleador] = useState("");
-  const [asistente, setAsistente] = useState("");
-  const [zona, setZona] = useState("");
+  const [asistente, setAsistente] = useState<string | "OMIT" | "">("");
   const [accion, setAccion] = useState("");
+  const [zonaCampo, setZonaCampo] = useState("");
+  const [zonaPorteria, setZonaPorteria] = useState("");
+  const [porteroRival, setPorteroRival] = useState("");
+
+  const esPenaltiOAccion = accion === "Penalti" || accion === "10m";
+
+  const aplicar = (zp: string) => {
+    const ev: any = { tipo: "gol", equipo };
+    if (equipo === "INTER") {
+      ev.goleador = goleador;
+      if (asistente && asistente !== "OMIT") ev.asistente = asistente;
+      ev.cuarteto = props.enPista.filter((n) => n !== goleador);
+    }
+    if (accion) ev.accion = accion;
+    if (zonaCampo) ev.zonaCampo = zonaCampo;
+    if (zp) ev.zonaPorteria = zp;
+    if (porteroRival && equipo === "INTER") ev.portero = porteroRival;
+    const extra = esPenaltiOAccion
+      ? {
+          penaltiTipo: (accion === "10m" ? "diezm" : "penalti") as "penalti" | "diezm",
+          penaltiPorteroRival: porteroRival || undefined,
+        }
+      : undefined;
+    props.onConfirmar(ev, extra);
+  };
+
   return (
     <ModalShell titulo="⚽ GOL" onCerrar={props.onCerrar}>
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => { setEquipo("INTER"); setGoleador(""); setAsistente(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
-          }`}>INTER</button>
-        <button onClick={() => { setEquipo("RIVAL"); setGoleador(""); setAsistente(""); }}
-          className={`flex-1 px-6 py-4 rounded text-lg font-bold ${
-            equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
-          }`}>{props.rivalNombre}</button>
-      </div>
+      <Paso n={1} titulo="Equipo" activo={!equipo}>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setEquipo("INTER")}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+            }`}>INTER</button>
+          <button onClick={() => setEquipo("RIVAL")}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
+            }`}>{props.rivalNombre}</button>
+        </div>
+      </Paso>
 
       {equipo === "INTER" && (
         <>
-          <div className="mb-3">
-            <h3 className="text-sm text-zinc-400 mb-2">Goleador</h3>
+          <Paso n={2} titulo="Goleador (tap)" activo={!goleador}>
             <ChipsJugador opciones={props.enPista} seleccionado={goleador} onSelect={setGoleador} />
-          </div>
-          <div className="mb-3">
-            <h3 className="text-sm text-zinc-400 mb-2">Asistente (opcional)</h3>
-            <ChipsJugador
-              opciones={props.enPista.filter((n) => n !== goleador)}
-              seleccionado={asistente} onSelect={setAsistente}
-            />
-          </div>
+          </Paso>
+
+          {goleador && (
+            <Paso n={3} titulo="Asistente (tap o saltar)" activo={!asistente}>
+              <div className="flex flex-wrap gap-2">
+                {props.enPista.filter((n) => n !== goleador).map((n) => (
+                  <button key={n} onClick={() => setAsistente(n)}
+                    className={`px-3 py-2 rounded ${
+                      asistente === n ? "bg-blue-700" : "bg-zinc-800"
+                    }`}>{n}</button>
+                ))}
+                <button onClick={() => setAsistente("OMIT")}
+                  className={`px-3 py-2 rounded ${
+                    asistente === "OMIT" ? "bg-zinc-500" : "bg-zinc-800"
+                  }`}>sin asistente</button>
+              </div>
+            </Paso>
+          )}
         </>
       )}
 
-      <div className="mb-3">
-        <h3 className="text-sm text-zinc-400 mb-2">Acción del gol</h3>
-        <div className="flex flex-wrap gap-2">
-          {ACCIONES_GOL.map((a) => (
-            <button key={a} onClick={() => setAccion(a)}
-              className={`px-3 py-2 rounded text-sm ${
-                accion === a ? "bg-blue-700" : "bg-zinc-800"
-              }`}>{a}</button>
-          ))}
-        </div>
-      </div>
+      {(equipo === "RIVAL" || (goleador && asistente)) && (
+        <Paso n={equipo === "RIVAL" ? 2 : 4} titulo="Acción del gol" activo={!accion}>
+          <div className="flex flex-wrap gap-2">
+            {ACCIONES_GOL.map((a) => (
+              <button key={a} onClick={() => setAccion(a)}
+                className={`px-3 py-2 rounded text-sm ${
+                  accion === a ? "bg-blue-700" : "bg-zinc-800"
+                }`}>{a}</button>
+            ))}
+          </div>
+        </Paso>
+      )}
 
-      <div className="mb-4">
-        <h3 className="text-sm text-zinc-400 mb-2">Zona de portería</h3>
-        <GridZonas zonas={ZONAS_PORTERIA} sel={zona} onSel={setZona} cols={3} />
-      </div>
+      {accion && !esPenaltiOAccion && (
+        <Paso n={5} titulo="Zona del campo desde donde se tira" activo={!zonaCampo}>
+          <Campo seleccionada={zonaCampo} onSelect={setZonaCampo} />
+          <div className="mt-1 text-right">
+            <button onClick={() => setZonaCampo("__skip__")}
+              className="px-3 py-1 bg-zinc-700 rounded text-xs">Saltar zona campo</button>
+          </div>
+        </Paso>
+      )}
 
-      <div className="flex gap-2 justify-end">
-        <button onClick={props.onCerrar} className="px-4 py-2 bg-zinc-700 rounded">Cancelar</button>
-        <button
-          disabled={equipo === "INTER" && !goleador}
-          onClick={() => {
-            const ev: any = { tipo: "gol", equipo };
-            if (equipo === "INTER") {
-              ev.goleador = goleador;
-              if (asistente) ev.asistente = asistente;
-              ev.cuarteto = props.enPista.filter((n) => n !== goleador);
-            }
-            if (accion) ev.accion = accion;
-            if (zona) ev.zonaPorteria = zona;
-            props.onConfirmar(ev);
-          }}
-          className="px-4 py-2 bg-green-700 disabled:opacity-40 rounded font-bold">
-          Confirmar gol
-        </button>
-      </div>
+      {accion && (zonaCampo || esPenaltiOAccion) && (
+        <Paso n={6}
+          titulo={
+            esPenaltiOAccion
+              ? `Portería: ¿dónde entra el ${accion.toLowerCase()}? (tap = guardar)`
+              : "Portería: ¿dónde entra? (tap = guardar)"
+          }
+          activo>
+          <Porteria seleccionada={zonaPorteria}
+            onSelect={(z) => aplicar(z)} />
+          <div className="mt-2 flex items-center gap-2 justify-between">
+            {equipo === "INTER" && esPenaltiOAccion && (
+              <input className="flex-1 bg-zinc-800 rounded px-3 py-2 text-sm"
+                placeholder="Portero rival (opcional, p.ej. 'DIDAC')"
+                value={porteroRival}
+                onChange={(e) => setPorteroRival(e.target.value.toUpperCase())} />
+            )}
+            <button onClick={() => aplicar("")}
+              className="px-3 py-1 bg-zinc-700 rounded text-xs">Saltar zona portería y guardar</button>
+          </div>
+        </Paso>
+      )}
     </ModalShell>
   );
 }
@@ -584,101 +669,109 @@ function ModalPenalti(props: {
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
-  const [tipo, setTipo] = useState<"penalti" | "diezm">("penalti");
-  const [equipo, setEquipo] = useState<"INTER" | "RIVAL">("INTER");
+  const [tipo, setTipo] = useState<"penalti" | "diezm" | null>(null);
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
   const [tirador, setTirador] = useState("");
+  const [porteroNuestro, setPorteroNuestro] = useState("");
   const [porteroRival, setPorteroRival] = useState("");
-  const [porteroPropio, setPorteroPropio] = useState("");
-  const [zona, setZona] = useState("");
-  const [resultado, setResultado] = useState<"GOL" | "PARADA" | "POSTE" | "FUERA">("GOL");
+  const [resultado, setResultado] = useState<"GOL" | "PARADA" | "POSTE" | "FUERA" | null>(null);
+
+  const aplicar = (zonaPorteria?: string) => {
+    const ev: any = {
+      tipo,
+      equipo,
+      tirador: equipo === "INTER" ? tirador : "",
+      portero: equipo === "INTER" ? porteroRival : porteroNuestro,
+      resultado,
+    };
+    if (zonaPorteria) ev.zonaPorteria = zonaPorteria;
+    props.onConfirmar(ev);
+  };
+
   const RESULTADOS: ("GOL" | "PARADA" | "POSTE" | "FUERA")[] = ["GOL", "PARADA", "POSTE", "FUERA"];
+  const porterosPista = props.enPista.filter((n) =>
+    ROSTER.find((j) => j.nombre === n)?.posicion === "PORTERO"
+  );
 
   return (
     <ModalShell titulo="🎯 Penalti / 10 metros" onCerrar={props.onCerrar}>
-      <div className="flex gap-2 mb-3">
-        <button onClick={() => setTipo("penalti")}
-          className={`flex-1 py-3 rounded font-bold ${
-            tipo === "penalti" ? "bg-pink-700" : "bg-zinc-800"
-          }`}>Penalti (6m)</button>
-        <button onClick={() => setTipo("diezm")}
-          className={`flex-1 py-3 rounded font-bold ${
-            tipo === "diezm" ? "bg-pink-700" : "bg-zinc-800"
-          }`}>10 metros</button>
-      </div>
-
-      <div className="flex gap-2 mb-3">
-        <button onClick={() => { setEquipo("INTER"); setTirador(""); }}
-          className={`flex-1 py-3 rounded font-bold ${
-            equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
-          }`}>A FAVOR (lo tira Inter)</button>
-        <button onClick={() => { setEquipo("RIVAL"); setTirador(""); }}
-          className={`flex-1 py-3 rounded font-bold ${
-            equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
-          }`}>EN CONTRA (lo tira {props.rivalNombre})</button>
-      </div>
-
-      {equipo === "INTER" ? (
-        <div className="mb-3">
-          <h3 className="text-sm text-zinc-400 mb-2">Tirador (nuestro)</h3>
-          <ChipsJugador opciones={props.enPista} seleccionado={tirador} onSelect={setTirador} />
-          <p className="text-xs text-zinc-500 mt-2">Portero rival: nombre genérico (opcional)</p>
-          <input className="w-full bg-zinc-800 rounded px-3 py-2 mt-1"
-            placeholder="Portero rival (opcional)"
-            value={porteroRival} onChange={(e) => setPorteroRival(e.target.value.toUpperCase())} />
+      <Paso n={1} titulo="Tipo" activo={!tipo}>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setTipo("penalti")}
+            className={`py-3 rounded font-bold ${tipo === "penalti" ? "bg-pink-700" : "bg-zinc-800"}`}>
+            Penalti (6m)</button>
+          <button onClick={() => setTipo("diezm")}
+            className={`py-3 rounded font-bold ${tipo === "diezm" ? "bg-pink-700" : "bg-zinc-800"}`}>
+            10 metros</button>
         </div>
-      ) : (
-        <div className="mb-3">
-          <h3 className="text-sm text-zinc-400 mb-2">Portero nuestro (quién para)</h3>
-          <ChipsJugador
-            opciones={props.enPista.filter((n) => {
-              return ROSTER.find((j) => j.nombre === n)?.posicion === "PORTERO";
-            })}
-            seleccionado={porteroPropio} onSelect={setPorteroPropio} />
-          <p className="text-xs text-zinc-500 mt-2">Tirador rival (texto, opcional)</p>
-          <input className="w-full bg-zinc-800 rounded px-3 py-2 mt-1"
-            placeholder="Nombre tirador rival"
-            value={tirador} onChange={(e) => setTirador(e.target.value.toUpperCase())} />
-        </div>
+      </Paso>
+
+      {tipo && (
+        <Paso n={2} titulo="¿A favor o en contra?" activo={!equipo}>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setEquipo("INTER")}
+              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"}`}>
+              A FAVOR (lo tira Inter)</button>
+            <button onClick={() => setEquipo("RIVAL")}
+              className={`py-3 rounded font-bold ${equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"}`}>
+              EN CONTRA (lo tira {props.rivalNombre})</button>
+          </div>
+        </Paso>
       )}
 
-      <div className="mb-3">
-        <h3 className="text-sm text-zinc-400 mb-2">Resultado</h3>
-        <div className="grid grid-cols-4 gap-2">
-          {RESULTADOS.map((r) => (
-            <button key={r} onClick={() => setResultado(r)}
-              className={`py-3 rounded font-bold ${
-                resultado === r ? (r === "GOL" ? "bg-green-700" : "bg-yellow-700") : "bg-zinc-800"
-              }`}>{r}</button>
-          ))}
-        </div>
-      </div>
+      {equipo === "INTER" && (
+        <Paso n={3} titulo="Tirador nuestro (tap)" activo={!tirador}>
+          <ChipsJugador opciones={props.enPista} seleccionado={tirador} onSelect={setTirador} />
+          <input className="w-full bg-zinc-800 rounded px-3 py-2 mt-2 text-sm"
+            placeholder="Portero rival (opcional)"
+            value={porteroRival} onChange={(e) => setPorteroRival(e.target.value.toUpperCase())} />
+        </Paso>
+      )}
 
-      <div className="mb-4">
-        <h3 className="text-sm text-zinc-400 mb-2">Zona destino (portería)</h3>
-        <GridZonas zonas={ZONAS_PORTERIA} sel={zona} onSel={setZona} cols={3} />
-        <p className="text-xs text-zinc-500 mt-1">Si va FUERA, déjalo sin selección.</p>
-      </div>
+      {equipo === "RIVAL" && (
+        <Paso n={3} titulo="Portero nuestro (tap)" activo={!porteroNuestro}>
+          <ChipsJugador opciones={porterosPista} seleccionado={porteroNuestro} onSelect={setPorteroNuestro} />
+          <input className="w-full bg-zinc-800 rounded px-3 py-2 mt-2 text-sm"
+            placeholder="Tirador rival (texto, opcional)"
+            value={tirador} onChange={(e) => setTirador(e.target.value.toUpperCase())} />
+        </Paso>
+      )}
 
-      <div className="flex gap-2 justify-end">
-        <button onClick={props.onCerrar} className="px-4 py-2 bg-zinc-700 rounded">Cancelar</button>
-        <button
-          onClick={() => {
-            const ev: any = {
-              tipo, equipo,
-              tirador: equipo === "INTER" ? tirador : tirador,
-              portero: equipo === "INTER" ? porteroRival : porteroPropio,
-              resultado,
-            };
-            if (zona) ev.zona = zona;
-            props.onConfirmar(ev);
-          }}
-          className="px-4 py-2 bg-green-700 rounded font-bold">Confirmar</button>
-      </div>
+      {equipo && ((equipo === "INTER" && tirador) || (equipo === "RIVAL" && porteroNuestro)) && (
+        <Paso n={4} titulo="Resultado" activo={!resultado}>
+          <div className="grid grid-cols-4 gap-2">
+            {RESULTADOS.map((r) => (
+              <button key={r} onClick={() => setResultado(r)}
+                className={`py-3 rounded font-bold ${
+                  resultado === r
+                    ? (r === "GOL" ? "bg-green-700" : "bg-yellow-700")
+                    : "bg-zinc-800"
+                }`}>{r}</button>
+            ))}
+          </div>
+        </Paso>
+      )}
+
+      {resultado && (
+        <Paso n={5}
+          titulo={resultado === "FUERA" ? "Zona portería (no aplica) — pulsa GUARDAR" : "Zona de portería (tap = guardar)"}
+          activo>
+          {resultado !== "FUERA" ? (
+            <Porteria onSelect={(z) => aplicar(z)} />
+          ) : null}
+          <div className="mt-2 flex justify-end">
+            <button onClick={() => aplicar(undefined)}
+              className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
+              {resultado === "FUERA" ? "GUARDAR" : "Saltar zona y guardar"}
+            </button>
+          </div>
+        </Paso>
+      )}
     </ModalShell>
   );
 }
 
-// ──────────────── MODAL ACCIÓN INDIVIDUAL (tap en jugador en pista) ────────────────
+// ──────────────── MODAL ACCIÓN INDIVIDUAL (tap en jugador) ────────────────
 
 function ModalAccionIndividual(props: {
   jugador: string;
@@ -686,104 +779,114 @@ function ModalAccionIndividual(props: {
   banquillo: string[];
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
-  onAccion: (tipo: "pf" | "pnf" | "robos" | "cortes" | "bdg" | "bdp") => void;
-  onDisparo: (detalles: any) => void;
-  onResetCierre: () => void;
+  onContador: (tipo: keyof ContadoresJugador) => void;
+  onDisparo: (detalles: { resultado: ResultadoDisparo; zonaCampo: string; zonaPorteria: string }) => void;
 }) {
-  const [paso, setPaso] = useState<"menu" | "disparo" | "zona" | "cambio">("menu");
-  const [disparoResultado, setDisparoResultado] = useState<"PUERTA" | "PALO" | "FUERA" | "BLOQUEADO">("PUERTA");
+  const [paso, setPaso] = useState<"menu" | "disparoTipo" | "disparoCampo" | "disparoPorteria" | "cambio">("menu");
+  const [disparoRes, setDisparoRes] = useState<ResultadoDisparo>("PUERTA");
   const [zonaCampo, setZonaCampo] = useState("");
-  const [zonaPorteria, setZonaPorteria] = useState("");
-  const [cambioEntra, setCambioEntra] = useState("");
-
-  const titulo = `📊 Acciones de ${props.jugador}`;
 
   if (paso === "menu") {
     return (
-      <ModalShell titulo={titulo} onCerrar={props.onCerrar}>
-        <p className="text-sm text-zinc-400 mb-3">Toca la acción a apuntar:</p>
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <BotonGrande label="🔁 Robo" onClick={() => { props.onAccion("robos"); props.onResetCierre(); }} />
-          <BotonGrande label="✂️ Corte" onClick={() => { props.onAccion("cortes"); props.onResetCierre(); }} />
-          <BotonGrande label="❌ Pérdida forzada (PF)" onClick={() => { props.onAccion("pf"); props.onResetCierre(); }} />
-          <BotonGrande label="❌ Pérdida NO forzada (PNF)" onClick={() => { props.onAccion("pnf"); props.onResetCierre(); }} />
-          <BotonGrande label="🥇 Balón dividido GANADO" onClick={() => { props.onAccion("bdg"); props.onResetCierre(); }} />
-          <BotonGrande label="🥈 Balón dividido PERDIDO" onClick={() => { props.onAccion("bdp"); props.onResetCierre(); }} />
+      <ModalShell titulo={`📊 ${props.jugador}`} onCerrar={props.onCerrar}>
+        <p className="text-sm text-zinc-400 mb-3">Toca la acción (1 tap = +1 y cerrar):</p>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <BotonGrande label="🔁 Robo" onClick={() => props.onContador("robos")} />
+          <BotonGrande label="✂️ Corte" onClick={() => props.onContador("cortes")} />
+          <BotonGrande label="❌ PF" subtitle="forzada" onClick={() => props.onContador("pf")} />
+          <BotonGrande label="❌ PNF" subtitle="no forzada" onClick={() => props.onContador("pnf")} />
+          <BotonGrande label="🥇 BDG" subtitle="dividido ganado" onClick={() => props.onContador("bdg")} />
+          <BotonGrande label="🥈 BDP" subtitle="dividido perdido" onClick={() => props.onContador("bdp")} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <BotonGrande label="🎯 Disparo" color="bg-pink-700" onClick={() => setPaso("disparo")} />
-          <BotonGrande label="🔄 Cambio (este sale)" color="bg-zinc-700" onClick={() => setPaso("cambio")} />
+        <div className="grid grid-cols-2 gap-2">
+          <BotonGrande label="🎯 DISPARO" color="bg-pink-700" onClick={() => setPaso("disparoTipo")} />
+          <BotonGrande label="🔄 CAMBIO" subtitle={`sale ${props.jugador}`} color="bg-zinc-700" onClick={() => setPaso("cambio")} />
         </div>
       </ModalShell>
     );
   }
 
-  if (paso === "disparo") {
+  if (paso === "disparoTipo") {
     return (
       <ModalShell titulo={`🎯 Disparo de ${props.jugador}`} onCerrar={props.onCerrar}>
-        <div className="mb-4">
-          <h3 className="text-sm text-zinc-400 mb-2">Tipo de disparo</h3>
+        <Paso n={1} titulo="Resultado del disparo (tap)" activo>
           <div className="grid grid-cols-4 gap-2">
-            {(["PUERTA", "PALO", "FUERA", "BLOQUEADO"] as const).map((r) => (
-              <button key={r} onClick={() => setDisparoResultado(r)}
-                className={`py-3 rounded font-bold ${
-                  disparoResultado === r ? "bg-pink-700" : "bg-zinc-800"
-                }`}>{r}</button>
+            {(["PUERTA", "PALO", "FUERA", "BLOQUEADO"] as ResultadoDisparo[]).map((r) => (
+              <button key={r}
+                onClick={() => { setDisparoRes(r); setPaso("disparoCampo"); }}
+                className="py-4 rounded font-bold bg-pink-700 hover:bg-pink-600">{r}</button>
             ))}
           </div>
-        </div>
-        <div className="mb-4">
-          <h3 className="text-sm text-zinc-400 mb-2">Zona del campo (origen)</h3>
-          <GridZonas zonas={ZONAS_CAMPO} sel={zonaCampo} onSel={setZonaCampo} cols={4} />
-        </div>
-        {disparoResultado === "PUERTA" && (
-          <div className="mb-4">
-            <h3 className="text-sm text-zinc-400 mb-2">Zona de portería (destino)</h3>
-            <GridZonas zonas={ZONAS_PORTERIA} sel={zonaPorteria} onSel={setZonaPorteria} cols={3} />
+        </Paso>
+        <button onClick={() => setPaso("menu")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
+      </ModalShell>
+    );
+  }
+
+  if (paso === "disparoCampo") {
+    return (
+      <ModalShell titulo={`🎯 ${props.jugador} → ${disparoRes}`} onCerrar={props.onCerrar}>
+        <Paso n={2} titulo="Zona del campo desde donde se dispara (tap)" activo>
+          <Campo onSelect={(z) => {
+            setZonaCampo(z);
+            if (disparoRes === "PUERTA") setPaso("disparoPorteria");
+            else props.onDisparo({ resultado: disparoRes, zonaCampo: z, zonaPorteria: "" });
+          }} />
+          <div className="mt-2 flex justify-between">
+            <button onClick={() => setPaso("disparoTipo")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
+            <button onClick={() => {
+              if (disparoRes === "PUERTA") setPaso("disparoPorteria");
+              else props.onDisparo({ resultado: disparoRes, zonaCampo: "", zonaPorteria: "" });
+            }} className="px-4 py-2 bg-zinc-700 rounded text-xs">Saltar zona campo</button>
           </div>
-        )}
-        <div className="flex gap-2 justify-end">
-          <button onClick={() => setPaso("menu")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
-          <button
-            onClick={() => {
-              // Sumar el disparo al jugador como contador (de momento usamos
-              // el dict de acciones — habrá que ampliar el schema para zonas).
-              props.onDisparo({
-                jugador: props.jugador,
-                resultado: disparoResultado,
-                zonaCampo, zonaPorteria,
-              });
-              props.onResetCierre();
-            }}
-            className="px-4 py-2 bg-green-700 rounded font-bold">Guardar disparo</button>
-        </div>
+        </Paso>
+      </ModalShell>
+    );
+  }
+
+  if (paso === "disparoPorteria") {
+    return (
+      <ModalShell titulo={`🎯 ${props.jugador} → PUERTA desde ${zonaCampo || "?"}`} onCerrar={props.onCerrar}>
+        <Paso n={3} titulo="Zona de portería (tap = guardar)" activo>
+          <Porteria onSelect={(z) =>
+            props.onDisparo({ resultado: "PUERTA", zonaCampo, zonaPorteria: z })
+          } />
+          <div className="mt-2 flex justify-between">
+            <button onClick={() => setPaso("disparoCampo")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
+            <button onClick={() =>
+              props.onDisparo({ resultado: "PUERTA", zonaCampo, zonaPorteria: "" })
+            } className="px-4 py-2 bg-zinc-700 rounded text-xs">Saltar zona portería</button>
+          </div>
+        </Paso>
       </ModalShell>
     );
   }
 
   if (paso === "cambio") {
     return (
-      <ModalShell titulo={`🔄 Cambio: sale ${props.jugador}`} onCerrar={props.onCerrar}>
-        <h3 className="text-sm text-zinc-400 mb-2">Entra:</h3>
-        <ChipsJugador opciones={props.banquillo} seleccionado={cambioEntra} onSelect={setCambioEntra} />
-        <div className="flex gap-2 justify-end mt-4">
-          <button onClick={() => setPaso("menu")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
-          <button
-            disabled={!cambioEntra}
-            onClick={() => props.onCambio(props.jugador, cambioEntra)}
-            className="px-4 py-2 bg-blue-700 disabled:opacity-40 rounded font-bold">Confirmar cambio</button>
-        </div>
+      <ModalShell titulo={`🔄 Cambio: sale ${props.jugador}`} onCerrar={props.onCerrar} maxW="max-w-2xl">
+        <Paso n={1} titulo="Entra (tap = aplicar)" activo>
+          <div className="flex flex-wrap gap-2">
+            {props.banquillo.map((n) => (
+              <button key={n}
+                onClick={() => props.onCambio(props.jugador, n)}
+                className="px-4 py-3 bg-blue-700 hover:bg-blue-600 rounded font-bold">{n}</button>
+            ))}
+          </div>
+        </Paso>
+        <button onClick={() => setPaso("menu")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
       </ModalShell>
     );
   }
   return null;
 }
 
-function BotonGrande(props: { label: string; onClick: () => void; color?: string }) {
+function BotonGrande(props: { label: string; subtitle?: string; onClick: () => void; color?: string }) {
   return (
     <button onClick={props.onClick}
-      className={`${props.color || "bg-zinc-700"} hover:opacity-90 py-5 rounded-xl text-base font-bold`}>
-      {props.label}
+      className={`${props.color || "bg-zinc-700"} hover:opacity-90 py-4 rounded-xl font-bold flex flex-col items-center`}>
+      <span className="text-base">{props.label}</span>
+      {props.subtitle && <span className="text-xs opacity-70">{props.subtitle}</span>}
     </button>
   );
 }

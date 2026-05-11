@@ -54,29 +54,51 @@ export interface TiempoJugador {
   ultimaSalida: number | null;
 }
 
+/** Resultado posible de un disparo (a puerta = entró marco, parada portero o gol). */
+export type ResultadoDisparo = "PUERTA" | "PALO" | "FUERA" | "BLOQUEADO";
+
 export interface EventoBase {
   id: string;
   parte: ParteId;
   segundosParte: number;    // segundos transcurridos en la parte cuando ocurrió
   segundosPartido: number;  // segundos totales del partido (suma de partes)
   timestampReal: number;    // Date.now() cuando se apuntó
+  /** Marcador en el momento del evento (snapshot). */
+  marcador: { inter: number; rival: number };
 }
 
 export type Evento =
   | (EventoBase & { tipo: "gol"; equipo: "INTER" | "RIVAL"; goleador: string;
       asistente?: string; cuarteto: string[]; portero?: string;
-      accion?: string; zonaPorteria?: string; descripcion?: string })
-  | (EventoBase & { tipo: "falta"; equipo: "INTER" | "RIVAL"; jugador?: string })
+      accion?: string; zonaCampo?: string; zonaPorteria?: string;
+      descripcion?: string;
+      /** Si este gol vino de un penalti/10m, id del evento penalti enlazado. */
+      penaltiId?: string })
+  | (EventoBase & { tipo: "falta"; equipo: "INTER" | "RIVAL";
+      jugador?: string; sinAsignar?: boolean; rivalMano?: boolean;
+      zonaCampo?: string })
   | (EventoBase & { tipo: "amarilla"; equipo: "INTER" | "RIVAL"; jugador?: string })
   | (EventoBase & { tipo: "roja"; equipo: "INTER" | "RIVAL"; jugador?: string })
   | (EventoBase & { tipo: "tiempo_muerto"; equipo: "INTER" | "RIVAL" })
   | (EventoBase & { tipo: "cambio"; sale: string; entra: string })
+  | (EventoBase & { tipo: "disparo"; equipo: "INTER" | "RIVAL";
+      jugador?: string;            // tirador (si INTER); si RIVAL puede no estar
+      portero?: string;            // portero nuestro (si RIVAL) o rival (si INTER)
+      resultado: ResultadoDisparo;
+      zonaCampo?: string;
+      zonaPorteria?: string;
+      /** Si este disparo está enlazado a un gol/penalti, id. */
+      golId?: string;
+      penaltiId?: string })
   | (EventoBase & { tipo: "penalti"; equipo: "INTER" | "RIVAL"; tirador: string;
       portero: string; resultado: "GOL" | "PARADA" | "POSTE" | "FUERA";
-      zona?: string })
+      zonaPorteria?: string;
+      /** Id del gol enlazado (si resultado=GOL). */
+      golId?: string })
   | (EventoBase & { tipo: "diezm"; equipo: "INTER" | "RIVAL"; tirador: string;
       portero: string; resultado: "GOL" | "PARADA" | "POSTE" | "FUERA";
-      zona?: string });
+      zonaPorteria?: string;
+      golId?: string });
 
 export interface EstadoCronometro {
   parteActual: ParteId;
@@ -86,16 +108,33 @@ export interface EstadoCronometro {
   ultimoStart: number | null;
 }
 
+/** Contadores por jugador. Todos opcionales con default 0 al leer. */
+export interface ContadoresJugador {
+  pf: number;        // Pérdidas forzadas
+  pnf: number;       // Pérdidas no forzadas
+  robos: number;
+  cortes: number;
+  bdg: number;       // Balones dividos ganados
+  bdp: number;       // Balones divididos perdidos
+  // Disparos (auto-incrementados por golazos, paradas, penaltis, etc.)
+  dpp: number;       // Disparos a puerta (incluye gol)
+  dpf: number;       // Disparos fuera
+  dpa: number;       // Disparos al palo
+  dpb: number;       // Disparos bloqueados
+  // Solo porteros
+  golesEncajados: number;
+}
+
 export interface AccionesIndividuales {
-  /** Por jugador → conteo de cada métrica. Se modifica por toques +/− del compañero. */
-  porJugador: Record<string, {
-    pf: number;
-    pnf: number;
-    robos: number;
-    cortes: number;
-    bdg: number;
-    bdp: number;
-  }>;
+  porJugador: Record<string, ContadoresJugador>;
+}
+
+/** Disparos del equipo rival agregados (no tenemos jugadores rivales identificados). */
+export interface DisparosRival {
+  puerta: number;
+  fuera: number;
+  palo: number;
+  bloqueado: number;
 }
 
 export interface Partido {
@@ -115,6 +154,7 @@ export interface Partido {
   };
   eventos: Evento[];
   acciones: AccionesIndividuales;
+  disparosRival: DisparosRival;
   /** ms del último cambio (para auto-save / recuperación). */
   actualizado: number;
 }
@@ -130,6 +170,13 @@ class CronoDB extends Dexie {
 }
 
 export const db = new CronoDB();
+
+export function contadoresVacios(): ContadoresJugador {
+  return {
+    pf: 0, pnf: 0, robos: 0, cortes: 0, bdg: 0, bdp: 0,
+    dpp: 0, dpf: 0, dpa: 0, dpb: 0, golesEncajados: 0,
+  };
+}
 
 /** Estado vacío para un partido nuevo. */
 export function partidoVacio(id = "current"): Partido {
@@ -155,6 +202,7 @@ export function partidoVacio(id = "current"): Partido {
     },
     eventos: [],
     acciones: { porJugador: {} },
+    disparosRival: { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
     actualizado: Date.now(),
   };
 }
