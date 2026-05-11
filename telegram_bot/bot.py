@@ -425,13 +425,39 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    Validación: pesos fuera de 40-200 kg se rechazan automáticamente
    (filtro fisiológico). Coma o punto decimal funcionan ambos.
 
-4) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
+4) **Apuntar SESIÓN nueva** (a la hoja SESIONES):
+   → USA SIEMPRE el script `src/apuntar_sesion.py`. Idempotente.
+
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X]
+   ```
+
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 M TEC-TAC 75
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 T GYM+TEC-TAC 90
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-15 T PARTIDO 40 --comp LIGA
+   ```
+
+   Tipos: FISICO · TEC-TAC · GYM · RECUP · PARTIDO · PORTEROS · MATINAL ·
+   GYM+TEC-TAC · FISICO+TEC-TAC.
+   Turnos: M · T · P.
+   Competiciones: LIGA · COPA DEL REY · COPA ESPAÑA · COPA MOSTOLES ·
+   COPA RIBERA · SUPERCOPA · PRE-TEMPORADA · AMISTOSO.
+
+5) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
    alimenta Google Forms automáticamente. Tampoco a `_VISTA_*` (se
    regeneran solas). Solo escribe a hojas crudas: BORG, PESO, WELLNESS,
    LESIONES, FISIO, SESIONES, _EJERCICIOS.
 
-5) **REGLA GENERAL para escribir al Sheet**: si existe un script
+6) **REGLA GENERAL para escribir al Sheet**: si existe un script
    `src/apuntar_*.py` o `src/marcar_*.py` para la acción, **úsalo SIEMPRE**.
+   Scripts disponibles ahora mismo:
+   · `apuntar_borg.py JUGADOR FECHA VALOR [TURNO]`
+   · `apuntar_peso.py JUGADOR FECHA [TURNO] --pre N --post N --h2o N`
+   · `apuntar_wellness.py JUGADOR FECHA --sueno N --fatiga N --molestias N --animo N`
+   · `apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X]`
+   · `marcar_lesion.py JUGADOR FECHA [TURNO]`
    Solo escribe Python con gspread directamente cuando NO existe un script
    curado para la operación que necesitas.
 
