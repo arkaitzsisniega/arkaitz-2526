@@ -156,12 +156,23 @@ def _parse_pdf(pdf_path: Path) -> list[dict]:
     for c in clusters:
         c.sort(key=lambda w: w["x0"])
 
+    # Determinar el umbral X de separación etiqueta/valores DINÁMICAMENTE:
+    # buscar la fila de fechas (dd/mm/yyyy) y usar la x0 mínima de las
+    # fechas como umbral. Si no hay fechas, fallback a 165 (valor original
+    # para PDFs con 10 mediciones; con 13 mediciones está sobre 132).
+    umbral_x = 165.0
+    for c in clusters:
+        fechas_en_fila = [w for w in c if re.match(r"\d{2}/\d{2}/\d{4}", w["text"])]
+        if len(fechas_en_fila) >= 5:
+            umbral_x = min(w["x0"] for w in fechas_en_fila) - 5  # margen
+            break
+
     # Construir dict de filas: {label_normalizado: [valores]}
     filas = {}
     fechas = None
     for c in clusters:
-        label = " ".join(w["text"] for w in c if w["x0"] < 165).strip()
-        valores = [w["text"] for w in c if w["x0"] >= 165]
+        label = " ".join(w["text"] for w in c if w["x0"] < umbral_x).strip()
+        valores = [w["text"] for w in c if w["x0"] >= umbral_x]
         if not label or not valores:
             continue
         # ¿Es la fila de fechas? (contiene "Fecha de Medición")
