@@ -3,7 +3,12 @@
 /**
  * Campo de fútbol sala HORIZONTAL con zonas clicables (zero-confirm).
  *
- * Pista 40m × 20m. La dirección de ataque va hacia la DERECHA.
+ * ⚠️ REGLA FIJA: el campo se dibuja SIEMPRE en HORIZONTAL (40m × 20m,
+ *    proporción 2:1). NUNCA en vertical. Lo único que cambia entre
+ *    contextos es a qué lado apunta el atacante (izq o der), pero la
+ *    orientación general es siempre horizontal.
+ *
+ * Pista 40m × 20m. La dirección de ataque va hacia la DERECHA (default).
  * La portería rival está a la derecha (x=W); la propia a la izquierda.
  *
  * Como las zonas A1-A11 son relativas al equipo que ataca:

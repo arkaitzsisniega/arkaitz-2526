@@ -42,8 +42,12 @@ Estado actual (rama actual, commits del 11/5):
       - Inter 2ª parte = opuesto a 1ª.
       - Rival siempre opuesto al Inter en esa parte.
       Implicación en el componente Campo: cuando se pinte el mapa, el
-      campo debería girar según el equipo del evento y la parte actual.
-      Las zonas A1-A11 siempre relativas al atacante.
+      campo debería girar (reflejo izq↔der) según el equipo del evento
+      y la parte actual. Las zonas A1-A11 siempre relativas al atacante.
+      **REGLA FIJA: el campo se dibuja SIEMPRE en HORIZONTAL**
+      (proporción 40×20 = 2:1, portería atacada a un lado y propia al
+      otro). NUNCA en vertical. Lo único que cambia es a qué lado
+      apunta la flecha del atacante (izq o der).
 
 - [ ] **Probar en iPad real** todo lo construido:
       - Cronómetro cuenta atrás, ± ajuste, auto-pausa fin de parte.
