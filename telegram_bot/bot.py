@@ -185,6 +185,8 @@ EJVOZ_TTL_SEG = 15 * 60
 
 # Modo "/sesion": chat_id → timestamp de activación (vence a los 15 min)
 _modo_sesion_voz: dict = {}
+_modo_goles_voz: dict = {}
+GOLESVOZ_TTL_SEG = 15 * 60  # 15 minutos
 SESVOZ_TTL_SEG = 15 * 60
 
 # Modelo Whisper (lazy load; primera vez descarga ~150MB, luego cacheado)
@@ -501,6 +503,10 @@ CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 - /enlaces: genera enlaces PRE+POST genéricos del día.
 - /prepost: lista quién ha hecho PRE/POST/BORG de la última sesión
   (o de la fecha que se pase: /prepost 2026-05-10).
+- /golespartido: tras un partido, modo voz/texto para describir los
+  goles en orden cronológico ('el 1-0 fue de Raúl tras pase de Pani…').
+  Gemini extrae cada descripción y la guarda en la columna `descripcion`
+  del evento correspondiente en EST_EVENTOS.
 - /auditar: audita BORG/PESO/WELLNESS/SESIONES y detecta errores
   (jugador fuera del roster, BORG fuera de rango 0-10, pesos imposibles,
   H2O raros, sesiones duplicadas, fechas vacías). Añade "verbose" para
@@ -1258,6 +1264,86 @@ async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: Co
     await _enviar_bloques(update, out.decode("utf-8", "replace"))
 
 
+async def cmd_golespartido(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Activa modo /golespartido: el siguiente audio o texto se procesa
+    como descripción CRONOLÓGICA de los goles del último partido y se
+    vuelca a la columna descripcion de EST_EVENTOS.
+
+    También acepta texto directo:
+      /golespartido el 1-0 fue de Raul tras pase de Pani...
+    """
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    args_text = " ".join(ctx.args).strip() if ctx.args else ""
+    if args_text:
+        await _procesar_audio_goles(args_text, update, ctx)
+        return
+    _modo_goles_voz[chat_id] = _dt.datetime.now().timestamp()
+    await update.message.reply_text(
+        "⚽ *Modo descripción de goles activado.*\n\n"
+        "Mándame ahora un audio (o texto) describiendo los goles del "
+        "último partido EN ORDEN CRONOLÓGICO (el 1-0, luego el 1-1, "
+        "el 2-1…). Yo extraigo cada descripción y la guardo en la "
+        "columna `descripcion` del evento correspondiente.\n\n"
+        "_Ejemplo: «El 1-0 fue de Raúl tras pase de Pani desde la "
+        "banda derecha. El 1-1 el rival tras una mala salida nuestra. "
+        "El 2-1 lo metió Javi de cabeza en córner.»_\n\n"
+        "Tienes 15 min para mandar el audio o el texto.",
+        parse_mode="Markdown",
+    )
+
+
+async def _procesar_audio_goles(transcripcion: str, update: Update,
+                                  ctx: ContextTypes.DEFAULT_TYPE):
+    """Llama al script parse_goles_voz.py con la transcripción."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "⚽ Estructurando los goles con Gemini…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(PROJECT_DIR / "src" / "parse_goles_voz.py"),
+            cwd=str(PROJECT_DIR),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(
+                proc.communicate(input=transcripcion.encode("utf-8")),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            await update.message.reply_text("⚠️ Timeout (>5 min).")
+            return
+    finally:
+        stop.set()
+        try:
+            await task
+        except Exception:
+            pass
+    out_txt = out.decode("utf-8", errors="replace")
+    err_txt = err.decode("utf-8", errors="replace")
+    if proc.returncode != 0:
+        await update.message.reply_text(
+            f"❌ Error al procesar goles (código {proc.returncode}).\n\n"
+            f"{(err_txt or out_txt)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out_txt)
+    _registrar_accion_local(
+        chat_id,
+        "/golespartido ejecutado: descripciones cronológicas de los goles "
+        "guardadas en EST_EVENTOS columna descripcion. NO le preguntes al "
+        "usuario si lo quiere apuntar, ya está hecho."
+    )
+
+
 async def cmd_sesion_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Activa modo /sesion: el siguiente audio se procesa como descripción
     de una sesión de entrenamiento y se vuelca a la hoja SESIONES.
@@ -1894,6 +1980,14 @@ def _detectar_intent(texto: str) -> Optional[str]:
     # Detección palabra por palabra. Orden = prioridad (más específico
     # primero). El primero que matchee gana.
     INTENTS = [
+        # /golespartido — describir los goles del último partido en orden
+        ("golespartido", [
+            r'\bgolespartido\b',
+            r'\bgoles\s+(?:del\s+)?partido\b',
+            r'\bdescrib(?:i|e|ir)?\s+(?:los\s+)?goles\b',
+            r'\bvoy\s+a\s+(?:describir|contar)\s+(?:los\s+)?goles\b',
+            r'\bcuento\s+(?:los\s+)?goles\b',
+        ]),
         # /auditar — auditar hojas crudas en busca de errores
         ("auditar", [
             r'\baudita(?:r|me)?\b',
@@ -1999,6 +2093,7 @@ def _intent_handler(cmd: str):
         "enlaces": cmd_enlaces,
         "prepost": cmd_prepost,
         "auditar": cmd_auditar,
+        "golespartido": cmd_golespartido,
         "oliver_sync": cmd_oliver_sync,
         "oliver_deep": cmd_oliver_deep,
         "ejercicios_sync": cmd_ejercicios_sync,
@@ -2042,6 +2137,15 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     (update.effective_user.first_name if update.effective_user else None) or "usuario",
                     prompt, "(procesado como /sesion)", kind="texto")
         await _procesar_audio_sesion(prompt, update, ctx)
+        return
+
+    ts_g = _modo_goles_voz.get(chat_id)
+    if ts_g and (ahora - ts_g) < GOLESVOZ_TTL_SEG:
+        _modo_goles_voz.pop(chat_id, None)
+        _append_log(chat_id,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    prompt, "(procesado como /golespartido)", kind="texto")
+        await _procesar_audio_goles(prompt, update, ctx)
         return
 
     # Detector de intención: si el mensaje matchea con un slash command
@@ -2133,6 +2237,16 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     (update.effective_user.first_name if update.effective_user else None) or "usuario",
                     text, "(procesado como sesion_voz)", kind="voz")
         await _procesar_audio_sesion(text, update, ctx)
+        return
+
+    # Si el chat está en modo /golespartido → procesar como descripción goles
+    ts_g = _modo_goles_voz.get(chat_id_v)
+    if ts_g and (ahora - ts_g) < GOLESVOZ_TTL_SEG:
+        _modo_goles_voz.pop(chat_id_v, None)
+        _append_log(chat_id_v,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    text, "(procesado como /golespartido)", kind="voz")
+        await _procesar_audio_goles(text, update, ctx)
         return
 
     await _process_prompt(text, update, ctx, kind="voz")
@@ -2346,6 +2460,7 @@ def main():
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("auditar", cmd_auditar))
+    app.add_handler(CommandHandler("golespartido", cmd_golespartido))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     # /ejercicios = activa modo voz/texto + tras procesar lanza oliver_ejercicios
     # automáticamente (parse_ejercicios_voz.py ya hace el chain). El nombre
