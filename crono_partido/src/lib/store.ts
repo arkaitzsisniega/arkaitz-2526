@@ -69,6 +69,25 @@ function congelaTurno(t: TiempoJugador, parte: ParteId): TiempoJugador {
   };
 }
 
+/** Si está en banquillo con reloj corriendo, devuelve seg de descanso en vivo. */
+function vivoSegDescanso(t: TiempoJugador): number {
+  if (t.segDescansoActual == null) return 0;
+  const base = t.segDescansoActual;
+  if (t.descansoStart != null) return base + (Date.now() - t.descansoStart) / 1000;
+  return base;
+}
+
+/** Congela el tramo vivo de descanso al pausar el reloj. */
+function congelaDescanso(t: TiempoJugador): TiempoJugador {
+  if (t.descansoStart == null) return t;
+  const tramo = (Date.now() - t.descansoStart) / 1000;
+  return {
+    ...t,
+    segDescansoActual: (t.segDescansoActual ?? 0) + tramo,
+    descansoStart: null,
+  };
+}
+
 /** Suma delta al campo de contadores del jugador (defensivo, retrocompat). */
 function bumpContador(
   acciones: Partido["acciones"],
@@ -141,6 +160,11 @@ export function usePartido() {
           const t = tiempos[nombre];
           if (t) tiempos[nombre] = congelaTurno(t, parte);
         }
+        for (const nombre of Object.keys(tiempos)) {
+          if (prev.enPista.includes(nombre)) continue;
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaDescanso(t);
+        }
         return {
           ...prev,
           cronometro: {
@@ -171,9 +195,23 @@ export function usePartido() {
                 ?? (PRESETS_COMPETICION[cfgOrig.competicion]?.permiteTanda ?? false),
             }
           : null;
+        const tiemposMig: Record<string, TiempoJugador> = {};
+        for (const [k, t] of Object.entries(p.tiempos ?? {})) {
+          const tt = t as TiempoJugador;
+          tiemposMig[k] = {
+            ...tt,
+            // Si no traen los campos nuevos, deducir: si está en pista (segTurnoActual!=null)
+            // o entró antes → no está descansando.
+            segDescansoActual: tt.segDescansoActual !== undefined
+              ? tt.segDescansoActual
+              : (tt.segTurnoActual != null ? null : 0),
+            descansoStart: tt.descansoStart !== undefined ? tt.descansoStart : null,
+          };
+        }
         const migrado: Partido = {
           ...p,
           config: cfgMigrado,
+          tiempos: tiemposMig,
           disparosRival: p.disparosRival ?? { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
           tanda: p.tanda ?? { activa: false, tiros: [], marcador: { inter: 0, rival: 0 } },
           acciones: {
@@ -214,8 +252,10 @@ export function usePartido() {
   const segundosBanquillo = useCallback(
     (nombre: string): number => {
       const t = partido.tiempos[nombre];
-      if (!t || t.ultimaSalida == null) return 0;
-      return Math.max(0, (Date.now() - t.ultimaSalida) / 1000);
+      if (!t) return 0;
+      // Si nunca ha salido y está en pista, 0.
+      if (t.segDescansoActual == null) return 0;
+      return Math.max(0, vivoSegDescanso(t));
     },
     [partido]
   );
@@ -275,6 +315,10 @@ export function usePartido() {
           segTurnoActual: enPista ? 0 : null,
           turnoStart: null,
           ultimaSalida: enPista ? null : ahora,
+          // Banquillo desde el inicio: 0s acumulados, descanso aún parado
+          // (reloj no corre). Cuando se le dé PLAY arrancará.
+          segDescansoActual: enPista ? null : 0,
+          descansoStart: null,
         };
       }
       const acciones: typeof prev.acciones = { porJugador: {} };
@@ -297,9 +341,18 @@ export function usePartido() {
       if (prev.cronometro.ultimoStart != null) return prev;
       const ahora = Date.now();
       const tiempos = { ...prev.tiempos };
+      // Jugadores en pista: turno arranca
       for (const nombre of prev.enPista) {
         const t = tiempos[nombre];
         if (t) tiempos[nombre] = { ...t, turnoStart: ahora };
+      }
+      // Jugadores en banquillo: descanso arranca
+      for (const nombre of Object.keys(tiempos)) {
+        if (prev.enPista.includes(nombre)) continue;
+        const t = tiempos[nombre];
+        if (t && t.segDescansoActual != null) {
+          tiempos[nombre] = { ...t, descansoStart: ahora };
+        }
       }
       return {
         ...prev,
@@ -316,9 +369,16 @@ export function usePartido() {
       const transcurrido = (ahora - prev.cronometro.ultimoStart) / 1000;
       const tiempos = { ...prev.tiempos };
       const parte = prev.cronometro.parteActual;
+      // Pista: congelar turno
       for (const nombre of prev.enPista) {
         const t = tiempos[nombre];
         if (t) tiempos[nombre] = congelaTurno(t, parte);
+      }
+      // Banquillo: congelar descanso
+      for (const nombre of Object.keys(tiempos)) {
+        if (prev.enPista.includes(nombre)) continue;
+        const t = tiempos[nombre];
+        if (t) tiempos[nombre] = congelaDescanso(t);
       }
       return {
         ...prev,
@@ -409,6 +469,11 @@ export function usePartido() {
           const t = tiempos[nombre];
           if (t) tiempos[nombre] = congelaTurno(t, parte);
         }
+        for (const nombre of Object.keys(tiempos)) {
+          if (p.enPista.includes(nombre)) continue;
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaDescanso(t);
+        }
         p = {
           ...p,
           cronometro: {
@@ -445,15 +510,28 @@ export function usePartido() {
       const tSale = tiempos[sale];
       if (tSale) {
         const cong = congelaTurno(tSale, parte);
-        tiempos[sale] = { ...cong, segTurnoActual: null, ultimaSalida: ahora };
+        tiempos[sale] = {
+          ...cong,
+          segTurnoActual: null,
+          ultimaSalida: ahora,
+          // Empieza a descansar (en vivo si reloj corre, congelado si no).
+          segDescansoActual: 0,
+          descansoStart: corriendo ? ahora : null,
+        };
       }
       const tEntra = tiempos[entra];
       if (tEntra) {
+        // Si estaba descansando, congelamos el tramo para no "perder" segundos
+        // si en algún momento queremos histórico. Después limpiamos.
+        const congDesc = congelaDescanso(tEntra);
         tiempos[entra] = {
-          ...tEntra,
+          ...congDesc,
           segTurnoActual: 0,
           turnoStart: corriendo ? ahora : null,
           ultimaSalida: null,
+          // Deja de estar en banquillo
+          segDescansoActual: null,
+          descansoStart: null,
         };
       }
       const enPista = prev.enPista.map((n) => (n === sale ? entra : n));

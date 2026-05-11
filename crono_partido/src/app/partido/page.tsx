@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { usePartido } from "@/lib/store";
 import { ROSTER } from "@/lib/roster";
 import { formatMMSS, colorTiempoPista, colorTiempoBanquillo } from "@/lib/utils";
 import { Campo } from "@/components/Campo";
 import { Porteria } from "@/components/Porteria";
-import type { ContadoresJugador, ResultadoDisparo, TandaPenaltis, TiroTanda } from "@/lib/db";
+import type { ContadoresJugador, ResultadoDisparo, TandaPenaltis, TiroTanda, Partido, ParteId } from "@/lib/db";
 
 export default function PartidoPage() {
   const router = useRouter();
@@ -30,6 +30,19 @@ export default function PartidoPage() {
   const [modalTM, setModalTM] = useState(false);
   const [modalPen, setModalPen] = useState(false);
   const [modalTanda, setModalTanda] = useState(false);
+  const [modalTiempos, setModalTiempos] = useState(false);
+
+  // Jugadores nuestros que tienen al menos una amarilla.
+  // OJO: useMemo debe ir ANTES de los early returns (reglas de hooks).
+  const jugadoresAmarilla = useMemo(() => {
+    const s = new Set<string>();
+    for (const ev of partido.eventos) {
+      if (ev.tipo === "amarilla" && ev.equipo === "INTER" && (ev as any).jugador) {
+        s.add((ev as any).jugador);
+      }
+    }
+    return s;
+  }, [partido.eventos]);
 
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
@@ -115,13 +128,17 @@ export default function PartidoPage() {
               const totalParte = segundosEnParte(nombre, p);
               const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
               const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
+              const tieneAmarilla = jugadoresAmarilla.has(nombre);
               return (
                 <button key={nombre}
                   onClick={() => setModalAccionInd({ jugador: nombre })}
-                  className={`p-3 rounded-lg text-center ${
+                  className={`relative p-3 rounded-lg text-center ${
                     esPortero ? "bg-yellow-700/40 border-2 border-yellow-500"
                               : colorTiempoPista(seg)
-                  }`}>
+                  } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
+                  {tieneAmarilla && (
+                    <span className="absolute top-1 right-1 text-base leading-none" title="Amarilla">🟨</span>
+                  )}
                   <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
                   <div className="text-base font-bold">{nombre}</div>
                   <div className="text-2xl font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
@@ -169,12 +186,16 @@ export default function PartidoPage() {
             const seg = segundosBanquillo(nombre);
             const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
             const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
+            const tieneAmarilla = jugadoresAmarilla.has(nombre);
             return (
               <div key={nombre}
-                className={`p-2 rounded-lg text-center ${
+                className={`relative p-2 rounded-lg text-center ${
                   esPortero ? "bg-yellow-700/40 border border-yellow-500"
                             : colorTiempoBanquillo(seg)
-                }`}>
+                } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
+                {tieneAmarilla && (
+                  <span className="absolute top-0.5 right-0.5 text-sm leading-none">🟨</span>
+                )}
                 <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
                 <div className="text-sm font-bold">{nombre}</div>
                 <div className="text-base font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
@@ -193,10 +214,14 @@ export default function PartidoPage() {
         <BotonAccion label="🛑 T.M." color="bg-purple-700" onClick={() => setModalTM(true)} />
         <BotonAccion label="🎯 PEN/10M" color="bg-pink-700" onClick={() => setModalPen(true)} />
       </div>
-      <div className="grid grid-cols-3 gap-2 mt-2">
+      <div className={`grid ${cfg.permiteTanda ? "grid-cols-4" : "grid-cols-3"} gap-2 mt-2`}>
         <button onClick={deshacerUltimoEvento}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
-          ↶ Deshacer último evento
+          ↶ Deshacer
+        </button>
+        <button onClick={() => setModalTiempos(true)}
+          className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
+          📊 TIEMPOS
         </button>
         {cfg.permiteTanda && (
           <button onClick={() => { iniciarTanda(); setModalTanda(true); }}
@@ -205,7 +230,7 @@ export default function PartidoPage() {
                 ? "bg-pink-700 hover:bg-pink-600"
                 : "bg-zinc-800 hover:bg-zinc-700"
             }`}>
-            🥇 TANDA PENALTIS
+            🥇 TANDA
             {partido.tanda?.tiros.length ? ` (${partido.tanda.marcador.inter}-${partido.tanda.marcador.rival})` : ""}
           </button>
         )}
@@ -319,6 +344,15 @@ export default function PartidoPage() {
           onCerrar={() => { cerrarTanda(); setModalTanda(false); }}
           onApuntar={apuntarTiroTanda}
           onDeshacer={deshacerUltimoTiroTanda}
+        />
+      )}
+
+      {modalTiempos && (
+        <ModalTiempos
+          partido={partido}
+          enPista={enPista}
+          onCerrar={() => setModalTiempos(false)}
+          segundosTurnoActual={segundosTurnoActual}
         />
       )}
     </div>
@@ -922,6 +956,98 @@ function BotonGrande(props: { label: string; subtitle?: string; onClick: () => v
       <span className="text-base">{props.label}</span>
       {props.subtitle && <span className="text-xs opacity-70">{props.subtitle}</span>}
     </button>
+  );
+}
+
+// ──────────────── MODAL TIEMPOS (resumen por jugador) ────────────────
+
+function ModalTiempos(props: {
+  partido: Partido;
+  enPista: string[];
+  segundosTurnoActual: (n: string) => number;
+  onCerrar: () => void;
+}) {
+  const { partido, enPista } = props;
+  if (!partido.config) return null;
+  const partes: ParteId[] = ["1T", "2T", "PR1", "PR2"];
+  // Filtramos solo las partes que se juegan (duración > 0)
+  const partesActivas = partes.filter((p) => (partido.config!.duracionParte[p] ?? 0) > 0);
+
+  // Para cada jugador: total (incluye live), por parte (incluye live de la parte actual).
+  const filas = partido.config.convocados.map((nombre) => {
+    const t = partido.tiempos[nombre];
+    if (!t) return { nombre, total: 0, porParte: {} as Record<ParteId, number>, esPortero: false, enPista: false };
+    const parteActual = partido.cronometro.parteActual;
+    const enPistaAhora = enPista.includes(nombre);
+    // Live: si está en pista con turnoStart, suma desde turnoStart.
+    const liveExtra = (enPistaAhora && t.turnoStart != null && partido.cronometro.ultimoStart != null)
+      ? (Date.now() - t.turnoStart) / 1000
+      : 0;
+    const porParte: Record<ParteId, number> = { ...t.porParte };
+    if (liveExtra > 0) porParte[parteActual] = (porParte[parteActual] ?? 0) + liveExtra;
+    const total = t.totalSegundos + liveExtra;
+    const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
+    return { nombre, total, porParte, esPortero, enPista: enPistaAhora };
+  });
+  // Orden: en pista primero, después por total descendente
+  filas.sort((a, b) => {
+    if (a.enPista !== b.enPista) return a.enPista ? -1 : 1;
+    return b.total - a.total;
+  });
+
+  return (
+    <ModalShell titulo="📊 Tiempo jugado por jugador" onCerrar={props.onCerrar}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-zinc-400 border-b border-zinc-800">
+            <tr>
+              <th className="text-left py-2 px-2">Jugador</th>
+              <th className="text-right px-2">Total</th>
+              {partesActivas.map((p) => (
+                <th key={p} className="text-right px-2">{p}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.nombre} className="border-b border-zinc-900">
+                <td className="py-1.5 px-2">
+                  <span className={`${f.esPortero ? "text-yellow-400" : ""} font-bold`}>
+                    {f.nombre}
+                  </span>
+                  {f.enPista && <span className="ml-2 text-[10px] bg-green-700 px-1.5 py-0.5 rounded">EN PISTA</span>}
+                </td>
+                <td className="text-right font-mono tabular-nums px-2 font-bold">
+                  {formatMMSS(f.total)}
+                </td>
+                {partesActivas.map((p) => (
+                  <td key={p} className="text-right font-mono tabular-nums px-2 text-zinc-400">
+                    {formatMMSS(f.porParte[p] ?? 0)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="text-xs text-zinc-500 border-t border-zinc-800">
+            <tr>
+              <td className="pt-2 px-2 italic">Total minutos jugados</td>
+              <td className="text-right font-mono tabular-nums px-2 font-bold pt-2">
+                {formatMMSS(filas.reduce((s, f) => s + f.total, 0))}
+              </td>
+              {partesActivas.map((p) => (
+                <td key={p} className="text-right font-mono tabular-nums px-2 pt-2">
+                  {formatMMSS(filas.reduce((s, f) => s + (f.porParte[p] ?? 0), 0))}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="text-xs text-zinc-500 mt-3">
+        El valor de la parte actual incluye los segundos en vivo (se actualiza con el reloj).
+        Los porteros marcados en amarillo.
+      </p>
+    </ModalShell>
   );
 }
 

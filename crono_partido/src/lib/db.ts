@@ -64,10 +64,25 @@ export interface TiempoJugador {
   turnoStart: number | null;
   /**
    * Timestamp (ms) de cuándo se sentó en el banquillo por última vez.
-   * El tiempo descansando = ahora - ultimaSalida. null = está en pista
-   * o nunca ha jugado.
+   * Lo guardamos para histórico, pero el cómputo del tiempo "fresco" en
+   * banquillo usa segDescansoActual + descansoStart (análogo al turno).
+   * null = está en pista o nunca ha jugado.
    */
   ultimaSalida: number | null;
+  /**
+   * Si está EN BANQUILLO: segundos acumulados desde su última salida
+   * SOLO mientras el reloj corre. Si el reloj pausa, el contador
+   * también se congela (descansoStart pasa a null). Al reanudar, sigue
+   * desde donde estaba.
+   * null = no está en banquillo (o nunca salió). 0 = recién bajado.
+   */
+  segDescansoActual: number | null;
+  /**
+   * Timestamp (ms) de inicio del tramo de descanso vivo. Set solo si
+   * reloj corre Y jugador en banquillo. null en cualquier otro caso.
+   * Live: segDescansoActual + (ahora - descansoStart).
+   */
+  descansoStart: number | null;
 }
 
 /** Resultado posible de un disparo (a puerta = entró marco, parada portero o gol). */
