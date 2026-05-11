@@ -7568,18 +7568,24 @@ with tab_editar:
                 # v es string mm:ss o vacío
                 if not v or str(v).strip() == "":
                     return "background-color: #ffffff;"
-                m_int, _ = _parse_mmss(v)
-                if m_int is None or m_int <= 0:
+                _, mmss = _parse_mmss(v)
+                if not mmss:
                     return "background-color: #ffffff;"
-                # Convertimos a minutos float (aproximado: m_int es entero)
-                # Para los rangos: usamos m_int directo.
-                if m_int < 1:
-                    return "background-color: #BBDEFB;"   # azul
-                if m_int < 2:
-                    return "background-color: #C8E6C9;"   # verde
-                if m_int < 3:
-                    return "background-color: #FFF59D;"   # amarillo
-                return "background-color: #EF9A9A;"       # rojo
+                # Parsear MM:SS a minutos float real para el gradiente.
+                try:
+                    mm, ss = mmss.split(":")
+                    minutos = float(mm) + float(ss) / 60.0
+                except (ValueError, TypeError):
+                    return "background-color: #ffffff;"
+                if minutos <= 0:
+                    return "background-color: #ffffff;"
+                if minutos < 1:
+                    return "background-color: #BBDEFB;"   # azul (<1')
+                if minutos < 2:
+                    return "background-color: #C8E6C9;"   # verde (1-2')
+                if minutos < 3:
+                    return "background-color: #FFF59D;"   # amarillo (2-3')
+                return "background-color: #EF9A9A;"       # rojo (>3')
             cols_color = [c for c in cols_show if c.startswith("r")]
             sty = df_show.style.applymap(_bg, subset=cols_color)
             st.caption("👁️ Vista previa con colores (no editable):")
