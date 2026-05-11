@@ -7870,27 +7870,35 @@ with tab_editar:
         #   resultado (GOL / PARADA / POSTE / FUERA),
         #   cuadrante (P1..P9 si va a portería; vacío si FUERA),
         #   descripcion
+        # Editor extendido con detalle táctico (mayo 2026): además de los
+        # campos clásicos (tipo, condición, lanzador, portero, resultado,
+        # cuadrante), añadimos:
+        #   - tirador_lateralidad: DIESTRO/ZURDO (auto-detectable para nuestros
+        #     jugadores via JUGADORES_ROSTER si tuviera la columna; manual si no)
+        #   - portero_direccion: hacia dónde se tiró (CENTRO/DERECHA/IZQUIERDA)
+        #   - portero_forma: cómo se tiró (DE_PIE/CRUZ/PASO_VALLA)
+        #   - portero_avance: SOLO 10M (LINEA/A_5M/A_MEDIAS). En penalti 6m
+        #     no se permite avance, queda vacío.
+        # Al guardar se persiste en AMBAS hojas:
+        #   - EST_PENALTIS_10M: estructura original (compat con dashboard).
+        #   - EST_SCOUTING_PEN_10M: estructura v2 con todo el detalle.
         PEN_COLS_EDITOR = [
             "tipo_lanzamiento", "condicion", "parte", "minuto_mmss",
             "marcador", "lanzador", "portero", "resultado", "cuadrante",
-            "descripcion",
+            "tirador_lateralidad", "portero_direccion", "portero_forma",
+            "portero_avance", "descripcion",
         ]
         PEN_TIPOS = ["", "PENALTI", "10M"]
         PEN_RESULTADOS = ["", "GOL", "PARADA", "POSTE", "FUERA"]
         PEN_CUADRANTES = ["", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]
+        PEN_LATERALIDAD = ["", "DIESTRO", "ZURDO"]
+        PEN_DIRECCION = ["", "CENTRO", "DERECHA", "IZQUIERDA"]
+        PEN_FORMA = ["", "DE_PIE", "CRUZ", "PASO_VALLA"]
+        PEN_AVANCE = ["", "LINEA", "A_5M", "A_MEDIAS"]
 
         def _df_penaltis_inicial():
             return pd.DataFrame({
-                "tipo_lanzamiento": pd.Series(dtype="str"),
-                "condicion": pd.Series(dtype="str"),
-                "parte": pd.Series(dtype="str"),
-                "minuto_mmss": pd.Series(dtype="str"),
-                "marcador": pd.Series(dtype="str"),
-                "lanzador": pd.Series(dtype="str"),
-                "portero": pd.Series(dtype="str"),
-                "resultado": pd.Series(dtype="str"),
-                "cuadrante": pd.Series(dtype="str"),
-                "descripcion": pd.Series(dtype="str"),
+                c: pd.Series(dtype="str") for c in PEN_COLS_EDITOR
             })
 
         def _calcular_marcador_en_minuto(eventos_df, minuto_int, equipo_marca):
@@ -7983,6 +7991,19 @@ with tab_editar:
                 "cuadrante": st.column_config.SelectboxColumn(
                     "Cuadrante", options=PEN_CUADRANTES, width="small",
                     help="A qué zona de portería va (vacío si va FUERA)"),
+                "tirador_lateralidad": st.column_config.SelectboxColumn(
+                    "Pie", options=PEN_LATERALIDAD, width="small",
+                    help="DIESTRO / ZURDO"),
+                "portero_direccion": st.column_config.SelectboxColumn(
+                    "Dir. portero", options=PEN_DIRECCION, width="small",
+                    help="Hacia dónde se tiró el portero"),
+                "portero_forma": st.column_config.SelectboxColumn(
+                    "Forma portero", options=PEN_FORMA, width="small",
+                    help="DE_PIE · CRUZ · PASO_VALLA"),
+                "portero_avance": st.column_config.SelectboxColumn(
+                    "Avance (10M)", options=PEN_AVANCE, width="small",
+                    help="SOLO en 10M: LINEA · A_5M · A_MEDIAS. "
+                          "En PENALTI déjalo vacío."),
                 "descripcion": st.column_config.TextColumn(
                     "Descripción", width="medium"),
             }
@@ -8016,8 +8037,13 @@ with tab_editar:
             df["minuto"] = min_int
             # Strings normalizados
             for c in ("tipo_lanzamiento", "condicion", "resultado", "cuadrante",
-                       "lanzador", "portero"):
-                df[c] = df[c].astype(str).str.strip().str.upper()
+                       "lanzador", "portero",
+                       "tirador_lateralidad", "portero_direccion",
+                       "portero_forma", "portero_avance"):
+                if c in df.columns:
+                    df[c] = df[c].astype(str).str.strip().str.upper()
+                else:
+                    df[c] = ""
             df["parte"] = df["parte"].astype(str).str.strip()
             # Marcador como string (sin upper)
             if "marcador" not in df.columns:
@@ -8053,29 +8079,38 @@ with tab_editar:
             return df, warns
 
         def _guardar_penaltis(partido_id, df_norm, cab):
+            """Guarda penaltis/10m del partido en DOS hojas:
+              · EST_PENALTIS_10M (estructura clásica, para compat con
+                pestañas Faltas/Penaltis y dashboard histórico).
+              · EST_SCOUTING_PEN_10M (estructura v2, detalle táctico
+                completo para análisis).
+            Se reemplazan todas las filas con el partido_id dado en
+            ambas hojas (para evitar duplicados al re-guardar)."""
             import gspread
             sh = _conexion_sheet()
+
+            # ── 1) EST_PENALTIS_10M (esquema clásico) ─────────────────
             try:
                 ws = sh.worksheet("EST_PENALTIS_10M")
             except gspread.exceptions.WorksheetNotFound:
                 ws = sh.add_worksheet("EST_PENALTIS_10M", rows=200, cols=15)
                 ws.update(values=[["partido_id"]], range_name="A1")
             df_all = pd.DataFrame(ws.get_all_records())
-            cols = [
+            cols_v1 = [
                 "partido_id", "tipo", "competicion", "rival", "fecha",
                 "tipo_lanzamiento", "condicion", "parte", "minuto",
                 "minuto_mmss", "marcador", "lanzador", "portero",
                 "resultado", "cuadrante", "descripcion",
             ]
             if df_all.empty:
-                df_all = pd.DataFrame(columns=cols)
+                df_all = pd.DataFrame(columns=cols_v1)
             else:
-                for c in cols:
+                for c in cols_v1:
                     if c not in df_all.columns:
                         df_all[c] = ""
             df_otros = df_all[df_all["partido_id"].astype(str) != str(partido_id)]
             if df_norm is None or df_norm.empty:
-                df_nuevas = pd.DataFrame(columns=cols)
+                df_nuevas = pd.DataFrame(columns=cols_v1)
             else:
                 df_nuevas = df_norm.copy()
                 df_nuevas["partido_id"] = partido_id
@@ -8083,15 +8118,87 @@ with tab_editar:
                 df_nuevas["competicion"] = cab["competicion"]
                 df_nuevas["rival"] = cab["rival"]
                 df_nuevas["fecha"] = cab["fecha"]
-                for c in cols:
+                for c in cols_v1:
                     if c not in df_nuevas.columns:
                         df_nuevas[c] = ""
-                df_nuevas = df_nuevas[cols]
-            df_final = pd.concat([df_otros[cols], df_nuevas], ignore_index=True).fillna("")
+                df_nuevas_v1 = df_nuevas[cols_v1]
+            df_final = pd.concat(
+                [df_otros[cols_v1], df_nuevas_v1 if not df_nuevas.empty else df_nuevas[cols_v1]],
+                ignore_index=True,
+            ).fillna("")
             ws.clear()
-            ws.update(values=[cols] + df_final.astype(str).values.tolist(),
+            ws.update(values=[cols_v1] + df_final.astype(str).values.tolist(),
                        range_name="A1")
-            return len(df_nuevas)
+
+            # ── 2) EST_SCOUTING_PEN_10M (esquema v2, detalle táctico) ─
+            try:
+                ws2 = sh.worksheet("EST_SCOUTING_PEN_10M")
+            except gspread.exceptions.WorksheetNotFound:
+                ws2 = sh.add_worksheet("EST_SCOUTING_PEN_10M",
+                                        rows=200, cols=len(SCOUT_PEN_COLS_V2))
+                ws2.update(values=[SCOUT_PEN_COLS_V2], range_name="A1")
+            df2_all = pd.DataFrame(ws2.get_all_records())
+            if df2_all.empty:
+                df2_all = pd.DataFrame(columns=SCOUT_PEN_COLS_V2)
+            else:
+                for c in SCOUT_PEN_COLS_V2:
+                    if c not in df2_all.columns:
+                        df2_all[c] = ""
+            # Eliminar filas previas de este partido_id
+            df2_otros = df2_all[df2_all["partido_id"].astype(str) != str(partido_id)]
+            # Construir las nuevas filas v2 a partir del editor
+            if df_norm is not None and not df_norm.empty:
+                def _condicion_a_equipo(c):
+                    return "INTER" if str(c).upper() == "A_FAVOR" else "RIVAL"
+                def _cuadr_a_zona(cuad, resultado):
+                    cuad_s = str(cuad).strip().upper()
+                    if cuad_s.startswith("P") and cuad_s[1:].isdigit():
+                        return cuad_s
+                    if str(resultado).upper() == "FUERA":
+                        return "FUERA"
+                    return ""
+                df_v2 = pd.DataFrame()
+                df_v2["partido_id"] = [partido_id] * len(df_norm)
+                df_v2["fecha"] = cab["fecha"]
+                df_v2["competicion"] = cab["competicion"]
+                df_v2["tipo_lanzamiento"] = df_norm["tipo_lanzamiento"].astype(str).str.upper().str.strip()
+                df_v2["equipo_lanzador"] = df_norm["condicion"].apply(_condicion_a_equipo)
+                df_v2["tirador_nombre"] = df_norm["lanzador"].astype(str).str.strip().str.upper()
+                # tirador_club: nuestros jugadores = "INTER", "RIVAL" textual = rival del partido
+                df_v2["tirador_club"] = df_v2.apply(
+                    lambda r: cab.get("rival", "") if r["tirador_nombre"] == "RIVAL"
+                    else "INTER", axis=1,
+                )
+                df_v2["tirador_lateralidad"] = df_norm.get("tirador_lateralidad", "").astype(str).str.upper().str.strip()
+                df_v2["portero_nombre"] = df_norm["portero"].astype(str).str.strip().str.upper()
+                df_v2["portero_club"] = df_v2.apply(
+                    lambda r: cab.get("rival", "") if r["portero_nombre"] == "RIVAL"
+                    else "INTER", axis=1,
+                )
+                df_v2["zona_destino"] = df_norm.apply(
+                    lambda r: _cuadr_a_zona(r.get("cuadrante", ""), r.get("resultado", "")),
+                    axis=1,
+                )
+                df_v2["es_gol"] = (
+                    df_norm["resultado"].astype(str).str.upper() == "GOL"
+                ).map({True: "TRUE", False: "FALSE"})
+                df_v2["portero_direccion"] = df_norm.get("portero_direccion", "").astype(str).str.upper().str.strip()
+                df_v2["portero_forma"] = df_norm.get("portero_forma", "").astype(str).str.upper().str.strip()
+                df_v2["portero_avance"] = df_norm.get("portero_avance", "").astype(str).str.upper().str.strip()
+                # En PENALTI el avance no aplica (no se permite legalmente)
+                df_v2.loc[df_v2["tipo_lanzamiento"] == "PENALTI", "portero_avance"] = ""
+                df_v2["marcador_momento"] = df_norm.get("marcador", "").astype(str)
+                df_v2["notas"] = df_norm.get("descripcion", "").astype(str)
+                df_v2 = df_v2[SCOUT_PEN_COLS_V2]
+            else:
+                df_v2 = pd.DataFrame(columns=SCOUT_PEN_COLS_V2)
+            df2_final = pd.concat([df2_otros[SCOUT_PEN_COLS_V2], df_v2],
+                                    ignore_index=True).fillna("")
+            ws2.clear()
+            ws2.update(values=[SCOUT_PEN_COLS_V2] + df2_final.astype(str).values.tolist(),
+                        range_name="A1")
+
+            return len(df_nuevas) if df_norm is not None and not df_norm.empty else 0
 
         # ── Iter 5: ZONAS (campo + portería) ────────────────────────────
         # Schema de EST_DISPAROS_ZONAS (ya existente):
