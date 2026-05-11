@@ -415,7 +415,7 @@ def _sincronizar_jugadores(sh_fisios, sh_principal):
     ws_dst.batch_clear(["A2:Z"])
     time.sleep(1)
 
-    nombres_primer = {"HERRERO", "GARCIA", "J.HERRERO", "J.GARCIA",
+    nombres_primer = {"HERRERO", "GARCIA",
                        "CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
                        "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"}
 

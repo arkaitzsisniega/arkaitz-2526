@@ -1214,19 +1214,17 @@ with tab_sem:
 
     # ── Tarjetas por jugador ──
     # Orden custom solicitado:
-    #  Grupo 1: Porteros 1er equipo  → J.HERRERO, J.GARCIA
+    #  Grupo 1: Porteros 1er equipo  → HERRERO, GARCIA
     #  Grupo 2: Campo 1er equipo     → CECILIO, CHAGUINHA, RAUL, HARRISON,
     #                                   RAYA, JAVI, PANI, PIRATA, BARONA, CARLOS
     #  Grupo 3: Portero filial        → OSCAR
     #  Grupo 4: Campo filial          → RUBIO, JAIME, SEGO, DANI, NACHO + resto
-    # Aliases por si el nombre llega con/sin prefijo "J." (la vista usa
-    # "HERRERO"/"GARCIA" pero el roster guarda "J.HERRERO"/"J.GARCIA").
-    GRUPO_PORT_1ER = ["HERRERO", "J.HERRERO", "GARCIA", "J.GARCIA"]
+    GRUPO_PORT_1ER = ["HERRERO", "GARCIA"]
     GRUPO_CAMPO_1ER = ["CECILIO", "CHAGUINHA", "RAUL", "HARRISON",
                         "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"]
     GRUPO_PORT_FIL = ["OSCAR"]
     GRUPO_CAMPO_FIL_PRIO = ["RUBIO", "JAIME", "SEGO", "DANI", "NACHO",
-                              "GONZALO", "GONZA", "PABLO", "GABRI"]
+                              "GONZALO", "PABLO", "GABRI"]
 
     def _grupo_de(nombre: str) -> tuple[int, int]:
         """(idx_grupo, idx_dentro_del_grupo). Cuanto menor mejor."""
@@ -4105,13 +4103,13 @@ with tab_efic:
                 # Generar TODAS las combinaciones de tamaño N para cada evento.
                 # Lógica:
                 # - "Incluir portero = Sí": solo eventos con portero canónico
-                #   (J.GARCIA / J.HERRERO / OSCAR), y cada combinación generada
+                #   (GARCIA / HERRERO / OSCAR), y cada combinación generada
                 #   debe contener al portero (filtrado al final).
                 # - "Incluir portero = No": solo jugadores de campo, ignoramos
                 #   el portero. Sirve también para situaciones de portero-jugador
                 #   donde no hay portero (5 de campo).
                 from itertools import combinations as _combos_e
-                _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+                _PORTEROS_CANON = {"HERRERO", "GARCIA", "OSCAR"}
                 ev_q = est_eventos.copy()
                 # Aplicar filtro de situación de gol
                 if sel_acciones_e:
@@ -5192,7 +5190,7 @@ with tab_partido:
     
             # ── Tabla de minutos por jugador (con semáforo, sin porteros) ─────
             st.markdown("#### ⏱ Minutos por jugador y parte")
-            st.caption("Color: **verde** = más minutos · **rojo** = menos. Los porteros (J.GARCIA, J.HERRERO, OSCAR) se excluyen del semáforo y aparecen en gris claro.")
+            st.caption("Color: **verde** = más minutos · **rojo** = menos. Los porteros (GARCIA, HERRERO, OSCAR) se excluyen del semáforo y aparecen en gris claro.")
 
             tabla_min = ep_p.sort_values("min_total", ascending=False)[
                 ["dorsal", "jugador", "min_1t", "min_2t", "min_total"]
@@ -5204,7 +5202,7 @@ with tab_partido:
             tabla_min["dorsal"] = pd.to_numeric(tabla_min["dorsal"], errors="coerce").fillna(0).astype(int)
 
             # Identificar índices de porteros (canónicos)
-            PORT_DASH = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+            PORT_DASH = {"HERRERO", "GARCIA", "OSCAR"}
             es_p = tabla_min["jugador"].astype(str).str.upper().isin(PORT_DASH)
             idx_porteros = tabla_min[es_p].index.tolist()
 
@@ -5912,7 +5910,7 @@ with tab_goles:
             #   las combinaciones generadas DEBEN incluir al portero.
             # - "Incluir portero = No": solo jugadores de campo.
             from itertools import combinations as _combos
-            _PORTEROS_CANON = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+            _PORTEROS_CANON = {"HERRERO", "GARCIA", "OSCAR"}
 
             ev_for_q = ev.copy()
             # Aplicar filtro de situación de gol
@@ -6351,7 +6349,7 @@ with tab_editar:
             jug_conocidos = jug_porteros + jug_campo
         elif not est_partidos.empty:
             jug_conocidos = sorted(est_partidos["jugador"].dropna().unique().tolist())
-            jug_porteros = ["J.HERRERO", "J.GARCIA", "OSCAR"]
+            jug_porteros = ["HERRERO", "GARCIA", "OSCAR"]
             jug_campo = [j for j in jug_conocidos if j not in jug_porteros]
             roster_activo = pd.DataFrame()
         else:
@@ -7808,7 +7806,7 @@ with tab_editar:
             else:
                 jug_lanz = jug_campo
                 jug_porteros = jug_porteros if 'jug_porteros' in dir() else \
-                                ["J.HERRERO", "J.GARCIA", "OSCAR"]
+                                ["HERRERO", "GARCIA", "OSCAR"]
             opciones_lanzador = [""] + jug_lanz + ["RIVAL"]
             opciones_portero = [""] + jug_porteros + ["RIVAL"]
             cfg = {

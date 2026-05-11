@@ -56,7 +56,7 @@ HOJAS_VACIAS = {"J27", "J28", "J29", "J30", "P49", "CAJA NEGRA"}
 # aparece otro nombre, es un error de Arkaitz al rellenar (probablemente
 # se confundió de columna). En ese caso movemos el nombre al cuarteto y
 # dejamos el portero vacío (situación de portero-jugador o 5x4).
-PORTEROS_CANONICOS = {"J.HERRERO", "J.GARCIA", "OSCAR", "HERRERO", "GARCIA"}
+PORTEROS_CANONICOS = {"HERRERO", "GARCIA", "OSCAR"}
 
 # Filas/columnas de los bloques (0-indexed)
 ROT_FILA_INI, ROT_FILA_FIN = 4, 19          # 5..19 → idx 4..18, slice 4:19
@@ -888,8 +888,8 @@ def main():
 
     if args.validar:
         print("─" * 60)
-        print("VALIDACIÓN contra J.HERRERO (cacheado: 40 conv, 30 part, 1022 min)")
-        h = df_jug[df_jug["jugador"] == "J.HERRERO"]
+        print("VALIDACIÓN contra HERRERO (cacheado: 40 conv, 30 part, 1022 min)")
+        h = df_jug[df_jug["jugador"] == "HERRERO"]
         if not h.empty:
             print(f"  Convocatorias calc:      {int(h['convocado'].sum())}")
             print(f"  Participaciones calc:    {int(h['participa'].sum())}")

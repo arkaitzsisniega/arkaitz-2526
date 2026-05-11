@@ -232,15 +232,16 @@ FECHAS:
 - "Este mes" = del día 1 del mes actual hasta hoy.
 
 ROSTER OFICIAL (así se guarda el JUGADOR en el Sheet):
-PRIMER EQUIPO porteros: J.HERRERO, J.GARCIA
+PRIMER EQUIPO porteros: HERRERO, GARCIA
 PRIMER EQUIPO campo: CECILIO, CHAGUINHA, RAUL, HARRISON, RAYA, JAVI,
   PANI, PIRATA, BARONA, CARLOS
 FILIAL portero: OSCAR
-FILIAL campo: RUBIO, JAIME, SEGO, DANI, GONZA, PABLO, GABRI
+FILIAL campo: RUBIO, JAIME, SEGO, DANI, GONZALO, PABLO, GABRI, NACHO
 
 ALIAS típicos a tolerar:
-- "Herrero", "Jose Herrero", "el 1" → J.HERRERO
-- "Javi García", "Garcia", "el 27" → J.GARCIA
+- "J.Herrero", "Jose Herrero", "el 1" → HERRERO
+- "Javi García", "J.García", "el 27" → GARCIA
+- "Gonza", "Gonzo" → GONZALO
 - "Javi", "Javi Mínguez", "Javi Miguez", "Javier", "el 10" → JAVI
 - "Chagas", "Chaginha" → CHAGUINHA
 - "Rubio", "Sergio", "Vizuete" → RUBIO

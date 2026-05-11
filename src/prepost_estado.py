@@ -32,6 +32,9 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(ROOT / "src"))
 import forms_utils as fu  # noqa: E402
+from aliases_jugadores import (  # noqa: E402
+    ALIASES_JUGADOR, norm_jugador as _norm_jugador_central,
+)
 
 SHEET_NAME = "Arkaitz - Datos Temporada 2526"
 SCOPES = [
@@ -47,64 +50,11 @@ ETIQUETAS_ESTADO = {
     "NJ": "No juega",
 }
 
-# Aliases para normalizar nombres que los jugadores escriben en los Forms
-# (o que aparecen en BORG/PESO) hacia el canónico del roster.
-# La clave es la versión UPPER+strip del nombre escrito; el valor el
-# canónico exacto del roster.
-ALIASES_JUGADOR = {
-    "HERRERO": "J.HERRERO",
-    "JOSE HERRERO": "J.HERRERO",
-    "J HERRERO": "J.HERRERO",
-    "GARCIA": "J.GARCIA",
-    "JAVI GARCIA": "J.GARCIA",
-    "JAVIER GARCIA": "J.GARCIA",
-    "J GARCIA": "J.GARCIA",
-    "CHAGAS": "CHAGUINHA",
-    "CHAGINHA": "CHAGUINHA",
-    "SERGIO": "RUBIO",
-    "VIZUETE": "RUBIO",
-    "SERGIO VIZUETE": "RUBIO",
-    "SEGOVIA": "SEGO",
-    "DAVID SEGOVIA": "SEGO",
-    "JAVI MINGUEZ": "JAVI",
-    "JAVI MÍNGUEZ": "JAVI",
-    "JAVIER MINGUEZ": "JAVI",
-    "JAVIER MÍNGUEZ": "JAVI",
-    "JAVIER": "JAVI",
-    "GONZALO": "GONZA",  # roster oficial es GONZA según JUGADORES_ROSTER
-    "GONZALEZ": "GONZA",
-}
-
-
 def _norm_jugador(nombre: str, roster: set[str]) -> str:
-    """Normaliza el nombre escrito al canónico del roster.
-
-    Estrategia:
-      1. Si el nombre upper+strip ya coincide con un nombre del roster, OK.
-      2. Si está en ALIASES_JUGADOR, devolver el mapeo.
-      3. Fuzzy match (Levenshtein ratio ≥ 0.85): por si alguien escribe
-         con un typo o falta una letra ("herrer", "chaguinhga", etc).
-      4. Si nada match, devolver el nombre tal cual (upper).
-    """
-    if not nombre:
-        return ""
-    n = nombre.strip().upper()
-    if n in roster:
-        return n
-    if n in ALIASES_JUGADOR:
-        return ALIASES_JUGADOR[n]
-    # Fuzzy fallback
-    from difflib import SequenceMatcher
-    mejor_score = 0.0
-    mejor_match = None
-    for canon in roster:
-        score = SequenceMatcher(None, n, canon).ratio()
-        if score > mejor_score:
-            mejor_score = score
-            mejor_match = canon
-    if mejor_match and mejor_score >= 0.85:
-        return mejor_match
-    return n
+    """Wrapper que delega en src/aliases_jugadores.norm_jugador con el
+    roster activo pasado como argumento. Mantenido como alias local
+    por compatibilidad con el resto del módulo."""
+    return _norm_jugador_central(nombre, roster=roster)
 
 
 def _open_sheet():
@@ -185,7 +135,9 @@ def _turnos_y_tipo_de_fecha(ss, fecha: str) -> list[tuple[str, str, str]]:
 def _leer_borg(ss, fecha: str, turno: str, roster: set[str]) -> dict[str, str]:
     """Devuelve {JUGADOR_CANONICO: valor_borg_str} para fecha+turno.
     Valor puede ser número o estado (S/A/L/N/D/NC/NJ). Normaliza nombres
-    aplicando ALIASES_JUGADOR para mapear 'HERRERO' → 'J.HERRERO' etc."""
+    aplicando ALIASES_JUGADOR (src/aliases_jugadores.py) para mapear
+    nombres no canónicos al canónico (ej. 'J.Herrero' → 'HERRERO',
+    'Gonza' → 'GONZALO')."""
     ws = ss.worksheet("BORG")
     rows = ws.get_all_values()
     if len(rows) < 2:

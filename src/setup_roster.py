@@ -11,7 +11,7 @@ Esta hoja sirve como referencia única en:
 Estructura de la hoja:
   | dorsal | nombre | posicion | equipo | activo |
   |   2    | CECILIO|  CAMPO   | PRIMER |  TRUE  |
-  |  27    |J.GARCIA| PORTERO  | PRIMER |  TRUE  |
+  |  27    | GARCIA | PORTERO  | PRIMER |  TRUE  |
   |  ...
 
 Uso:
@@ -47,8 +47,8 @@ SCOPES = [
 # Plantilla 25/26 (datos confirmados por Arkaitz el 28/04/2026)
 ROSTER = [
     # PRIMER EQUIPO — porteros
-    {"dorsal": 1,  "nombre": "J.HERRERO",  "posicion": "PORTERO", "equipo": "PRIMER", "activo": True},
-    {"dorsal": 27, "nombre": "J.GARCIA",   "posicion": "PORTERO", "equipo": "PRIMER", "activo": True},
+    {"dorsal": 1,  "nombre": "HERRERO",   "posicion": "PORTERO", "equipo": "PRIMER", "activo": True},
+    {"dorsal": 27, "nombre": "GARCIA",    "posicion": "PORTERO", "equipo": "PRIMER", "activo": True},
     # PRIMER EQUIPO — campo
     {"dorsal": 2,  "nombre": "CECILIO",    "posicion": "CAMPO",   "equipo": "PRIMER", "activo": True},
     {"dorsal": 5,  "nombre": "CHAGUINHA",  "posicion": "CAMPO",   "equipo": "PRIMER", "activo": True},
@@ -67,7 +67,7 @@ ROSTER = [
     {"dorsal": 15, "nombre": "JAIME",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
     {"dorsal": 22, "nombre": "SEGO",       "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
     {"dorsal": 25, "nombre": "DANI",       "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
-    {"dorsal": 31, "nombre": "GONZA",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
+    {"dorsal": 31, "nombre": "GONZALO",    "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
     # Filial sin dorsal asignado todavía
     {"dorsal": "", "nombre": "PABLO",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
     {"dorsal": "", "nombre": "GABRI",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},

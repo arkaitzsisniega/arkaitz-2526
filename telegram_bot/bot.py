@@ -422,13 +422,13 @@ solo que ejecutes scripts. Si un script falla, dilo en humano
 en silencio.
 
 ROSTER OFICIAL (cómo se guarda cada jugador):
-PORTEROS PRIMER: J.HERRERO, J.GARCIA
+PORTEROS PRIMER: HERRERO, GARCIA
 CAMPO PRIMER: CECILIO, CHAGUINHA, RAUL, HARRISON, RAYA, JAVI, PANI,
   PIRATA, BARONA, CARLOS
 PORTERO FILIAL: OSCAR
-CAMPO FILIAL: RUBIO, JAIME, SEGO, DANI, GONZA, PABLO, GABRI
+CAMPO FILIAL: RUBIO, JAIME, SEGO, DANI, GONZALO, PABLO, GABRI, NACHO
 
-Alias comunes a tolerar: "Herrero"→J.HERRERO, "Javi García"→J.GARCIA,
+Alias comunes a tolerar: "J.Herrero"→HERRERO, "Javi García"/"J.García"→GARCIA, "Gonza"→GONZALO,
 "Javi Mínguez"/"Javier"→JAVI, "Chagas"→CHAGUINHA, "Sergio"/"Vizuete"→RUBIO.
 Si no encuentras un nombre, prueba `str.contains` antes de rendirte.
 

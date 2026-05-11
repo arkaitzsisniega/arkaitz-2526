@@ -7,13 +7,18 @@ que Looker Studio consumirá directamente.
 Ejecutar después de cada actualización de datos.
 """
 
-import warnings, time
+import sys, warnings, time
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import gspread
 from google.oauth2.service_account import Credentials
 
 warnings.filterwarnings("ignore")
+
+# Permitir importar aliases_jugadores.py (vive en la misma carpeta src/)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from aliases_jugadores import norm_jugador as _norm_jug_canon  # noqa: E402
 
 CREDS_FILE = "google_credentials.json"
 SHEET_NAME = "Arkaitz - Datos Temporada 2526"
@@ -571,7 +576,13 @@ def vista_recuento(borg, ses):
     # Sesiones únicas del equipo (FECHA + TURNO)
     total_ses = len(ses.drop_duplicates(["FECHA", "TURNO"])) if "TURNO" in ses.columns else len(ses)
     estados_validos = ["S", "A", "L", "N", "D", "NC", "NJ"]
+    # Normalizar nombres a canónicos para que filas historicas con
+    # "J.HERRERO"/"J.GARCIA"/"GONZA" se agreguen junto a las nuevas
+    # con "HERRERO"/"GARCIA"/"GONZALO" en lugar de duplicarse.
+    borg = borg.copy()
+    borg["JUGADOR"] = borg["JUGADOR"].fillna("").astype(str).apply(_norm_jug_canon)
     jugadores = borg["JUGADOR"].dropna().unique()
+    jugadores = [j for j in jugadores if j]  # quitar vacíos
 
     rows = []
     for j in jugadores:

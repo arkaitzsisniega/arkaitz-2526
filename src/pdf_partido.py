@@ -923,7 +923,7 @@ def generar_pdf_partido(partido_id: str, sh=None,
                 jp_rot = jp[jp["min_total"] > 0].sort_values("min_total", ascending=False)
                 # Recoger valores numéricos y marcar si es portero
                 valores_rot = []
-                porteros_set = set(("J.GARCIA", "J.HERRERO", "OSCAR"))
+                porteros_set = set(("GARCIA", "HERRERO", "OSCAR"))
                 es_portero_rows = []
                 for _, r in jp_rot.iterrows():
                     fila_vals = [float(r.get(c, 0) or 0) for c in cols]
