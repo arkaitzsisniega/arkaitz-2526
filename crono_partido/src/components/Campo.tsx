@@ -39,6 +39,8 @@ import React from "react";
 interface Props {
   seleccionada?: string;
   onSelect: (zona: string) => void;
+  /** Si quieres etiquetar quién ataca (ej. "INTER" o "RIVAL"). Decorativo. */
+  nombreAtacante?: string;
 }
 
 // Escala
@@ -66,7 +68,7 @@ const X_CENTRO = W / 2;             // 200
 const Y_4M_TOP = 6 * M;             // 120 (mitad del techo del área)
 const Y_4M_BOT = 10 * M;            // 200 (línea de 10m)
 
-export function Campo({ seleccionada, onSelect }: Props) {
+export function Campo({ seleccionada, onSelect, nombreAtacante }: Props) {
   const sel = (z: string) => seleccionada === z;
   const colorZona = (z: string) => sel(z) ? "#1d4ed8" : "#ffffff";
   const opZona = (z: string) => sel(z) ? 0.55 : 0.05;
@@ -120,18 +122,19 @@ export function Campo({ seleccionada, onSelect }: Props) {
 
       {/* ── ZONAS (clicables) ── */}
 
-      {/* A11 = mitad propia entera */}
+      {/* A11 = TODA la mitad del campo donde no ataca el equipo que marca */}
       <g onClick={() => onSelect("A11")} className="cursor-pointer">
         <rect x="0" y={Y_MEDIA} width={W} height={H - Y_MEDIA}
-          fill={colorZona("A11")} fillOpacity={opZona("A11")} />
-        <text x={W / 2} y={Y_MEDIA + (H - Y_MEDIA) / 2 + 8}
-          textAnchor="middle" fontSize="34" fontWeight="bold"
-          fill={sel("A11") ? "#ffffff" : "#d4d4d8"} opacity="0.7"
+          fill={colorZona("A11")} fillOpacity={opZona("A11")}
+          stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
+        <text x={W / 2} y={Y_MEDIA + (H - Y_MEDIA) / 2 + 12}
+          textAnchor="middle" fontSize="56" fontWeight="bold"
+          fill={sel("A11") ? "#ffffff" : "#d4d4d8"} opacity="0.85"
           style={{ pointerEvents: "none" }}>A11</text>
-        <text x={W / 2} y={Y_MEDIA + (H - Y_MEDIA) / 2 + 32}
+        <text x={W / 2} y={Y_MEDIA + (H - Y_MEDIA) / 2 + 40}
           textAnchor="middle" fontSize="11"
           fill={sel("A11") ? "#ffffff" : "#a1a1aa"} opacity="0.7"
-          style={{ pointerEvents: "none" }}>mitad propia</text>
+          style={{ pointerEvents: "none" }}>todo el medio campo defensivo</text>
       </g>
 
       {/* A3 = banda izq, primeros 10m */}
@@ -259,25 +262,17 @@ export function Campo({ seleccionada, onSelect }: Props) {
         {/* Punto de doble penalti rival (10m) */}
         <circle cx={W / 2} cy={10 * M} r="3" fill="#ffffff" stroke="none" />
 
-        {/* Misma geometría reflejada para la portería propia (en A11),
-            decorativa, no clicable. */}
-        <path d={`
-          M ${BANDA_IZ} ${H}
-          A ${R_AREA} ${R_AREA} 0 0 0 ${POSTE_IZ} ${H - AREA_BORDE}
-          L ${POSTE_DR} ${H - AREA_BORDE}
-          A ${R_AREA} ${R_AREA} 0 0 0 ${BANDA_DR} ${H}
-        `.trim()} />
-        <circle cx={W / 2} cy={H - 6 * M} r="3" fill="#ffffff" stroke="none" />
-        <circle cx={W / 2} cy={H - 10 * M} r="3" fill="#ffffff" stroke="none" />
-
-        {/* Porterías (rectángulo blanco fino al borde) */}
+        {/* Portería atacada (arriba) — el "objetivo" del que ataca. */}
         <rect x={POSTE_IZ} y="0" width={POSTE_DR - POSTE_IZ} height="4" fill="#ffffff" />
-        <rect x={POSTE_IZ} y={H - 4} width={POSTE_DR - POSTE_IZ} height="4" fill="#ffffff" />
+        {/* A11 (mitad opuesta) NO tiene decoración para que se vea claro
+            que es un solo bloque entero, neutro a quién defiende. */}
       </g>
 
-      {/* Etiqueta "Inter ataca ↑" */}
+      {/* Etiqueta del atacante (decorativa) */}
       <text x={W - 8} y={Y_MEDIA - 8} textAnchor="end" fontSize="11"
-        fill="#ffffff" opacity="0.5">Inter ataca ↑</text>
+        fill="#ffffff" opacity="0.55">
+        {nombreAtacante ? `${nombreAtacante} ataca ↑` : "Atacante ↑"}
+      </text>
     </svg>
   );
 }
