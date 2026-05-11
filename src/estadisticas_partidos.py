@@ -598,9 +598,33 @@ def parsear_partido(
         totales.dp_rival    += p.par + p.gol_p
         totales.dpalo_rival += p.poste_p
         totales.db_rival    += p.bloq_p
-    # Goles
-    totales.goles_a_favor   = sum(1 for e in eventos if e.equipo_marca == "INTER")
-    totales.goles_en_contra = sum(1 for e in eventos if e.equipo_marca == "RIVAL")
+    # Goles — preferencia: leer marcador final del Excel (celdas D69 y
+    # F69, idx 68/3 y 68/5). Arkaitz las rellena directamente como
+    # "goles_a_favor / goles_en_contra finales del partido" y suelen ser
+    # más fiables que contar eventos (a veces faltan eventos). Si no se
+    # encuentran o no son numéricos, fallback al conteo de eventos.
+    gf_excel = None
+    gc_excel = None
+    if len(valores) > 68:
+        row_69 = valores[68]
+        if row_69:
+            try:
+                v = row_69[3] if len(row_69) > 3 else None
+                if v is not None and v != "":
+                    gf_excel = int(v)
+            except (TypeError, ValueError):
+                gf_excel = None
+            try:
+                v = row_69[5] if len(row_69) > 5 else None
+                if v is not None and v != "":
+                    gc_excel = int(v)
+            except (TypeError, ValueError):
+                gc_excel = None
+
+    gf_eventos = sum(1 for e in eventos if e.equipo_marca == "INTER")
+    gc_eventos = sum(1 for e in eventos if e.equipo_marca == "RIVAL")
+    totales.goles_a_favor   = gf_excel if gf_excel is not None else gf_eventos
+    totales.goles_en_contra = gc_excel if gc_excel is not None else gc_eventos
 
     return jugadores, eventos, totales
 
