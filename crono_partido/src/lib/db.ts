@@ -23,7 +23,23 @@ export interface ConfigPartido {
     pista3: string;
     pista4: string;
   };
+  /** Duración por parte EN SEGUNDOS. Reloj cuenta de duración → 0.
+   *  Si una parte vale 0 = NO se juega (típico PR1/PR2 sin prórroga). */
+  duracionParte: Record<ParteId, number>;
+  /** Si la competición permite tanda de penaltis tras empate (ko). */
+  permiteTanda: boolean;
 }
+
+/** Presets de duración (segundos) y si hay tanda, por competición. */
+export const PRESETS_COMPETICION: Record<string, { duraciones: Record<ParteId, number>; permiteTanda: boolean; label: string }> = {
+  LIGA:        { duraciones: { "1T": 1200, "2T": 1200, PR1: 0,   PR2: 0   }, permiteTanda: false, label: "Liga (2×20')" },
+  COPA_REY:    { duraciones: { "1T": 1200, "2T": 1200, PR1: 300, PR2: 300 }, permiteTanda: true,  label: "Copa del Rey (2×20' + 2×5' + tanda)" },
+  COPA_ESPANA: { duraciones: { "1T": 1200, "2T": 1200, PR1: 300, PR2: 300 }, permiteTanda: true,  label: "Copa de España (2×20' + 2×5' + tanda)" },
+  COPA_MUNDO:  { duraciones: { "1T": 1200, "2T": 1200, PR1: 300, PR2: 300 }, permiteTanda: true,  label: "Copa del Mundo (2×20' + 2×5' + tanda)" },
+  AMISTOSO:    { duraciones: { "1T": 1200, "2T": 1200, PR1: 0,   PR2: 0   }, permiteTanda: false, label: "Amistoso (2×20')" },
+  PLAYOFF:     { duraciones: { "1T": 1200, "2T": 1200, PR1: 300, PR2: 300 }, permiteTanda: true,  label: "Playoff (2×20' + 2×5' + tanda)" },
+  SUPERCOPA:   { duraciones: { "1T": 1200, "2T": 1200, PR1: 300, PR2: 300 }, permiteTanda: true,  label: "Supercopa (2×20' + 2×5' + tanda)" },
+};
 
 export interface TiempoJugador {
   /** Nombre canónico */
@@ -137,6 +153,26 @@ export interface DisparosRival {
   bloqueado: number;
 }
 
+/** Un tiro de la tanda de penaltis post-prórroga. */
+export interface TiroTanda {
+  id: string;
+  orden: number;                                // 1, 2, 3...
+  equipo: "INTER" | "RIVAL";
+  tirador?: string;                             // jugador (INTER) o texto (RIVAL)
+  portero?: string;                             // portero que recibe
+  resultado: "GOL" | "PARADA" | "POSTE" | "FUERA";
+  zonaPorteria?: string;
+  timestampReal: number;
+}
+
+export interface TandaPenaltis {
+  /** true = la tanda está abierta y se están registrando tiros. */
+  activa: boolean;
+  tiros: TiroTanda[];
+  /** Marcador específico de la tanda (no se suma al marcador del partido). */
+  marcador: { inter: number; rival: number };
+}
+
 export interface Partido {
   /** Id estable del partido para Dexie. Por defecto "current". */
   id: string;
@@ -155,6 +191,7 @@ export interface Partido {
   eventos: Evento[];
   acciones: AccionesIndividuales;
   disparosRival: DisparosRival;
+  tanda: TandaPenaltis;
   /** ms del último cambio (para auto-save / recuperación). */
   actualizado: number;
 }
@@ -203,6 +240,7 @@ export function partidoVacio(id = "current"): Partido {
     eventos: [],
     acciones: { porJugador: {} },
     disparosRival: { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
+    tanda: { activa: false, tiros: [], marcador: { inter: 0, rival: 0 } },
     actualizado: Date.now(),
   };
 }

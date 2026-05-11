@@ -7,7 +7,7 @@ import { ROSTER } from "@/lib/roster";
 import { formatMMSS, colorTiempoPista, colorTiempoBanquillo } from "@/lib/utils";
 import { Campo } from "@/components/Campo";
 import { Porteria } from "@/components/Porteria";
-import type { ContadoresJugador, ResultadoDisparo } from "@/lib/db";
+import type { ContadoresJugador, ResultadoDisparo, TandaPenaltis, TiroTanda } from "@/lib/db";
 
 export default function PartidoPage() {
   const router = useRouter();
@@ -15,8 +15,10 @@ export default function PartidoPage() {
     partido, cargado,
     segundosTurnoActual, segundosBanquillo, segundosParte,
     segundosPartidoTotal, segundosEnParte,
+    segundosRestantesParte, duracionParteActual,
     play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion,
+    iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
   } = usePartido();
 
   // Estado UI
@@ -27,6 +29,7 @@ export default function PartidoPage() {
   const [modalAmarilla, setModalAmarilla] = useState(false);
   const [modalTM, setModalTM] = useState(false);
   const [modalPen, setModalPen] = useState(false);
+  const [modalTanda, setModalTanda] = useState(false);
 
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
@@ -46,6 +49,9 @@ export default function PartidoPage() {
   const cfg = partido.config;
   const corriendo = partido.cronometro.ultimoStart != null;
   const segParte = segundosParte();
+  const dur = duracionParteActual();
+  const restantes = segundosRestantesParte();
+  const acabada = dur > 0 && restantes <= 0;
   const enPista = partido.enPista;
   const banquillo = cfg.convocados.filter((n) => !enPista.includes(n));
 
@@ -59,12 +65,17 @@ export default function PartidoPage() {
       {/* HEADER */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <div className="text-6xl font-mono font-bold tabular-nums">
-            {formatMMSS(segParte)}
+          <div className={`text-6xl font-mono font-bold tabular-nums ${acabada ? "text-red-500 animate-pulse" : ""}`}>
+            {dur > 0 ? formatMMSS(restantes) : formatMMSS(segParte)}
           </div>
           <div className="text-sm text-zinc-400">
-            <div>{p}</div>
-            <div className="text-xs">tot {formatMMSS(segundosPartidoTotal())}</div>
+            <div className="font-bold">{p}</div>
+            <div className="text-xs">
+              {dur > 0
+                ? `${formatMMSS(segParte)} / ${formatMMSS(dur)}`
+                : `tot ${formatMMSS(segundosPartidoTotal())}`}
+            </div>
+            {acabada && <div className="text-red-400 text-xs font-bold mt-0.5">⏱️ Fin de parte</div>}
           </div>
         </div>
         <div className="text-4xl font-bold tabular-nums">
@@ -182,11 +193,22 @@ export default function PartidoPage() {
         <BotonAccion label="🛑 T.M." color="bg-purple-700" onClick={() => setModalTM(true)} />
         <BotonAccion label="🎯 PEN/10M" color="bg-pink-700" onClick={() => setModalPen(true)} />
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-2">
+      <div className="grid grid-cols-3 gap-2 mt-2">
         <button onClick={deshacerUltimoEvento}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
           ↶ Deshacer último evento
         </button>
+        {cfg.permiteTanda && (
+          <button onClick={() => { iniciarTanda(); setModalTanda(true); }}
+            className={`py-3 rounded-lg text-sm font-bold ${
+              partido.tanda?.tiros.length
+                ? "bg-pink-700 hover:bg-pink-600"
+                : "bg-zinc-800 hover:bg-zinc-700"
+            }`}>
+            🥇 TANDA PENALTIS
+            {partido.tanda?.tiros.length ? ` (${partido.tanda.marcador.inter}-${partido.tanda.marcador.rival})` : ""}
+          </button>
+        )}
         <button onClick={() => router.push("/")}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
           🏠 Inicio
@@ -285,6 +307,18 @@ export default function PartidoPage() {
           rivalNombre={cfg.rival}
           onCerrar={() => setModalPen(false)}
           onConfirmar={(ev) => { registrarEvento(ev as any); setModalPen(false); }}
+        />
+      )}
+
+      {modalTanda && (
+        <ModalTanda
+          tanda={partido.tanda}
+          enPista={enPista}
+          convocados={cfg.convocados}
+          rivalNombre={cfg.rival}
+          onCerrar={() => { cerrarTanda(); setModalTanda(false); }}
+          onApuntar={apuntarTiroTanda}
+          onDeshacer={deshacerUltimoTiroTanda}
         />
       )}
     </div>
@@ -888,5 +922,146 @@ function BotonGrande(props: { label: string; subtitle?: string; onClick: () => v
       <span className="text-base">{props.label}</span>
       {props.subtitle && <span className="text-xs opacity-70">{props.subtitle}</span>}
     </button>
+  );
+}
+
+// ──────────────── MODAL TANDA DE PENALTIS ────────────────
+// Flujo simple: lista de tiros + form para añadir el siguiente.
+// Cada tiro: equipo → tirador (chips de convocados / texto rival) → portero
+// → resultado → (si gol o parada/poste) zona portería = guardar.
+// Marcador de la tanda se actualiza solo.
+
+function ModalTanda(props: {
+  tanda: TandaPenaltis;
+  enPista: string[];
+  convocados: string[];
+  rivalNombre: string;
+  onCerrar: () => void;
+  onApuntar: (tiro: Omit<TiroTanda, "id" | "orden" | "timestampReal">) => void;
+  onDeshacer: () => void;
+}) {
+  // Estado del formulario para el siguiente tiro
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
+  const [tirador, setTirador] = useState("");
+  const [portero, setPortero] = useState("");
+  const [resultado, setResultado] = useState<"GOL" | "PARADA" | "POSTE" | "FUERA" | null>(null);
+
+  const reset = () => { setEquipo(null); setTirador(""); setPortero(""); setResultado(null); };
+
+  const aplicar = (zonaPorteria?: string) => {
+    if (!equipo || !resultado) return;
+    props.onApuntar({
+      equipo,
+      tirador: tirador || undefined,
+      portero: portero || undefined,
+      resultado,
+      zonaPorteria: zonaPorteria,
+    });
+    reset();
+  };
+
+  const porterosNuestros = props.convocados.filter((n) =>
+    ROSTER.find((j) => j.nombre === n)?.posicion === "PORTERO"
+  );
+
+  return (
+    <ModalShell titulo={`🥇 Tanda de penaltis · ${props.tanda.marcador.inter} - ${props.tanda.marcador.rival}`}
+      onCerrar={props.onCerrar}>
+
+      {/* Historial de tiros */}
+      <div className="mb-4 bg-zinc-950 rounded p-3 max-h-48 overflow-y-auto">
+        <h3 className="text-sm text-zinc-400 mb-2">Tiros realizados ({props.tanda.tiros.length})</h3>
+        {props.tanda.tiros.length === 0 && <p className="text-xs text-zinc-600">— ninguno aún —</p>}
+        <ol className="text-sm space-y-1">
+          {props.tanda.tiros.map((t) => (
+            <li key={t.id} className="flex justify-between items-center">
+              <span>
+                <span className="text-zinc-500 text-xs">#{t.orden}</span>{" "}
+                <span className={t.equipo === "INTER" ? "text-blue-400" : "text-red-400"}>
+                  {t.equipo === "INTER" ? "INTER" : props.rivalNombre}
+                </span>
+                {" · "}
+                <span className="font-bold">{t.tirador || "—"}</span>
+                {" → "}
+                <span className={t.resultado === "GOL" ? "text-green-400 font-bold" : "text-yellow-400"}>{t.resultado}</span>
+                {t.zonaPorteria && <span className="text-zinc-500 text-xs"> ({t.zonaPorteria})</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
+        {props.tanda.tiros.length > 0 && (
+          <button onClick={props.onDeshacer}
+            className="mt-2 text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded">
+            ↶ Deshacer último tiro
+          </button>
+        )}
+      </div>
+
+      {/* Form: siguiente tiro */}
+      <div className="border-t border-zinc-800 pt-3">
+        <h3 className="text-sm font-bold text-zinc-300 mb-2">Apuntar tiro #{props.tanda.tiros.length + 1}</h3>
+
+        <Paso n={1} titulo="¿Quién lanza?" activo={!equipo}>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setEquipo("INTER")}
+              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"}`}>
+              INTER</button>
+            <button onClick={() => setEquipo("RIVAL")}
+              className={`py-3 rounded font-bold ${equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"}`}>
+              {props.rivalNombre}</button>
+          </div>
+        </Paso>
+
+        {equipo === "INTER" && (
+          <Paso n={2} titulo="Tirador (tap)" activo={!tirador}>
+            <ChipsJugador opciones={props.convocados} seleccionado={tirador} onSelect={setTirador} />
+          </Paso>
+        )}
+        {equipo === "RIVAL" && (
+          <Paso n={2} titulo="Portero nuestro (tap)" activo={!portero}>
+            <ChipsJugador opciones={porterosNuestros} seleccionado={portero} onSelect={setPortero} />
+            <input className="w-full bg-zinc-800 rounded px-3 py-2 mt-2 text-sm"
+              placeholder="Tirador rival (texto, opcional)"
+              value={tirador} onChange={(e) => setTirador(e.target.value.toUpperCase())} />
+          </Paso>
+        )}
+
+        {equipo && ((equipo === "INTER" && tirador) || (equipo === "RIVAL" && portero)) && (
+          <Paso n={3} titulo="Resultado" activo={!resultado}>
+            <div className="grid grid-cols-4 gap-2">
+              {(["GOL", "PARADA", "POSTE", "FUERA"] as const).map((r) => (
+                <button key={r} onClick={() => setResultado(r)}
+                  className={`py-3 rounded font-bold ${
+                    resultado === r
+                      ? (r === "GOL" ? "bg-green-700" : "bg-yellow-700")
+                      : "bg-zinc-800"
+                  }`}>{r}</button>
+              ))}
+            </div>
+          </Paso>
+        )}
+
+        {resultado && (
+          <Paso n={4} titulo={resultado === "FUERA" ? "Guardar (FUERA)" : "Zona portería (tap = guardar)"} activo>
+            {resultado !== "FUERA" ? (
+              <Porteria onSelect={(z) => aplicar(z)} />
+            ) : null}
+            <div className="mt-2 flex justify-end gap-2">
+              <button onClick={reset}
+                className="px-3 py-1 bg-zinc-700 rounded text-xs">Reiniciar</button>
+              <button onClick={() => aplicar(undefined)}
+                className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
+                {resultado === "FUERA" ? "GUARDAR" : "Saltar zona y guardar"}
+              </button>
+            </div>
+          </Paso>
+        )}
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2 border-t border-zinc-800 pt-3">
+        <button onClick={props.onCerrar}
+          className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded">Cerrar tanda</button>
+      </div>
+    </ModalShell>
   );
 }

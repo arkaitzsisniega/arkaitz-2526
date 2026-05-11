@@ -29,6 +29,7 @@ import {
   db,
   partidoVacio,
   contadoresVacios,
+  PRESETS_COMPETICION,
   type Partido,
   type ParteId,
   type ConfigPartido,
@@ -36,6 +37,7 @@ import {
   type TiempoJugador,
   type ContadoresJugador,
   type ResultadoDisparo,
+  type TiroTanda,
 } from "./db";
 import { uid } from "./utils";
 import { ROSTER } from "./roster";
@@ -123,6 +125,32 @@ export function usePartido() {
   useEffect(() => {
     const i = setInterval(() => {
       forceTick((x) => x + 1);
+      // Auto-pausa cuando se acaba el tiempo de la parte
+      setPartido((prev) => {
+        if (prev.cronometro.ultimoStart == null) return prev;
+        if (!prev.config) return prev;
+        const dur = prev.config.duracionParte[prev.cronometro.parteActual] ?? 0;
+        if (dur === 0) return prev;
+        const ahora = Date.now();
+        const vivos = prev.cronometro.segundosParte + (ahora - prev.cronometro.ultimoStart) / 1000;
+        if (vivos < dur) return prev;
+        // Llegó al final de parte → pausa
+        const tiempos = { ...prev.tiempos };
+        const parte = prev.cronometro.parteActual;
+        for (const nombre of prev.enPista) {
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaTurno(t, parte);
+        }
+        return {
+          ...prev,
+          cronometro: {
+            ...prev.cronometro,
+            segundosParte: dur,           // capamos al máximo exacto
+            ultimoStart: null,
+          },
+          tiempos,
+        };
+      });
     }, TICK_MS);
     return () => clearInterval(i);
   }, []);
@@ -132,9 +160,22 @@ export function usePartido() {
       const p = await db.partidos.get(ID_PARTIDO);
       if (p) {
         // Migración suave: añadir campos nuevos si vienen de versión antigua.
+        const cfgOrig = p.config;
+        const cfgMigrado: ConfigPartido | null = cfgOrig
+          ? {
+              ...cfgOrig,
+              duracionParte: cfgOrig.duracionParte
+                ?? (PRESETS_COMPETICION[cfgOrig.competicion]?.duraciones
+                    ?? { "1T": 1200, "2T": 1200, PR1: 0, PR2: 0 }),
+              permiteTanda: cfgOrig.permiteTanda
+                ?? (PRESETS_COMPETICION[cfgOrig.competicion]?.permiteTanda ?? false),
+            }
+          : null;
         const migrado: Partido = {
           ...p,
+          config: cfgMigrado,
           disparosRival: p.disparosRival ?? { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
+          tanda: p.tanda ?? { activa: false, tiros: [], marcador: { inter: 0, rival: 0 } },
           acciones: {
             porJugador: Object.fromEntries(
               Object.entries(p.acciones?.porJugador ?? {}).map(([k, v]) => [
@@ -188,6 +229,19 @@ export function usePartido() {
   const segundosPartidoTotal = useCallback((): number => {
     return segundosParte();
   }, [segundosParte]);
+
+  /** Duración configurada de la parte ACTUAL (segundos). 0 si no hay config. */
+  const duracionParteActual = useCallback((): number => {
+    if (!partido.config) return 0;
+    return partido.config.duracionParte[partido.cronometro.parteActual] ?? 0;
+  }, [partido.config, partido.cronometro.parteActual]);
+
+  /** Segundos restantes en la parte actual (cuenta atrás). 0 si se acabó. */
+  const segundosRestantesParte = useCallback((): number => {
+    const dur = duracionParteActual();
+    if (dur === 0) return 0;
+    return Math.max(0, dur - segundosParte());
+  }, [duracionParteActual, segundosParte]);
 
   const segundosEnParte = useCallback(
     (nombre: string, parte: ParteId): number => {
@@ -678,11 +732,82 @@ export function usePartido() {
     setPartido(partidoVacio(ID_PARTIDO));
   }
 
+  // ────────────────── TANDA DE PENALTIS ────────────────────────────────
+
+  function iniciarTanda() {
+    setPartido((prev) => {
+      // Pausa el reloj si corre
+      let p = prev;
+      if (p.cronometro.ultimoStart != null) {
+        const ahora = Date.now();
+        const transcurrido = (ahora - p.cronometro.ultimoStart) / 1000;
+        const tiempos = { ...p.tiempos };
+        const parte = p.cronometro.parteActual;
+        for (const nombre of p.enPista) {
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaTurno(t, parte);
+        }
+        p = {
+          ...p,
+          cronometro: { ...p.cronometro, segundosParte: p.cronometro.segundosParte + transcurrido, ultimoStart: null },
+          tiempos,
+        };
+      }
+      return {
+        ...p,
+        tanda: { activa: true, tiros: p.tanda?.tiros ?? [], marcador: p.tanda?.marcador ?? { inter: 0, rival: 0 } },
+      };
+    });
+  }
+
+  function apuntarTiroTanda(tiro: Omit<TiroTanda, "id" | "orden" | "timestampReal">) {
+    setPartido((prev) => {
+      const orden = (prev.tanda.tiros.length ?? 0) + 1;
+      const nuevo: TiroTanda = {
+        ...tiro,
+        id: uid(),
+        orden,
+        timestampReal: Date.now(),
+      };
+      const marcador = { ...prev.tanda.marcador };
+      if (nuevo.resultado === "GOL") {
+        if (nuevo.equipo === "INTER") marcador.inter += 1;
+        else marcador.rival += 1;
+      }
+      // Disparos auto: la tanda NO suma a los stats del partido (es post-partido)
+      // pero podemos guardar el contador en los acciones individuales si el
+      // usuario lo prefiere. De momento solo en el evento tanda.
+      return {
+        ...prev,
+        tanda: { ...prev.tanda, tiros: [...prev.tanda.tiros, nuevo], marcador },
+      };
+    });
+  }
+
+  function deshacerUltimoTiroTanda() {
+    setPartido((prev) => {
+      if (prev.tanda.tiros.length === 0) return prev;
+      const ultimo = prev.tanda.tiros[prev.tanda.tiros.length - 1];
+      const tiros = prev.tanda.tiros.slice(0, -1);
+      const marcador = { ...prev.tanda.marcador };
+      if (ultimo.resultado === "GOL") {
+        if (ultimo.equipo === "INTER") marcador.inter = Math.max(0, marcador.inter - 1);
+        else marcador.rival = Math.max(0, marcador.rival - 1);
+      }
+      return { ...prev, tanda: { ...prev.tanda, tiros, marcador } };
+    });
+  }
+
+  function cerrarTanda() {
+    setPartido((prev) => ({ ...prev, tanda: { ...prev.tanda, activa: false } }));
+  }
+
   return {
     partido, cargado,
     segundosTurnoActual, segundosBanquillo, segundosParte, segundosPartidoTotal,
-    segundosEnParte,
+    segundosEnParte, segundosRestantesParte, duracionParteActual,
     iniciarPartido, play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion, reset,
+    iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
   };
 }
