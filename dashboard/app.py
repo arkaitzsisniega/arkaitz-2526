@@ -3317,6 +3317,127 @@ with tab_cat_ejer:
                     )
 
             # ════════════════════════════════════════════════════════════
+            # ⚖️ COMPARAR DOS EJERCICIOS LADO A LADO
+            # ════════════════════════════════════════════════════════════
+            st.markdown("---")
+            st.markdown("### ⚖️ Comparar dos ejercicios lado a lado")
+            st.caption(
+                "Útil para planificación: ¿el 'Rondo 3x1' carga más que el "
+                "'Rondo 4x1'? ¿Cuál tiene más sprints? Compara sus "
+                "promedios Oliver directamente."
+            )
+
+            ejercicios_unicos = sorted(ejer_cat["ejercicio"].dropna().unique().tolist()) \
+                if "ejercicio" in ejer_cat.columns else []
+            if len(ejercicios_unicos) < 2:
+                st.info("Hace falta al menos 2 ejercicios con datos para comparar.")
+            else:
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    ej_a = st.selectbox(
+                        "Ejercicio A", ejercicios_unicos, index=0,
+                        key="cmp_ej_a",
+                    )
+                with cc2:
+                    # Default a otro distinto si lo hay
+                    idx_b = 1 if len(ejercicios_unicos) > 1 else 0
+                    ej_b = st.selectbox(
+                        "Ejercicio B", ejercicios_unicos, index=idx_b,
+                        key="cmp_ej_b",
+                    )
+
+                if ej_a == ej_b:
+                    st.warning("Estás comparando el mismo ejercicio contra sí mismo.")
+                else:
+                    df_a = ejer_cat[ejer_cat["ejercicio"] == ej_a].copy()
+                    df_b = ejer_cat[ejer_cat["ejercicio"] == ej_b].copy()
+
+                    # Métricas a comparar
+                    metricas_cmp = {
+                        "Sesiones (ejecuciones)": ("session_id", "nunique"),
+                        "Min totales": ("duracion_min", "sum"),
+                        "Intensidad media": ("intensity_medio", "mean"),
+                        "Dist total medio (m)": ("dist_total", "mean"),
+                        "Dist alta int media (m)": ("dist_high_intensity", "mean"),
+                        "Sprints medio": ("n_sprint", "mean"),
+                        "Top speed medio (km/h)": ("top_speed_kmh", "mean"),
+                        "Kcal medio": ("kcal", "mean"),
+                        "Acc altas + medio": ("n_acc_alta_pos", "mean"),
+                        "Acc máx + medio": ("n_acc_max_pos", "mean"),
+                    }
+                    filas_cmp = []
+                    for label, (col, op) in metricas_cmp.items():
+                        if col not in df_a.columns:
+                            continue
+                        v_a = (df_a[col].nunique() if op == "nunique"
+                               else df_a[col].sum() if op == "sum"
+                               else df_a[col].mean())
+                        v_b = (df_b[col].nunique() if op == "nunique"
+                               else df_b[col].sum() if op == "sum"
+                               else df_b[col].mean())
+                        # Diferencia A - B
+                        try:
+                            diff = float(v_a) - float(v_b)
+                        except (TypeError, ValueError):
+                            diff = None
+                        filas_cmp.append({
+                            "Métrica": label,
+                            f"A: {ej_a}": v_a,
+                            f"B: {ej_b}": v_b,
+                            "Δ (A-B)": diff,
+                        })
+                    df_cmp = pd.DataFrame(filas_cmp)
+
+                    # Formateo: 0 dec para sesiones/min, 1 dec para el resto
+                    def _fmt(v, label):
+                        if v is None or pd.isna(v):
+                            return "—"
+                        if "Sesiones" in label or "Min totales" in label:
+                            return f"{v:.0f}"
+                        return f"{v:.1f}"
+                    df_show = df_cmp.copy()
+                    for col in df_show.columns:
+                        if col == "Métrica":
+                            continue
+                        df_show[col] = df_show.apply(
+                            lambda r, c=col: _fmt(r[c], r["Métrica"]), axis=1,
+                        )
+                    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+                    # Gráfico de barras comparativo (solo métricas numéricas
+                    # mean, no las sumas o counts)
+                    metricas_grafico = [
+                        "Intensidad media", "Dist alta int media (m)",
+                        "Sprints medio", "Top speed medio (km/h)",
+                        "Acc altas + medio",
+                    ]
+                    df_g = df_cmp[df_cmp["Métrica"].isin(metricas_grafico)].copy()
+                    if not df_g.empty:
+                        df_g_long = df_g.melt(
+                            id_vars="Métrica",
+                            value_vars=[f"A: {ej_a}", f"B: {ej_b}"],
+                            var_name="Ejercicio", value_name="Valor",
+                        )
+                        df_g_long["Valor"] = pd.to_numeric(
+                            df_g_long["Valor"], errors="coerce")
+                        try:
+                            import plotly.express as px
+                            fig = px.bar(
+                                df_g_long, x="Métrica", y="Valor",
+                                color="Ejercicio", barmode="group",
+                                title="Comparativa visual",
+                                color_discrete_sequence=["#1976D2", "#E64A19"],
+                            )
+                            fig.update_layout(
+                                xaxis_tickangle=-30,
+                                showlegend=True,
+                                height=350,
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        except Exception:
+                            pass
+
+            # ════════════════════════════════════════════════════════════
             # 🛠 LIMPIEZA DEL CATÁLOGO (solo admin)
             # ════════════════════════════════════════════════════════════
             if es_admin():
