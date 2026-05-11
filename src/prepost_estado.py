@@ -46,6 +46,65 @@ ETIQUETAS_ESTADO = {
     "N": "No entrena", "D": "Descanso", "NC": "No calificado",
 }
 
+# Aliases para normalizar nombres que los jugadores escriben en los Forms
+# (o que aparecen en BORG/PESO) hacia el canónico del roster.
+# La clave es la versión UPPER+strip del nombre escrito; el valor el
+# canónico exacto del roster.
+ALIASES_JUGADOR = {
+    "HERRERO": "J.HERRERO",
+    "JOSE HERRERO": "J.HERRERO",
+    "J HERRERO": "J.HERRERO",
+    "GARCIA": "J.GARCIA",
+    "JAVI GARCIA": "J.GARCIA",
+    "JAVIER GARCIA": "J.GARCIA",
+    "J GARCIA": "J.GARCIA",
+    "CHAGAS": "CHAGUINHA",
+    "CHAGINHA": "CHAGUINHA",
+    "SERGIO": "RUBIO",
+    "VIZUETE": "RUBIO",
+    "SERGIO VIZUETE": "RUBIO",
+    "SEGOVIA": "SEGO",
+    "DAVID SEGOVIA": "SEGO",
+    "JAVI MINGUEZ": "JAVI",
+    "JAVI MÍNGUEZ": "JAVI",
+    "JAVIER MINGUEZ": "JAVI",
+    "JAVIER MÍNGUEZ": "JAVI",
+    "JAVIER": "JAVI",
+    "GONZALO": "GONZA",  # roster oficial es GONZA según JUGADORES_ROSTER
+    "GONZALEZ": "GONZA",
+}
+
+
+def _norm_jugador(nombre: str, roster: set[str]) -> str:
+    """Normaliza el nombre escrito al canónico del roster.
+
+    Estrategia:
+      1. Si el nombre upper+strip ya coincide con un nombre del roster, OK.
+      2. Si está en ALIASES_JUGADOR, devolver el mapeo.
+      3. Fuzzy match (Levenshtein ratio ≥ 0.85): por si alguien escribe
+         con un typo o falta una letra ("herrer", "chaguinhga", etc).
+      4. Si nada match, devolver el nombre tal cual (upper).
+    """
+    if not nombre:
+        return ""
+    n = nombre.strip().upper()
+    if n in roster:
+        return n
+    if n in ALIASES_JUGADOR:
+        return ALIASES_JUGADOR[n]
+    # Fuzzy fallback
+    from difflib import SequenceMatcher
+    mejor_score = 0.0
+    mejor_match = None
+    for canon in roster:
+        score = SequenceMatcher(None, n, canon).ratio()
+        if score > mejor_score:
+            mejor_score = score
+            mejor_match = canon
+    if mejor_match and mejor_score >= 0.85:
+        return mejor_match
+    return n
+
 
 def _open_sheet():
     creds = Credentials.from_service_account_file(
@@ -122,9 +181,10 @@ def _turnos_y_tipo_de_fecha(ss, fecha: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def _leer_borg(ss, fecha: str, turno: str) -> dict[str, str]:
-    """Devuelve {JUGADOR: valor_borg_str} para fecha+turno. Valor puede ser
-    número o estado (S/A/L/N/D/NC)."""
+def _leer_borg(ss, fecha: str, turno: str, roster: set[str]) -> dict[str, str]:
+    """Devuelve {JUGADOR_CANONICO: valor_borg_str} para fecha+turno.
+    Valor puede ser número o estado (S/A/L/N/D/NC). Normaliza nombres
+    aplicando ALIASES_JUGADOR para mapear 'HERRERO' → 'J.HERRERO' etc."""
     ws = ss.worksheet("BORG")
     rows = ws.get_all_values()
     if len(rows) < 2:
@@ -139,31 +199,31 @@ def _leer_borg(ss, fecha: str, turno: str) -> dict[str, str]:
         if len(r) <= max(i_fec, i_tur, i_jug, i_borg):
             continue
         if r[i_fec].strip() == fecha and r[i_tur].strip().upper() == turno:
-            jug = r[i_jug].strip().upper()
+            jug = _norm_jugador(r[i_jug], roster)
             val = r[i_borg].strip()
             if jug:
                 out[jug] = val
     return out
 
 
-def _set_jugadores_pre(ss, fecha: str, turno: str) -> set[str]:
+def _set_jugadores_pre(ss, fecha: str, turno: str, roster: set[str]) -> set[str]:
     df = fu.leer_respuestas_pre(ss)
     if df.empty:
         return set()
     df["FECHA"] = pd.to_datetime(df["FECHA"], errors="coerce")
     fecha_ts = pd.Timestamp(fecha)
     mask = (df["FECHA"] == fecha_ts) & (df["TURNO"].astype(str).str.upper() == turno)
-    return set(df.loc[mask, "JUGADOR"].astype(str).str.strip().str.upper())
+    return {_norm_jugador(j, roster) for j in df.loc[mask, "JUGADOR"].astype(str)}
 
 
-def _set_jugadores_post(ss, fecha: str, turno: str) -> set[str]:
+def _set_jugadores_post(ss, fecha: str, turno: str, roster: set[str]) -> set[str]:
     df = fu.leer_respuestas_post(ss)
     if df.empty:
         return set()
     df["FECHA"] = pd.to_datetime(df["FECHA"], errors="coerce")
     fecha_ts = pd.Timestamp(fecha)
     mask = (df["FECHA"] == fecha_ts) & (df["TURNO"].astype(str).str.upper() == turno)
-    return set(df.loc[mask, "JUGADOR"].astype(str).str.strip().str.upper())
+    return {_norm_jugador(j, roster) for j in df.loc[mask, "JUGADOR"].astype(str)}
 
 
 def _es_numero(v: str) -> bool:
@@ -185,9 +245,10 @@ def _formatear_lista(jugadores: list[str]) -> str:
 
 def procesar_turno(ss, fecha: str, turno: str, tipo: str, mins: str,
                    roster: list[str]) -> str:
-    pre = _set_jugadores_pre(ss, fecha, turno)
-    post = _set_jugadores_post(ss, fecha, turno)
-    borg_dict = _leer_borg(ss, fecha, turno)
+    roster_set = set(roster)
+    pre = _set_jugadores_pre(ss, fecha, turno, roster_set)
+    post = _set_jugadores_post(ss, fecha, turno, roster_set)
+    borg_dict = _leer_borg(ss, fecha, turno, roster_set)
 
     # Set de jugadores con BORG NUMÉRICO (han entrenado y se les ha apuntado)
     borg_numerico = {j for j, v in borg_dict.items() if _es_numero(v)}
