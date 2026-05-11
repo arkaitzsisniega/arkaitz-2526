@@ -1,0 +1,13 @@
+# Next.js
+/node_modules
+/.next/
+/out/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.log
+.env*.local
+/tsconfig.tsbuildinfo

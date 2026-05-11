@@ -5,6 +5,26 @@
 
 ---
 
+## 🔥 MAÑANA NADA MÁS ABRIR (12 mayo, según conectes al server)
+
+- [ ] **Investigar fallo audios Telegram** (11/5 tarde-noche): mandó 2
+      audios (uno a Alfred, otro a bot_datos) preguntando por Raya y sus
+      últimas 10 sesiones. **NINGUNO de los dos respondió**. Acciones:
+      1. `ps aux | grep -E "telegram_bot.*bot\.py|bot_datos" | grep -v grep`
+         para ver si los bots siguen vivos.
+      2. `tail -60 ~/Desktop/Arkaitz/logs/bot.err.log` y
+         `tail -60 ~/Desktop/Arkaitz/logs/bot_datos.err.log` para ver
+         excepciones.
+      3. Test de control: mandar el MISMO mensaje pero en texto. Si
+         responde con texto → problema en Whisper (transcripción).
+         Si no responde con texto → problema Gemini o flujo.
+      4. Hipótesis principales:
+         - Whisper se atascó al cargar modelo tras un reinicio del bot.
+         - Gemini 2.5 Flash rate-limit / caída de Google AI Studio.
+         - on_voice atrapó excepción que no se envió al usuario.
+
+---
+
 ## ✅ Hecho hoy 11 mayo 2026 (lunes — sesión larga)
 
 - Activación de cambios pendientes del sábado en server (bots dev y
