@@ -9,6 +9,7 @@ Solo responde al chat_id autorizado (ALLOWED_CHAT_ID).
 from __future__ import annotations
 
 import os
+import io
 import re
 import asyncio
 import datetime as _dt
@@ -508,6 +509,28 @@ CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 Si Arkaitz acaba de mandar uno de estos comandos, lo verás como bloque
 "[Contexto del bot — acciones que el usuario ha disparado…]" al principio
 del mensaje. Ese es el resumen, no se lo vuelvas a preguntar.
+
+📸 SI EL USUARIO MANDA FOTO (con caption opcional):
+Antes de tu turno alguien habrá analizado la imagen y te habrá dejado en
+el historial los datos extraídos. Lo verás como bloque tipo:
+
+  [IMAGEN ANALIZADA — caption: 'planilla del partido'
+   Datos extraídos:
+   (lo que el modelo de visión vio)]
+
+Tu tarea: leer los datos extraídos, PRESENTARLOS al usuario de forma
+clara, y preguntar si quiere que los guarde antes de tocar el Sheet.
+Por ejemplo:
+  "📸 De la foto saco esto:
+   · Sesión: 11/05/2026 M TEC-TAC 75 min
+   · BORG: HERRERO=7, PIRATA=8, …
+   ¿Quieres que apunte la sesión y los BORG?"
+
+NO escribas al Sheet directamente sin confirmación del usuario. La
+visión a veces falla.
+
+Cuando confirme, usa los scripts `apuntar_*` / `marcar_lesion` como
+siempre. Si los datos no son claros, díselo en humano y pídele detalle.
 """
 
 
@@ -2040,6 +2063,176 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _process_prompt(text, update, ctx, kind="voz")
 
 
+SYSTEM_PROMPT_VISION = """\
+Eres un extractor de datos de imágenes para Movistar Inter FS.
+El cuerpo técnico te manda fotos de:
+  - Planillas de partido escritas a mano (con dorsales, minutos por
+    rotación, faltas, eventos de gol, marcador, etc.).
+  - Capturas de pantalla del Excel `Estadisticas2526.xlsx`.
+  - Fotos de papel con BORG o peso de un día.
+  - Capturas de WhatsApp con un dato concreto que un jugador mandó
+    (peso, lesión, comentario).
+  - Cualquier otra imagen relevante.
+
+Tu tarea: EXTRAER los datos visibles y devolverlos en español como
+texto claro y estructurado. NO inventes nada. Si una celda está
+borrosa o no se entiende, marca "?" o "no legible".
+
+FORMATO de salida (siempre en español, sin Markdown HTML):
+  - Si es planilla de partido, devuelve por bloques:
+      · Cabecera (fecha, rival, lugar, marcador final)
+      · Plantilla (lista de DORSAL · NOMBRE · MIN_1T · MIN_2T · MIN_TOTAL)
+      · Eventos de gol (min · goleador · acción)
+      · Faltas (min · equipo)
+  - Si es BORG/peso, devuelve por cada fila visible:
+      · JUGADOR · valor
+  - Si es algo libre, descríbelo brevemente y extrae la info clave.
+
+Aplica el roster oficial al normalizar nombres:
+  HERRERO, GARCIA, OSCAR (porteros) · CECILIO, CHAGUINHA, RAUL,
+  HARRISON, RAYA, JAVI, PANI, PIRATA, BARONA, CARLOS · RUBIO, JAIME,
+  SEGO, DANI, GONZALO, PABLO, GABRI, NACHO, ANCHU.
+
+Aliases: J.HERRERO→HERRERO, J.GARCIA→GARCIA, GONZA→GONZALO,
+SERGIO/VIZUETE→RUBIO, CHAGAS→CHAGUINHA, SEGOVIA→SEGO.
+
+Si la imagen no contiene datos relevantes (paisaje, meme, etc.),
+dilo y para.
+"""
+
+
+async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Foto → Gemini Vision OCR/extracción → inyecta resultado al
+    historial conversacional → Alfred responde al usuario en el siguiente
+    turno con la info estructurada y pregunta si quiere guardarla."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+
+    chat_id = update.effective_chat.id
+    msg = update.message
+    photos = msg.photo or []
+    if not photos:
+        return
+
+    caption = (msg.caption or "").strip()
+    await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+    progress = await msg.reply_text("📸 Analizando la imagen, dame un momento…")
+
+    try:
+        # Telegram da varios tamaños de la misma foto; cogemos la mejor.
+        photo = photos[-1]
+        tg_file = await photo.get_file()
+        img_bytes = await tg_file.download_as_bytearray()
+
+        # Cargar como PIL Image
+        try:
+            from PIL import Image as _PILImage
+        except ImportError:
+            await progress.edit_text(
+                "⚠️ Pillow no instalado en la venv del bot. "
+                "Pega en el server: `cd ~/Desktop/Arkaitz/telegram_bot && "
+                "./venv/bin/pip install Pillow` y reinicia el bot."
+            )
+            return
+        img = _PILImage.open(io.BytesIO(bytes(img_bytes)))
+
+        # Construir prompt: caption del usuario + system prompt
+        if caption:
+            prompt_text = (
+                f"El usuario manda esta imagen con la nota: «{caption}».\n\n"
+                f"Extrae los datos visibles siguiendo las reglas del system prompt."
+            )
+        else:
+            prompt_text = (
+                "El usuario ha mandado esta imagen SIN comentario. "
+                "Decide tú qué tipo de imagen es y extrae los datos relevantes."
+            )
+
+        # Llamada a Gemini Vision (modelo multimodal). Sin tools — solo
+        # extracción de texto. Después Alfred normal verá los datos y
+        # actuará.
+        model_v = genai.GenerativeModel(
+            model_name=GEMINI_MODEL,
+            system_instruction=SYSTEM_PROMPT_VISION,
+        )
+        response = await asyncio.to_thread(
+            model_v.generate_content,
+            [prompt_text, img],
+        )
+        # Sacar texto
+        try:
+            extraccion = response.text or ""
+        except Exception:
+            cand = (response.candidates or [None])[0]
+            content = getattr(cand, "content", None) if cand else None
+            parts = getattr(content, "parts", None) if content else None
+            extraccion = ""
+            if parts:
+                for p in parts:
+                    t = getattr(p, "text", None)
+                    if t:
+                        extraccion += t
+
+        if not extraccion.strip():
+            await progress.edit_text(
+                "⚠️ La imagen no me dio nada que extraer. ¿Está borrosa o "
+                "es de algo que no reconozco? Mándame caption tipo "
+                "«planilla del partido», «borg de hoy», etc."
+            )
+            _append_log(chat_id,
+                        (update.effective_user.first_name
+                         if update.effective_user else None) or "usuario",
+                        f"[FOTO sin extracción] caption={caption!r}",
+                        "(extracción vacía)", kind="foto")
+            return
+
+        # Inyectar el resultado en el historial de Alfred para que pueda
+        # actuar en el siguiente turno (decir "sí guarda" y Alfred sabe
+        # de qué hablamos).
+        bloque_contexto = (
+            f"[IMAGEN ANALIZADA — caption: {caption!r}]\n\n"
+            f"Datos extraídos por Gemini Vision:\n{extraccion}"
+        )
+        history = _conv_history.get(ALLOWED_CHAT_ID, [])
+        history.append({"role": "user", "parts": [{"text": bloque_contexto}]})
+        # No metemos "model" turn aún — dejamos que Alfred decida cómo
+        # presentárselo al usuario en su próximo turno.
+        _conv_history[ALLOWED_CHAT_ID] = _truncate_history(history)
+
+        # Mostrar al usuario el resultado tal cual (sin Markdown para
+        # evitar BadRequest si Gemini usó caracteres especiales).
+        await progress.delete()
+        cabecera = f"📸 Extraído de la imagen{(' (' + caption + ')') if caption else ''}:\n\n"
+        # Trocear si es muy largo
+        for chunk in _chunks(cabecera + extraccion):
+            try:
+                await msg.reply_text(chunk)
+            except Exception as e:
+                log.warning("Error enviando extracción: %s", e)
+        cierre = ("\n¿Quieres que apunte algo de aquí (sesión, BORG, "
+                   "peso, lesión…)? Dime sí y qué.")
+        await msg.reply_text(cierre)
+
+        _append_log(chat_id,
+                    (update.effective_user.first_name
+                     if update.effective_user else None) or "usuario",
+                    f"[FOTO] caption={caption!r}",
+                    extraccion[:1500], kind="foto")
+
+    except Exception as e:
+        log.exception("Error procesando foto: %s", e)
+        try:
+            await progress.edit_text(
+                f"⚠️ No pude analizar la imagen: {type(e).__name__}. "
+                f"Detalle: {str(e)[:200]}"
+            )
+        except Exception:
+            await msg.reply_text(
+                f"⚠️ No pude analizar la imagen: {type(e).__name__}"
+            )
+
+
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
     # Log más detallado: tipo + mensaje + (si es BadRequest de Telegram, el
     # mensaje específico). Antes solo aparecía "Error no controlado" sin pista.
@@ -2087,6 +2280,7 @@ def main():
     app.add_handler(CallbackQueryHandler(on_callback_query))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE, on_voice))
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_error_handler(on_error)
 
     # Recordatorio quincenal: chequea cada 24h si toca
