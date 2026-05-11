@@ -34,7 +34,7 @@ ROSTER_CANONICO: set[str] = {
     "PANI", "PIRATA", "BARONA", "CARLOS",
     # Filial campo
     "RUBIO", "JAIME", "SEGO", "DANI", "GONZALO", "PABLO", "GABRI",
-    "NACHO",
+    "NACHO", "ANCHU",
 }
 
 # Porteros (subset)

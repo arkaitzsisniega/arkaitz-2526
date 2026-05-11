@@ -1260,7 +1260,7 @@ with tab_sem:
                         "RAYA", "JAVI", "PANI", "PIRATA", "BARONA", "CARLOS"]
     GRUPO_PORT_FIL = ["OSCAR"]
     GRUPO_CAMPO_FIL_PRIO = ["RUBIO", "JAIME", "SEGO", "DANI", "NACHO",
-                              "GONZALO", "PABLO", "GABRI"]
+                              "GONZALO", "PABLO", "GABRI", "ANCHU"]
 
     def _grupo_de(nombre: str) -> tuple[int, int]:
         """(idx_grupo, idx_dentro_del_grupo). Cuanto menor mejor."""

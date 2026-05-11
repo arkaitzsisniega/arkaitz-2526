@@ -71,6 +71,8 @@ ROSTER = [
     # Filial sin dorsal asignado todavía
     {"dorsal": "", "nombre": "PABLO",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
     {"dorsal": "", "nombre": "GABRI",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
+    {"dorsal": "", "nombre": "NACHO",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
+    {"dorsal": "", "nombre": "ANCHU",      "posicion": "CAMPO",   "equipo": "FILIAL", "activo": True},
 ]
 
 CABECERAS = ["dorsal", "nombre", "posicion", "equipo", "activo"]
