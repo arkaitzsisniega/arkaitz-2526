@@ -1,11 +1,47 @@
 # 📌 Pendientes — Movistar Inter FS
 
-> Doc reordenado el **8 de mayo 2026** (Madrid) — sesión tarde.
-> Lista maestra de pendientes ordenada por momento. Si pisamos algo en
-> sesión, lo movemos de bloque. Si surge algo nuevo, lo metemos al
-> bloque que toque.
+> Doc reordenado el **11 de mayo 2026** (Madrid).
+> Lista maestra de pendientes ordenada por momento.
 
 ---
+
+## ✅ Hecho hoy 11 mayo 2026 (lunes — sesión larga)
+
+- Activación de cambios pendientes del sábado en server (bots dev y
+  datos en gemini-2.5-flash + recovery automático + apuntar_borg.py /
+  apuntar_peso.py / marcar_lesion.py).
+- Nuevo comando `/prepost` en Alfred + detector de intent en lenguaje
+  natural. Script `src/prepost_estado.py` con clasificación
+  completos / falta solo X / faltan 2 / no han hecho nada / fuera por
+  estado. Lee tanto `_FORM_POST` (con detalle táctico) como `BORG`
+  (consolidado).
+- Estado **NJ (No juega)** añadido como estado válido de BORG en todo
+  el sistema (forms_utils, calcular_vistas, apuntar_borg, prompts).
+  Aparece en Completos con etiqueta `(NJ)` y también en "Fuera por
+  estado". `EST_NJ` añadida a `_VISTA_RECUENTO`.
+- **Normalización de nombres**: nuevo módulo `src/aliases_jugadores.py`
+  con canónicos HERRERO/GARCIA/GONZALO. Migración de 333 celdas en
+  Sheet (JUGADORES_ROSTER, EST_PARTIDOS, EST_PLANTILLAS, EST_EVENTOS).
+  Scripts y dashboard refactorizados para no tener nombres hardcoded.
+- JUG 16 (basura) eliminada de BORG y _VISTA_RECUENTO.
+- **Scouting penaltis/10m refactor completo**:
+  - Hoja `EST_SCOUTING_PEN_10M` con 17 columnas de detalle táctico.
+  - Pestaña ✏️ Editar scouting con form completo.
+  - Pestaña 🎯 Penaltis/10m con filtros + KPIs + rankings + zonas.
+  - Editor de penaltis en "✏️ Editar partido" ampliado con 4 columnas
+    nuevas (lateralidad, dirección portero, forma, avance). Al guardar
+    escribe en AMBAS hojas (EST_PENALTIS_10M para compat + 
+    EST_SCOUTING_PEN_10M para detalle).
+  - Vistas detalladas (paso 3): drill por tirador, por portero, mapa
+    por zona, matriz dirección×forma.
+- **vista_carga con minutos REALES en partidos**: cruzar con
+  EST_PARTIDOS. Antes la carga del suplente (2 min) se inflaba a 40
+  min. Ahora cada jugador refleja su realidad. Aplica solo a
+  TIPO_SESION=PARTIDO (no a entrenamientos del mismo día). Caso
+  partido sin extraer → fallback a MINUTOS de SESIONES.
+- **`src/apuntar_wellness.py`**: tercer script de la trilogía
+  apuntar_*. Recibe sueno/fatiga/molestias/animo (1-5 cada uno),
+  calcula TOTAL. Idempotente. Alfred lo usa via prompt.
 
 ## 🔥 AHORA MISMO (sesión actual)
 

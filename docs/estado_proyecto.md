@@ -1,8 +1,39 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-08`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-11`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
 qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
+
+---
+
+## 🔔 ESTADO 11/5/2026 — sesión larga: prepost, NJ, nombres, scouting, minutos reales
+
+Mucho avance hoy. Cambios clave:
+
+- **Comando `/prepost`** en Alfred (+ lenguaje natural). Lista de quién
+  ha hecho PRE/POST/BORG de la última sesión, con clasificación completa
+  (completos/falta uno/faltan 2/nada/fuera por estado).
+- **Estado NJ (No juega)** integrado en todo el sistema. Aparece en
+  Completos con etiqueta y en "Fuera por estado". EST_NJ en
+  _VISTA_RECUENTO.
+- **Nombres canónicos del roster**: HERRERO / GARCIA / GONZALO. Módulo
+  central `src/aliases_jugadores.py` con todos los mapeos. 333 celdas
+  migradas en Sheet. Scripts y dashboard refactorizados.
+- **Scouting penaltis/10m refactor completo**: 17 columnas con detalle
+  táctico (tirador_lateralidad, portero_direccion/forma/avance, zona
+  destino P1..P9/FUERA, marcador). Pestaña editor + visualizaciones
+  drill-down (por tirador, por portero, mapa de zonas, matriz
+  dirección×forma). El editor de "Editar partido" también escribe a
+  esa hoja al guardar (mantiene compat con EST_PENALTIS_10M).
+- **vista_carga con minutos reales en partidos**: ya no se sobreestima
+  al suplente que entró 2 min ni se subestima al titular de 25. Cruza
+  BORG con EST_PARTIDOS.min_total.
+- **`src/apuntar_wellness.py`**: completa la trilogía con
+  apuntar_borg.py / apuntar_peso.py / marcar_lesion.py. Alfred los usa
+  todos vía system prompt.
+- **Mejoras de bot_datos**: respuestas analíticas detalladas (no
+  escuetas) tras "cómo está X esta semana".
+- **Recovery automático Gemini finish_reason=1** en bot_datos y Alfred.
 
 ---
 
