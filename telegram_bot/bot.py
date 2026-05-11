@@ -384,6 +384,28 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
             N=No entrena · D=Descanso · NC=No calificado ·
             NJ=No juega (convocado al partido pero no participa).
 
+3a) **Apuntar WELLNESS (Sueño/Fatiga/Molestias/Ánimo)**:
+   → USA SIEMPRE el script `src/apuntar_wellness.py`. Idempotente.
+     Calcula TOTAL automáticamente. Cada componente 1-5.
+
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_wellness.py JUGADOR YYYY-MM-DD \
+       --sueno N --fatiga N --molestias N --animo N
+   ```
+
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_wellness.py PIRATA 2026-05-11 --sueno 4 --fatiga 3 --molestias 4 --animo 5
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_wellness.py JAVI 2026-05-11 --molestias 2 --animo 3
+   ```
+
+   Notas:
+   - Solo wellness UNA VEZ AL DÍA (no por turno).
+   - Puedes pasar uno o varios componentes; los omitidos se mantienen
+     si la fila ya existía. Si no existía, se quedan vacíos.
+   - Cada componente: 1 (mal) a 5 (bien).
+   - El TOTAL (4-20) se calcula solo: ≤10 rojo · 11-13 naranja · ≥14 verde.
+
 3) **Apuntar PESO (PRE / POST / H2O)**:
    → USA SIEMPRE el script `src/apuntar_peso.py`. Idempotente.
      Solo se actualizan los campos que pasas; los demás se quedan como están.

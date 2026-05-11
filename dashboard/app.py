@@ -4959,8 +4959,160 @@ with tab_scout:
                                                        columns=["Zona", "N"]),
                                          hide_index=True)
 
+                    # ── Análisis detallado ─────────────────────────
+                    st.markdown("---")
+                    st.markdown("##### 📊 Análisis detallado")
+
+                    sub_tir, sub_por, sub_zonas, sub_mov = st.tabs([
+                        "🥅 Por tirador",
+                        "🧤 Por portero",
+                        "🎯 Mapa por zona",
+                        "📐 Movimiento del portero",
+                    ])
+
+                    # ── ANÁLISIS POR TIRADOR ────────────────────────
+                    with sub_tir:
+                        st.caption("Selecciona un tirador para ver sus lanzamientos en detalle.")
+                        if "tirador_nombre" in df_eq.columns:
+                            tiradores = sorted(set(df_eq["tirador_nombre"].astype(str)) - {""})
+                            tir_sel = st.selectbox("Tirador", tiradores,
+                                                     key="sp_drill_tir")
+                            df_tir = df_eq[df_eq["tirador_nombre"] == tir_sel]
+                            if not df_tir.empty:
+                                gol_t = df_tir["es_gol"].astype(str).str.upper().isin(
+                                    ["TRUE", "T", "1", "YES"])
+                                cols_kt = st.columns(4)
+                                cols_kt[0].metric("Lanzamientos", len(df_tir))
+                                cols_kt[1].metric("Goles", int(gol_t.sum()))
+                                cols_kt[2].metric("% acierto", f"{round(gol_t.sum()/len(df_tir)*100, 1)}%")
+                                cols_kt[3].metric(
+                                    "Pie",
+                                    df_tir["tirador_lateralidad"].iloc[0]
+                                    if "tirador_lateralidad" in df_tir.columns else "—",
+                                )
+                                # Distribución por zona
+                                zonas_serie = df_tir["zona_destino"].astype(str)
+                                zonas_serie = zonas_serie[zonas_serie != ""]
+                                if not zonas_serie.empty:
+                                    st.markdown("**Distribución de zonas:**")
+                                    zona_counts = zonas_serie.value_counts().reset_index()
+                                    zona_counts.columns = ["Zona", "Tiros"]
+                                    st.dataframe(zona_counts, hide_index=True,
+                                                  use_container_width=True)
+                                # Lista de lanzamientos
+                                st.markdown("**Lanzamientos:**")
+                                cols_show = ["fecha", "partido_id", "tipo_lanzamiento",
+                                              "portero_nombre", "portero_club",
+                                              "zona_destino", "es_gol",
+                                              "portero_direccion", "portero_forma"]
+                                cols_show = [c for c in cols_show if c in df_tir.columns]
+                                st.dataframe(df_tir[cols_show].sort_values("fecha", ascending=False),
+                                              use_container_width=True, hide_index=True)
+
+                    # ── ANÁLISIS POR PORTERO ────────────────────────
+                    with sub_por:
+                        st.caption("Selecciona un portero para ver qué le tiran y cómo.")
+                        if "portero_nombre" in df_eq.columns:
+                            porteros = sorted(set(df_eq["portero_nombre"].astype(str)) - {""})
+                            por_sel = st.selectbox("Portero", porteros,
+                                                     key="sp_drill_por")
+                            df_por = df_eq[df_eq["portero_nombre"] == por_sel]
+                            if not df_por.empty:
+                                gol_p = df_por["es_gol"].astype(str).str.upper().isin(
+                                    ["TRUE", "T", "1", "YES"])
+                                cols_kp = st.columns(3)
+                                cols_kp[0].metric("Recibidos", len(df_por))
+                                cols_kp[1].metric("No-gol (paradas/fallos)", int((~gol_p).sum()))
+                                cols_kp[2].metric("% parada", f"{round((~gol_p).sum()/len(df_por)*100, 1)}%")
+                                # Movimientos preferidos
+                                if "portero_direccion" in df_por.columns:
+                                    st.markdown("**Hacia dónde se tira (dirección):**")
+                                    d_ct = df_por["portero_direccion"].value_counts()
+                                    d_ct = d_ct[d_ct.index != ""]
+                                    if not d_ct.empty:
+                                        st.bar_chart(d_ct)
+                                if "portero_forma" in df_por.columns:
+                                    st.markdown("**Cómo se tira (forma):**")
+                                    f_ct = df_por["portero_forma"].value_counts()
+                                    f_ct = f_ct[f_ct.index != ""]
+                                    if not f_ct.empty:
+                                        st.bar_chart(f_ct)
+                                # Histórico
+                                st.markdown("**Lanzamientos recibidos:**")
+                                cols_show = ["fecha", "tipo_lanzamiento", "tirador_nombre",
+                                              "tirador_club", "zona_destino", "es_gol",
+                                              "portero_direccion", "portero_forma",
+                                              "portero_avance"]
+                                cols_show = [c for c in cols_show if c in df_por.columns]
+                                st.dataframe(df_por[cols_show].sort_values("fecha", ascending=False),
+                                              use_container_width=True, hide_index=True)
+
+                    # ── MAPA POR ZONA ───────────────────────────────
+                    with sub_zonas:
+                        st.caption("Distribución de tiros por zona de portería (P1..P9 + FUERA).")
+                        zonas_serie = df_eq["zona_destino"].astype(str)
+                        zonas_serie = zonas_serie[zonas_serie != ""]
+                        if zonas_serie.empty:
+                            st.info("Sin zonas registradas.")
+                        else:
+                            # Conteo de tiros + goles por zona
+                            zona_total = zonas_serie.value_counts().to_dict()
+                            es_gol_bool_all = df_eq["es_gol"].astype(str).str.upper().isin(
+                                ["TRUE", "T", "1", "YES"])
+                            zona_gol = (df_eq.loc[es_gol_bool_all, "zona_destino"]
+                                        .astype(str).value_counts().to_dict())
+                            tabla = []
+                            for z in [f"P{i}" for i in range(1, 10)] + ["FUERA"]:
+                                t = int(zona_total.get(z, 0))
+                                g = int(zona_gol.get(z, 0))
+                                if t > 0:
+                                    pct = round(g / t * 100, 1)
+                                else:
+                                    pct = 0
+                                tabla.append({"Zona": z, "Tiros": t,
+                                              "Goles": g, "% gol": pct})
+                            st.dataframe(
+                                pd.DataFrame(tabla), hide_index=True,
+                                use_container_width=True,
+                                column_config={
+                                    "% gol": st.column_config.NumberColumn(format="%.1f%%"),
+                                },
+                            )
+
+                    # ── MOVIMIENTO DEL PORTERO ──────────────────────
+                    with sub_mov:
+                        st.caption(
+                            "Cruce de dirección × forma. Útil para ver el patrón de "
+                            "movimiento más usado por porteros."
+                        )
+                        if ("portero_direccion" in df_eq.columns
+                                and "portero_forma" in df_eq.columns):
+                            d_ok = df_eq["portero_direccion"].astype(str) != ""
+                            f_ok = df_eq["portero_forma"].astype(str) != ""
+                            df_mov = df_eq[d_ok & f_ok]
+                            if df_mov.empty:
+                                st.info("No hay datos de dirección + forma todavía.")
+                            else:
+                                mat = pd.crosstab(
+                                    df_mov["portero_direccion"],
+                                    df_mov["portero_forma"],
+                                )
+                                st.markdown("**Matriz dirección × forma (nº tiros):**")
+                                st.dataframe(mat, use_container_width=True)
+                            # Avance en 10M
+                            df_10m = df_eq[df_eq["tipo_lanzamiento"] == "10M"]
+                            if not df_10m.empty:
+                                st.markdown("**Avance del portero en 10M:**")
+                                av_ct = df_10m["portero_avance"].value_counts()
+                                av_ct = av_ct[av_ct.index != ""]
+                                if not av_ct.empty:
+                                    st.bar_chart(av_ct)
+                                else:
+                                    st.caption("Sin datos de avance.")
+
                     # Histórico completo
-                    st.markdown("##### 📋 Histórico de lanzamientos")
+                    st.markdown("---")
+                    st.markdown("##### 📋 Histórico de lanzamientos (todos)")
                     cols_hist = [c for c in SCOUT_PEN_COLS_V2 if c in df_eq.columns]
                     st.dataframe(
                         df_eq[cols_hist].sort_values(
