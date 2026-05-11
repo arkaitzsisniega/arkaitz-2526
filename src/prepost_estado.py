@@ -329,25 +329,31 @@ def procesar_turno(ss, fecha: str, turno: str, tipo: str, mins: str,
     borg_estado = {j: v.upper() for j, v in borg_dict.items()
                    if v.upper() in ESTADOS_BORG}
 
-    # Clasificación sobre el roster activo
+    # Clasificación sobre el roster activo. Filosofía: si un jugador tiene
+    # un ESTADO especial (NJ, S, L, etc.) en BORG / _FORM_POST, ya "está
+    # completo" — su info para esa sesión es ese estado y no se le pide
+    # PRE/POST/BORG numérico. Adicionalmente lo listamos también en
+    # "🟦 Fuera por estado" como contexto informativo.
     esperados = set(roster)
     fuera_estado = {j: borg_estado[j] for j in esperados if j in borg_estado}
-    esperan_pre_post_borg = esperados - set(fuera_estado.keys())
 
-    completos = []
+    completos = []   # lista de tuplas (jugador, label_estado_o_cadena_vacia)
     falta_post = []
     falta_borg = []
     falta_pre = []
     falta_dos = []
     nada = []
 
-    for j in esperan_pre_post_borg:
+    for j in esperados:
+        if j in fuera_estado:
+            completos.append((j, fuera_estado[j]))
+            continue
         tiene_pre = j in pre
         tiene_post = j in post
         tiene_borg = j in borg_numerico
         n_tiene = tiene_pre + tiene_post + tiene_borg
         if n_tiene == 3:
-            completos.append(j)
+            completos.append((j, ""))
         elif n_tiene == 2:
             if not tiene_post:
                 falta_post.append(j)
@@ -374,11 +380,19 @@ def procesar_turno(ss, fecha: str, turno: str, tipo: str, mins: str,
     if mins:
         cab += f" · {mins} min"
 
-    lineas = [cab, f"_{len(esperan_pre_post_borg)} esperados · {len(fuera_estado)} fuera por estado_", ""]
+    lineas = [
+        cab,
+        f"_{len(esperados)} jugadores · {len(fuera_estado)} con estado especial_",
+        "",
+    ]
 
-    lineas.append(f"✅ *Completos* (PRE+POST+BORG): {len(completos)}")
+    lineas.append(f"✅ *Completos*: {len(completos)}")
     if completos:
-        lineas.append(f"   {_formatear_lista(completos)}")
+        # Formatear: si tiene estado, "NOMBRE (NJ)"; si no, solo "NOMBRE".
+        formato = []
+        for j, est in sorted(completos):
+            formato.append(f"{j} ({est})" if est else j)
+        lineas.append(f"   {', '.join(formato)}")
     lineas.append("")
 
     lineas.append(f"⚠️ Falta solo POST: {len(falta_post)}")
