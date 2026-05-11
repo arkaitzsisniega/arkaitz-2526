@@ -449,6 +449,8 @@ REGLAS DE ORO:
 CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 - /consolidar: lee FORM_PRE/POST → BORG/PESO/WELLNESS → recalcula vistas.
 - /enlaces: genera enlaces PRE+POST genéricos del día.
+- /prepost: lista quién ha hecho PRE/POST/BORG de la última sesión
+  (o de la fecha que se pase: /prepost 2026-05-10).
 - /oliver_sync, /oliver_deep: sync con Oliver Sports.
 - /ejercicios_sync: lee hoja _EJERCICIOS y descarga timelines.
 - /sesion: apunta una sesión a SESIONES.
@@ -1304,6 +1306,33 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_prepost(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Devuelve el estado PRE/POST/BORG de la última sesión. Si hubo doble
+    (M+T) el mismo día, muestra ambos. Si pasan una fecha como argumento
+    (ej. /prepost 2026-05-10), procesa esa."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    # Argumento opcional: fecha YYYY-MM-DD
+    args = ctx.args if hasattr(ctx, "args") else []
+    fecha_arg = args[0] if args else None
+    script_args = [str(fecha_arg)] if fecha_arg else []
+    rc, out, err = await _run_script(
+        PROJECT_DIR / "src" / "prepost_estado.py",
+        *script_args,
+    )
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error generando estado PRE/POST (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        update.effective_chat.id,
+        "/prepost ejecutado: enviado al usuario el estado de PRE/POST/BORG de la última sesión. NO le preguntes si lo quiere; ya lo tiene."
+    )
+
+
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Procesa la hoja _EJERCICIOS: baja timelines de Oliver, agrega métricas
     por rango de minutos y escribe _VISTA_EJERCICIOS."""
@@ -1728,6 +1757,17 @@ def _detectar_intent(texto: str) -> Optional[str]:
     # Detección palabra por palabra. Orden = prioridad (más específico
     # primero). El primero que matchee gana.
     INTENTS = [
+        # /prepost — estado de PRE/POST/BORG de la última sesión.
+        ("prepost", [
+            r'\bprepost\b',
+            r'\bpre\s*[/\-y]\s*post\b',
+            r'\bestado\s+(?:del?\s+)?(?:pre|post)\b',
+            r'\bestado\s+(?:de\s+)?(?:la\s+)?(?:sesi[oó]n|entreno)\b',
+            r'\b(?:qui[eé]n|quien(?:es)?)\s+(?:falta|ha\s+hecho|ha\s+rellenado)\b',
+            r'\bfalta(?:n)?\s+(?:de\s+)?(?:los\s+)?(?:pre|post|borg)\b',
+            r'\bpendientes?\s+(?:del?\s+)?(?:pre|post|borg|entreno|sesi[oó]n)\b',
+            r'\bcontrol\s+(?:de\s+)?(?:la\s+)?sesi[oó]n\b',
+        ]),
         # /oliver_deep DEBE ir antes que /oliver_sync porque "deep" es más
         # específico que el genérico "oliver".
         ("oliver_deep", [
@@ -1811,6 +1851,7 @@ def _intent_handler(cmd: str):
     return {
         "consolidar": cmd_consolidar,
         "enlaces": cmd_enlaces,
+        "prepost": cmd_prepost,
         "oliver_sync": cmd_oliver_sync,
         "oliver_deep": cmd_oliver_deep,
         "ejercicios_sync": cmd_ejercicios_sync,
@@ -1951,12 +1992,24 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
-    log.exception("Error no controlado: %s", ctx.error)
+    # Log más detallado: tipo + mensaje + (si es BadRequest de Telegram, el
+    # mensaje específico). Antes solo aparecía "Error no controlado" sin pista.
+    err = ctx.error
+    err_type = type(err).__name__
+    err_msg = str(err) if err else "(sin mensaje)"
+    log.error("on_error: tipo=%s msg=%s", err_type, err_msg)
+    log.exception("Traceback completo del error no controlado:")
     if isinstance(update, Update) and update.effective_chat:
         try:
+            # Mensaje al usuario MÁS informativo: si es BadRequest de Telegram
+            # incluir un snippet del motivo (suele decir 'can't parse entities'
+            # o similar) para diagnosticar sin tener que abrir logs.
+            detalle = ""
+            if "BadRequest" in err_type:
+                detalle = f"\n(Telegram rechazó el mensaje: {err_msg[:120]})"
             await ctx.bot.send_message(
                 update.effective_chat.id,
-                f"⚠️ Error interno: {type(ctx.error).__name__}",
+                f"⚠️ Error interno: {err_type}{detalle}",
             )
         except Exception:
             pass
@@ -1974,6 +2027,7 @@ def main():
     app.add_handler(CommandHandler("enlaces", cmd_enlaces))
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
+    app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     # /ejercicios = activa modo voz/texto + tras procesar lanza oliver_ejercicios
     # automáticamente (parse_ejercicios_voz.py ya hace el chain). El nombre
