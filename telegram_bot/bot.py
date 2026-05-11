@@ -1621,6 +1621,41 @@ async def _check_recordatorio_deep(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ─── Recordatorio semanal: revisar catálogo de ejercicios ───────────────────
+async def _check_auditoria_semanal(ctx: ContextTypes.DEFAULT_TYPE):
+    """Lunes a las 8:05 (Madrid). Lanza src/auditar_sheet.py y, si hay
+    incidencias, las envía a Arkaitz. Si todo OK, no envía nada para no
+    saturar."""
+    try:
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "auditar_sheet.py",
+            "--verbose",
+        )
+        if rc != 0:
+            await ctx.bot.send_message(
+                ALLOWED_CHAT_ID,
+                f"⚠️ Auditoría semanal falló (código {rc}):\n{(err or out)[:800]}"
+            )
+            return
+        # Si todo OK, no enviar nada. Solo enviar si hay incidencias.
+        if "✅ *Auditoría del Sheet OK*" in out:
+            log.info("Auditoría semanal: OK, no se envía aviso.")
+            return
+        # Hay incidencias → enviar
+        cabecera = "🔍 *Auditoría semanal (lunes 8h)*\n\n"
+        msg = cabecera + out.split("---MSG---", 1)[-1].strip()
+        for chunk in _chunks(msg):
+            try:
+                await ctx.bot.send_message(
+                    ALLOWED_CHAT_ID, chunk,
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                # Fallback texto plano si Markdown se rompe
+                await ctx.bot.send_message(ALLOWED_CHAT_ID, chunk)
+    except Exception as e:
+        log.warning("Error en auditoría semanal: %s", e)
+
+
 async def _check_ejercicios_lunes(ctx: ContextTypes.DEFAULT_TYPE):
     """Cada lunes a las 8:00 (Madrid). Lee `_EJERCICIOS` y avisa al usuario
     de cuántos ejercicios distintos se han registrado la semana pasada,
@@ -2350,7 +2385,19 @@ def main():
             days=(0,),  # 0 = lunes en python-telegram-bot
             name="ejercicios_revision_semanal",
         )
-        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas + lunes 8h)")
+        # Auditoría semanal del Sheet: lunes 8:05 (5 min después de
+        # ejercicios). Solo avisa si hay incidencias.
+        try:
+            hora_audit = _dt.time(8, 5, tzinfo=ZoneInfo("Europe/Madrid"))
+        except Exception:
+            hora_audit = _dt.time(8, 5)
+        app.job_queue.run_daily(
+            _check_auditoria_semanal,
+            time=hora_audit,
+            days=(0,),
+            name="auditoria_semanal",
+        )
+        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas + lunes 8h ejercicios + 8:05h auditoría)")
     else:
         log.warning("job_queue no disponible (instala python-telegram-bot[job-queue]); "
                     "sin recordatorios automáticos")
