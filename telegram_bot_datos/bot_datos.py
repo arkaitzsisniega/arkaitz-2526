@@ -52,6 +52,14 @@ PROJECT_DIR         = Path(os.getenv("PROJECT_DIR", str(HERE.parent))).expanduse
 LLM_TIMEOUT         = int(os.getenv("LLM_TIMEOUT", "300"))
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+# Cuenta de servicio READ-ONLY opcional. Si existe el archivo apuntado
+# por READONLY_CREDS_FILE, los subprocess Python que lance este bot
+# usarán ESA cuenta (con permiso solo Viewer sobre el Sheet) en lugar de
+# la principal (Editor). Defensa en profundidad sobre el regex scanner:
+# aunque Gemini intente escribir, Google API devolverá 403 al token.
+# Si la variable no está o el archivo no existe → se usa la SA principal
+# (el régimen actual).
+READONLY_CREDS_FILE = os.getenv("READONLY_CREDS_FILE", "").strip()
 # Cuántas iteraciones de tool-use permitir antes de cortar (defensa anti-bucle).
 GEMINI_MAX_STEPS    = int(os.getenv("GEMINI_MAX_STEPS", "8"))
 # Cuántas vueltas (user+model) guardamos en memoria por chat antes de truncar.
@@ -101,6 +109,16 @@ SESIONES_DIR.mkdir(parents=True, exist_ok=True)
 genai.configure(api_key=GEMINI_API_KEY)
 
 log.info("Backend LLM: Gemini (%s)", GEMINI_MODEL)
+if READONLY_CREDS_FILE and Path(READONLY_CREDS_FILE).is_file():
+    log.info("Modo SA READ-ONLY: ON (creds=%s)", READONLY_CREDS_FILE)
+elif READONLY_CREDS_FILE:
+    log.warning(
+        "READONLY_CREDS_FILE definido (%s) pero el archivo NO existe. "
+        "Bot funciona con SA principal + regex scanner solamente.",
+        READONLY_CREDS_FILE,
+    )
+else:
+    log.info("Modo SA READ-ONLY: OFF (solo regex scanner protege escritura)")
 log.info("Proyecto: %s", PROJECT_DIR)
 log.info("Autorizados: %s", sorted(ALLOWED_CHAT_IDS))
 
@@ -838,10 +856,30 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             # al importar pandas 2.x compilado contra numpy nuevo.
             import sys as _sys
             python_exe = _sys.executable
+
+            # ── Preludio READ-ONLY (defensa en profundidad) ──
+            # Si hay una SA readonly configurada, monkey-patcheamos
+            # `Credentials.from_service_account_file` para que SIEMPRE
+            # use el archivo readonly, independientemente de lo que
+            # Gemini escriba. El SA readonly tiene permiso Viewer en el
+            # Sheet, así que Google API rechaza cualquier escritura con
+            # 403 a nivel red — imposible bypassear desde Python.
+            preludio = ""
+            if READONLY_CREDS_FILE and Path(READONLY_CREDS_FILE).is_file():
+                preludio = (
+                    "import google.oauth2.service_account as _sa_ro\n"
+                    "_orig_from_file_ro = _sa_ro.Credentials.from_service_account_file\n"
+                    "def _readonly_from_file(*args, **kwargs):\n"
+                    f"    return _orig_from_file_ro({READONLY_CREDS_FILE!r}, **{{k: v for k, v in kwargs.items() if k != 'filename'}})\n"
+                    "_sa_ro.Credentials.from_service_account_file = _readonly_from_file\n"
+                    "del _orig_from_file_ro, _readonly_from_file, _sa_ro\n"
+                    "\n"
+                )
+
             # Pasamos el código por stdin para evitar escapado de shell
             result = subprocess.run(
                 [python_exe],
-                input=code,
+                input=preludio + code,
                 capture_output=True, text=True,
                 cwd=str(PROJECT_DIR), timeout=120,
             )
