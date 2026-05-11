@@ -1,8 +1,14 @@
 /**
  * Store del partido: hook React con persistencia automática a IndexedDB.
  *
- * useEffect tick a 250 ms para refrescar tiempos en pista/banquillo cuando
- * el reloj corre. Auto-save cada cambio (debounced 300 ms).
+ * Semántica de tiempos:
+ *  - Reloj del partido (cronómetro.segundosParte + ultimoStart) avanza
+ *    solo cuando ultimoStart != null. Pausa congela.
+ *  - Tiempo en pista del jugador (tiempos[j].segTurnoActual + turnoStart)
+ *    avanza SOLO cuando el reloj corre Y el jugador está en pista. Al
+ *    pausar el reloj, el contador del jugador se congela. Al reanudar,
+ *    sigue donde estaba. Al hacer cambio, el que sale congela y el que
+ *    entra empieza de 0.
  */
 "use client";
 
@@ -14,13 +20,36 @@ import {
   type ParteId,
   type ConfigPartido,
   type Evento,
+  type TiempoJugador,
 } from "./db";
 import { uid } from "./utils";
-import { ROSTER } from "./roster";
 
 const ID_PARTIDO = "current";
 const TICK_MS = 250;
 const SAVE_DEBOUNCE_MS = 300;
+
+/** Si el reloj corre y el jugador tiene turnoStart, suma el tramo en vivo. */
+function vivoSegTurno(t: TiempoJugador): number {
+  if (t.segTurnoActual == null) return 0;
+  const base = t.segTurnoActual;
+  if (t.turnoStart != null) {
+    return base + (Date.now() - t.turnoStart) / 1000;
+  }
+  return base;
+}
+
+/** Acumular el tramo en vivo al campo segTurnoActual (y total/porParte). */
+function congelaTurno(t: TiempoJugador, parte: ParteId): TiempoJugador {
+  if (t.turnoStart == null) return t;
+  const tramo = (Date.now() - t.turnoStart) / 1000;
+  return {
+    ...t,
+    segTurnoActual: (t.segTurnoActual ?? 0) + tramo,
+    totalSegundos: t.totalSegundos + tramo,
+    porParte: { ...t.porParte, [parte]: t.porParte[parte] + tramo },
+    turnoStart: null,
+  };
+}
 
 export function usePartido() {
   const [partido, setPartido] = useState<Partido>(() => partidoVacio(ID_PARTIDO));
@@ -31,11 +60,11 @@ export function usePartido() {
   useEffect(() => {
     const i = setInterval(() => {
       if (partido.cronometro.ultimoStart != null) forceTick((x) => x + 1);
+      else forceTick((x) => x + 1); // también refresca banquillo (tiempo descanso)
     }, TICK_MS);
     return () => clearInterval(i);
   }, [partido.cronometro.ultimoStart]);
 
-  // Cargar de Dexie al inicio
   useEffect(() => {
     (async () => {
       const p = await db.partidos.get(ID_PARTIDO);
@@ -44,7 +73,6 @@ export function usePartido() {
     })();
   }, []);
 
-  // Auto-save al cambiar
   useEffect(() => {
     if (!cargado) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -56,83 +84,81 @@ export function usePartido() {
     };
   }, [partido, cargado]);
 
-  // ────────────────── helpers internos ─────────────────────────────────
-  /** Segundos en pista del turno actual de un jugador (recalculado live). */
+  // ────────────────── selectores en vivo ───────────────────────────────
   const segundosTurnoActual = useCallback(
     (nombre: string): number => {
       const t = partido.tiempos[nombre];
-      if (!t || t.ultimaEntrada == null) return 0;
-      const corriendo = partido.cronometro.ultimoStart != null;
-      if (!corriendo) return 0; // reloj parado: el turno actual no avanza
-      const ahora = Date.now();
-      return Math.max(0, (ahora - t.ultimaEntrada) / 1000);
+      if (!t) return 0;
+      return vivoSegTurno(t);
     },
     [partido]
   );
 
-  /** Segundos descansando desde la última salida. */
   const segundosBanquillo = useCallback(
     (nombre: string): number => {
       const t = partido.tiempos[nombre];
       if (!t || t.ultimaSalida == null) return 0;
-      const ahora = Date.now();
-      return Math.max(0, (ahora - t.ultimaSalida) / 1000);
+      return Math.max(0, (Date.now() - t.ultimaSalida) / 1000);
     },
     [partido]
   );
 
-  /** Segundos transcurridos en la parte actual (acumulado + tramo corriendo). */
   const segundosParte = useCallback((): number => {
     const c = partido.cronometro;
     if (c.ultimoStart == null) return c.segundosParte;
     return c.segundosParte + (Date.now() - c.ultimoStart) / 1000;
   }, [partido.cronometro]);
 
-  /** Segundos totales del partido (suma de todas las partes). */
   const segundosPartidoTotal = useCallback((): number => {
-    const c = partido.cronometro;
-    const otrasParcial = 0; // las partes anteriores no las trackeamos por
-    // simplicidad: cuando avanzas a la 2ª parte, los segundos de la 1ª
-    // ya se han acumulado al cambiar de parte.
-    return c.segundosParte + otrasParcial +
-      (c.ultimoStart != null ? (Date.now() - c.ultimoStart) / 1000 : 0);
-  }, [partido.cronometro]);
+    // Suma segundos de partes terminadas + segundos en curso de la parte actual
+    return segundosParte();
+  }, [segundosParte]);
 
-  // ────────────────── acciones del partido ─────────────────────────────
+  /** Tiempo total en pista por parte (acumulado + en vivo si corre). */
+  const segundosEnParte = useCallback(
+    (nombre: string, parte: ParteId): number => {
+      const t = partido.tiempos[nombre];
+      if (!t) return 0;
+      const base = t.porParte[parte] || 0;
+      if (parte === partido.cronometro.parteActual
+          && t.turnoStart != null
+          && partido.cronometro.ultimoStart != null) {
+        // Está en pista + reloj corre → añadir tramo
+        return base + (Date.now() - t.turnoStart) / 1000;
+      }
+      return base;
+    },
+    [partido]
+  );
+
+  // ────────────────── acciones ─────────────────────────────────────────
 
   function iniciarPartido(config: ConfigPartido) {
     setPartido((prev) => {
-      const tiempos: Record<string, typeof prev.tiempos[string]> = {};
+      const tiempos: Record<string, TiempoJugador> = {};
       const ahora = Date.now();
+      const pi = config.pista_inicial;
+      const enPistaIni = [pi.portero, pi.pista1, pi.pista2, pi.pista3, pi.pista4];
       for (const j of config.convocados) {
+        const enPista = enPistaIni.includes(j);
         tiempos[j] = {
           nombre: j,
           totalSegundos: 0,
           porParte: { "1T": 0, "2T": 0, PR1: 0, PR2: 0 },
-          ultimaEntrada: null,
-          ultimaSalida: ahora, // todos en banquillo de inicio (lo arreglamos abajo)
+          segTurnoActual: enPista ? 0 : null,
+          turnoStart: null,                 // se setea al darle PLAY
+          ultimaSalida: enPista ? null : ahora,
         };
-      }
-      // Quienes están en pista inicial: ultimaEntrada = null hasta que arranque el reloj
-      const pi = config.pista_inicial;
-      const enPista = [pi.portero, pi.pista1, pi.pista2, pi.pista3, pi.pista4];
-      for (const j of enPista) {
-        if (tiempos[j]) {
-          tiempos[j].ultimaSalida = null;
-          tiempos[j].ultimaEntrada = null; // se setea al darle PLAY
-        }
       }
       const acciones: typeof prev.acciones = { porJugador: {} };
       for (const j of config.convocados) {
-        acciones.porJugador[j] = {
-          pf: 0, pnf: 0, robos: 0, cortes: 0, bdg: 0, bdp: 0,
-        };
+        acciones.porJugador[j] = { pf: 0, pnf: 0, robos: 0, cortes: 0, bdg: 0, bdp: 0 };
       }
       return {
         ...prev,
         estado: "en_curso",
         config,
-        enPista,
+        enPista: enPistaIni,
         tiempos,
         acciones,
       };
@@ -143,15 +169,12 @@ export function usePartido() {
     setPartido((prev) => {
       if (prev.cronometro.ultimoStart != null) return prev;
       const ahora = Date.now();
+      // Marcar turnoStart en los que están en pista
       const tiempos = { ...prev.tiempos };
-      // Para los que están en pista, marcar ultimaEntrada=ahora si era null
       for (const nombre of prev.enPista) {
-        if (tiempos[nombre]) {
-          tiempos[nombre] = {
-            ...tiempos[nombre],
-            ultimaEntrada: tiempos[nombre].ultimaEntrada ?? ahora,
-            ultimaSalida: null,
-          };
+        const t = tiempos[nombre];
+        if (t) {
+          tiempos[nombre] = { ...t, turnoStart: ahora };
         }
       }
       return {
@@ -167,26 +190,11 @@ export function usePartido() {
       if (prev.cronometro.ultimoStart == null) return prev;
       const ahora = Date.now();
       const transcurrido = (ahora - prev.cronometro.ultimoStart) / 1000;
-      // Acumular tiempo a cada jugador en pista
       const tiempos = { ...prev.tiempos };
       const parte = prev.cronometro.parteActual;
       for (const nombre of prev.enPista) {
-        if (tiempos[nombre] && tiempos[nombre].ultimaEntrada != null) {
-          const desdeEntrada = (ahora - tiempos[nombre].ultimaEntrada!) / 1000;
-          tiempos[nombre] = {
-            ...tiempos[nombre],
-            totalSegundos: tiempos[nombre].totalSegundos + desdeEntrada,
-            porParte: {
-              ...tiempos[nombre].porParte,
-              [parte]: tiempos[nombre].porParte[parte] + desdeEntrada,
-            },
-            // Reset ultimaEntrada para que el contador del turno ACTUAL
-            // se reinicie cuando vuelva a darle PLAY (es lo que el
-            // usuario quería: ver el tiempo del turno actual).
-            // Al darle play de nuevo se reasigna a ese momento.
-            ultimaEntrada: null,
-          };
-        }
+        const t = tiempos[nombre];
+        if (t) tiempos[nombre] = congelaTurno(t, parte);
       }
       return {
         ...prev,
@@ -201,43 +209,42 @@ export function usePartido() {
   }
 
   function avanzarParte() {
-    const ordenPartes: ParteId[] = ["1T", "2T", "PR1", "PR2"];
+    const orden: ParteId[] = ["1T", "2T", "PR1", "PR2"];
     setPartido((prev) => {
-      // Si reloj corriendo, pausar primero (acumula tiempo)
-      const c = prev.cronometro;
       let p = prev;
-      if (c.ultimoStart != null) {
+      // Si reloj corre, pausar primero (acumula tiempos)
+      if (p.cronometro.ultimoStart != null) {
         const ahora = Date.now();
-        const transcurrido = (ahora - c.ultimoStart) / 1000;
-        const tiempos = { ...prev.tiempos };
-        const parte = c.parteActual;
-        for (const nombre of prev.enPista) {
-          if (tiempos[nombre] && tiempos[nombre].ultimaEntrada != null) {
-            const desdeEntrada = (ahora - tiempos[nombre].ultimaEntrada!) / 1000;
-            tiempos[nombre] = {
-              ...tiempos[nombre],
-              totalSegundos: tiempos[nombre].totalSegundos + desdeEntrada,
-              porParte: {
-                ...tiempos[nombre].porParte,
-                [parte]: tiempos[nombre].porParte[parte] + desdeEntrada,
-              },
-              ultimaEntrada: null,
-            };
-          }
+        const transcurrido = (ahora - p.cronometro.ultimoStart) / 1000;
+        const tiempos = { ...p.tiempos };
+        const parte = p.cronometro.parteActual;
+        for (const nombre of p.enPista) {
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaTurno(t, parte);
         }
         p = {
-          ...prev,
+          ...p,
           cronometro: {
-            ...c, segundosParte: c.segundosParte + transcurrido, ultimoStart: null,
+            ...p.cronometro,
+            segundosParte: p.cronometro.segundosParte + transcurrido,
+            ultimoStart: null,
           },
           tiempos,
         };
       }
-      const idx = ordenPartes.indexOf(p.cronometro.parteActual);
-      const sig = ordenPartes[Math.min(idx + 1, ordenPartes.length - 1)];
+      // Cambio de parte: reiniciar contador del turno actual (nueva parte
+      // empieza de cero para todos los que siguen en pista).
+      const tiempos = { ...p.tiempos };
+      for (const nombre of p.enPista) {
+        const t = tiempos[nombre];
+        if (t) tiempos[nombre] = { ...t, segTurnoActual: 0, turnoStart: null };
+      }
+      const idx = orden.indexOf(p.cronometro.parteActual);
+      const sig = orden[Math.min(idx + 1, orden.length - 1)];
       return {
         ...p,
         cronometro: { parteActual: sig, segundosParte: 0, ultimoStart: null },
+        tiempos,
       };
     });
   }
@@ -250,32 +257,27 @@ export function usePartido() {
       const corriendo = prev.cronometro.ultimoStart != null;
       const tiempos = { ...prev.tiempos };
       const parte = prev.cronometro.parteActual;
-      // Acumular tiempo del que sale
-      if (tiempos[sale] && tiempos[sale].ultimaEntrada != null && corriendo) {
-        const desdeEntrada = (ahora - tiempos[sale].ultimaEntrada!) / 1000;
+      // El que sale: congelar turno, marcar ultimaSalida, segTurnoActual=null
+      const tSale = tiempos[sale];
+      if (tSale) {
+        const cong = congelaTurno(tSale, parte);
         tiempos[sale] = {
-          ...tiempos[sale],
-          totalSegundos: tiempos[sale].totalSegundos + desdeEntrada,
-          porParte: {
-            ...tiempos[sale].porParte,
-            [parte]: tiempos[sale].porParte[parte] + desdeEntrada,
-          },
-          ultimaEntrada: null,
+          ...cong,
+          segTurnoActual: null,
           ultimaSalida: ahora,
         };
-      } else if (tiempos[sale]) {
-        tiempos[sale] = { ...tiempos[sale], ultimaEntrada: null, ultimaSalida: ahora };
       }
-      // El que entra: ultimaEntrada = ahora si reloj corre, null si no
-      if (tiempos[entra]) {
+      // El que entra: nuevo turno desde 0, turnoStart=ahora si reloj corre
+      const tEntra = tiempos[entra];
+      if (tEntra) {
         tiempos[entra] = {
-          ...tiempos[entra],
+          ...tEntra,
+          segTurnoActual: 0,
+          turnoStart: corriendo ? ahora : null,
           ultimaSalida: null,
-          ultimaEntrada: corriendo ? ahora : null,
         };
       }
       const enPista = prev.enPista.map((n) => (n === sale ? entra : n));
-      // Registrar evento
       const evento: Evento = {
         id: uid(),
         tipo: "cambio",
@@ -304,8 +306,7 @@ export function usePartido() {
         segundosPartido: segundosPartidoTotal(),
         timestampReal: Date.now(),
       };
-      let next = { ...prev, eventos: [...prev.eventos, evento] };
-      // Side effects por tipo
+      let next: Partido = { ...prev, eventos: [...prev.eventos, evento] };
       if (evento.tipo === "gol") {
         next = {
           ...next,
@@ -316,46 +317,38 @@ export function usePartido() {
         };
       } else if (evento.tipo === "falta") {
         const p = prev.cronometro.parteActual;
-        next = {
-          ...next,
-          stats: { ...next.stats,
-            faltas: { ...next.stats.faltas,
-              [p]: { ...next.stats.faltas[p],
-                ...(evento.equipo === "INTER"
-                  ? { inter: next.stats.faltas[p].inter + 1 }
-                  : { rival: next.stats.faltas[p].rival + 1 }),
-              },
-            },
-          },
-        };
+        const cur = next.stats.faltas[p];
+        next = { ...next, stats: { ...next.stats,
+          faltas: { ...next.stats.faltas,
+            [p]: evento.equipo === "INTER"
+              ? { ...cur, inter: cur.inter + 1 }
+              : { ...cur, rival: cur.rival + 1 },
+          } } };
       } else if (evento.tipo === "amarilla") {
         const p = prev.cronometro.parteActual;
-        next = {
-          ...next,
-          stats: { ...next.stats,
-            amarillas: { ...next.stats.amarillas,
-              [p]: { ...next.stats.amarillas[p],
-                ...(evento.equipo === "INTER"
-                  ? { inter: next.stats.amarillas[p].inter + 1 }
-                  : { rival: next.stats.amarillas[p].rival + 1 }),
-              },
-            },
-          },
-        };
+        const cur = next.stats.amarillas[p];
+        next = { ...next, stats: { ...next.stats,
+          amarillas: { ...next.stats.amarillas,
+            [p]: evento.equipo === "INTER"
+              ? { ...cur, inter: cur.inter + 1 }
+              : { ...cur, rival: cur.rival + 1 },
+          } } };
       } else if (evento.tipo === "tiempo_muerto") {
         const p = prev.cronometro.parteActual;
-        next = {
-          ...next,
-          stats: { ...next.stats,
-            tiemposMuerto: { ...next.stats.tiemposMuerto,
-              [p]: { ...next.stats.tiemposMuerto[p],
-                ...(evento.equipo === "INTER"
-                  ? { inter: next.stats.tiemposMuerto[p].inter + 1 }
-                  : { rival: next.stats.tiemposMuerto[p].rival + 1 }),
-              },
-            },
-          },
-        };
+        const cur = next.stats.tiemposMuerto[p];
+        next = { ...next, stats: { ...next.stats,
+          tiemposMuerto: { ...next.stats.tiemposMuerto,
+            [p]: evento.equipo === "INTER"
+              ? { ...cur, inter: cur.inter + 1 }
+              : { ...cur, rival: cur.rival + 1 },
+          } } };
+      } else if (evento.tipo === "penalti" || evento.tipo === "diezm") {
+        if (evento.resultado === "GOL") {
+          next.marcador = {
+            inter: next.marcador.inter + (evento.equipo === "INTER" ? 1 : 0),
+            rival: next.marcador.rival + (evento.equipo === "RIVAL" ? 1 : 0),
+          };
+        }
       }
       return next;
     });
@@ -366,36 +359,34 @@ export function usePartido() {
       const ev = prev.eventos[prev.eventos.length - 1];
       if (!ev) return prev;
       const eventos = prev.eventos.slice(0, -1);
-      let next = { ...prev, eventos };
-      // Revertir side effects
+      const next: Partido = { ...prev, eventos };
       if (ev.tipo === "gol") {
         next.marcador = {
           inter: next.marcador.inter - (ev.equipo === "INTER" ? 1 : 0),
           rival: next.marcador.rival - (ev.equipo === "RIVAL" ? 1 : 0),
         };
       } else if (ev.tipo === "falta") {
-        const p = ev.parte;
-        const cur = next.stats.faltas[p];
-        next.stats.faltas[p] = ev.equipo === "INTER"
+        const cur = next.stats.faltas[ev.parte];
+        next.stats.faltas[ev.parte] = ev.equipo === "INTER"
           ? { ...cur, inter: Math.max(0, cur.inter - 1) }
           : { ...cur, rival: Math.max(0, cur.rival - 1) };
       } else if (ev.tipo === "amarilla") {
-        const p = ev.parte;
-        const cur = next.stats.amarillas[p];
-        next.stats.amarillas[p] = ev.equipo === "INTER"
+        const cur = next.stats.amarillas[ev.parte];
+        next.stats.amarillas[ev.parte] = ev.equipo === "INTER"
           ? { ...cur, inter: Math.max(0, cur.inter - 1) }
           : { ...cur, rival: Math.max(0, cur.rival - 1) };
       } else if (ev.tipo === "tiempo_muerto") {
-        const p = ev.parte;
-        const cur = next.stats.tiemposMuerto[p];
-        next.stats.tiemposMuerto[p] = ev.equipo === "INTER"
+        const cur = next.stats.tiemposMuerto[ev.parte];
+        next.stats.tiemposMuerto[ev.parte] = ev.equipo === "INTER"
           ? { ...cur, inter: Math.max(0, cur.inter - 1) }
           : { ...cur, rival: Math.max(0, cur.rival - 1) };
       } else if (ev.tipo === "cambio") {
-        // Revertir: el que entró sale, el que salió vuelve.
         next.enPista = next.enPista.map((n) => (n === ev.entra ? ev.sale : n));
-        // No reverter tiempos acumulados; queda pequeño error de tracking
-        // pero es aceptable para un "deshacer" de emergencia.
+      } else if ((ev.tipo === "penalti" || ev.tipo === "diezm") && ev.resultado === "GOL") {
+        next.marcador = {
+          inter: next.marcador.inter - (ev.equipo === "INTER" ? 1 : 0),
+          rival: next.marcador.rival - (ev.equipo === "RIVAL" ? 1 : 0),
+        };
       }
       return next;
     });
@@ -426,22 +417,10 @@ export function usePartido() {
   }
 
   return {
-    partido,
-    cargado,
-    // Selectores en vivo
-    segundosTurnoActual,
-    segundosBanquillo,
-    segundosParte,
-    segundosPartidoTotal,
-    // Acciones
-    iniciarPartido,
-    play,
-    pausa,
-    avanzarParte,
-    cambiarJugador,
-    registrarEvento,
-    deshacerUltimoEvento,
-    incAccion,
-    reset,
+    partido, cargado,
+    segundosTurnoActual, segundosBanquillo, segundosParte, segundosPartidoTotal,
+    segundosEnParte,
+    iniciarPartido, play, pausa, avanzarParte, cambiarJugador,
+    registrarEvento, deshacerUltimoEvento, incAccion, reset,
   };
 }

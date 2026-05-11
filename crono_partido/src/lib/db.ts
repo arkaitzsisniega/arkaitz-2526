@@ -33,15 +33,23 @@ export interface TiempoJugador {
   /** Segundos en pista por parte. */
   porParte: Record<ParteId, number>;
   /**
-   * Si está EN PISTA: timestamp (ms) de cuándo entró por última vez (o
-   * inicio del partido). El tiempo en pista actual se calcula como
-   * "ahora - ultimaEntrada" cuando el reloj corre.
-   * null = está en banquillo.
+   * Si está EN PISTA: segundos acumulados del TURNO ACTUAL en pista.
+   * Se incrementa solo cuando el reloj corre; al pausar se "congela".
+   * Al volver a darle PLAY, sigue acumulando. Se reinicia a 0 cuando
+   * el jugador SALE de pista y vuelve a entrar.
+   * null = jugador no está en pista.
    */
-  ultimaEntrada: number | null;
+  segTurnoActual: number | null;
   /**
-   * Si está EN BANQUILLO: timestamp (ms) de cuándo se sentó en el
-   * banquillo. null = está en pista o nunca jugó.
+   * Timestamp (ms) de cuándo se inició el tramo de cuenta más reciente.
+   * Si reloj corre y jugador en pista, está set. En cualquier otro caso, null.
+   * Para calcular tiempo en pista en VIVO: segTurnoActual + (ahora - turnoStart).
+   */
+  turnoStart: number | null;
+  /**
+   * Timestamp (ms) de cuándo se sentó en el banquillo por última vez.
+   * El tiempo descansando = ahora - ultimaSalida. null = está en pista
+   * o nunca ha jugado.
    */
   ultimaSalida: number | null;
 }
