@@ -570,7 +570,7 @@ def vista_oliver_cruzado(ss, carga_df: pd.DataFrame, well_df: pd.DataFrame) -> p
 def vista_recuento(borg, ses):
     # Sesiones únicas del equipo (FECHA + TURNO)
     total_ses = len(ses.drop_duplicates(["FECHA", "TURNO"])) if "TURNO" in ses.columns else len(ses)
-    estados_validos = ["S", "A", "L", "N", "D", "NC"]
+    estados_validos = ["S", "A", "L", "N", "D", "NC", "NJ"]
     jugadores = borg["JUGADOR"].dropna().unique()
 
     rows = []

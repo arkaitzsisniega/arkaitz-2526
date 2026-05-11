@@ -167,6 +167,30 @@ def _to_float(v):
         return None
 
 
+def _to_borg(v):
+    """Convierte BORG: si es número devuelve float, si es estado válido
+    (S/A/L/N/D/NC/NJ) devuelve la letra en mayúsculas, si está vacío o
+    es basura devuelve None.
+
+    El BORG admite tanto un RPE numérico (1-10) como una letra de
+    estado para sesiones que el jugador NO entrenó. Hay que preservar
+    los estados al consolidar (antes se perdían porque _to_float los
+    convertía a NaN)."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    # Probar primero estado de letra (case-insensitive)
+    su = s.upper()
+    if su in ("S", "A", "L", "N", "D", "NC", "NJ"):
+        return su
+    # Si no, intentar numérico
+    return _to_float(s)
+
+
 def _to_peso(v):
     """Como _to_float pero con filtro fisiológico 30-200kg.
     Valores fuera del rango (típico error '€8,60' → 8.6, o '716' por error
@@ -265,7 +289,7 @@ def leer_respuestas_post(ss) -> pd.DataFrame:
         "FECHA":     df.apply(_fecha_robusta, axis=1),
         "TURNO":     df[col_turno].apply(_str_turno) if col_turno else "",
         "PESO_POST": df[col_peso].apply(_to_peso) if col_peso else None,
-        "BORG":      df[col_borg].apply(_to_float) if col_borg else None,
+        "BORG":      df[col_borg].apply(_to_borg) if col_borg else None,
     })
     out = out[out["JUGADOR"].astype(str).str.strip().ne("") & out["FECHA"].notna()]
     return out.reset_index(drop=True)

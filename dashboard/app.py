@@ -962,7 +962,7 @@ def datos():
     num_cols(sem,     ["ACWR", "MONOTONIA", "WELLNESS_MEDIO", "PESO_PRE_DESV_KG",
                        "WELLNESS_BELOW15", "ALERTAS_ACTIVAS"])
     num_cols(rec,     ["TOTAL_SESIONES_EQUIPO", "SESIONES_CON_DATOS", "PCT_PARTICIPACION",
-                       "EST_S", "EST_A", "EST_L", "EST_N", "EST_D", "EST_NC"])
+                       "EST_S", "EST_A", "EST_L", "EST_N", "EST_D", "EST_NC", "EST_NJ"])
     if not oliver.empty:
         num_cols(oliver, [
             "played_time", "distancia_total_m", "distancia_hsr_m", "velocidad_max_kmh",
@@ -2431,7 +2431,7 @@ with tab_rec:
                    "naranja/rojo/gris = no disponible (selección, ausencia, lesión, descanso, NC).")
 
         cols_estado = ["SESIONES_CON_DATOS", "EST_S", "EST_A", "EST_L",
-                       "EST_N", "EST_D", "EST_NC"]
+                       "EST_N", "EST_D", "EST_NC", "EST_NJ"]
         cols_estado = [c for c in cols_estado if c in rec_f.columns]
         if cols_estado and "JUGADOR" in rec_f.columns:
             df_disp = rec_f[["JUGADOR"] + cols_estado].copy()
@@ -2443,6 +2443,7 @@ with tab_rec:
                 "EST_S": "Selección", "EST_A": "Ausente",
                 "EST_L": "Lesión", "EST_N": "No entrena",
                 "EST_D": "Descanso", "EST_NC": "No calificado",
+                "EST_NJ": "No juega",
             }
             df_disp = df_disp.rename(columns=mapa_estados)
             cols_renamed = [mapa_estados[c] for c in cols_estado]

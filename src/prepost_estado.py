@@ -40,10 +40,11 @@ SCOPES = [
 ]
 MSG_SEP = "---MSG---"
 
-ESTADOS_BORG = {"S", "A", "L", "N", "D", "NC"}
+ESTADOS_BORG = {"S", "A", "L", "N", "D", "NC", "NJ"}
 ETIQUETAS_ESTADO = {
     "S": "Selección", "A": "Ausencia", "L": "Lesión",
     "N": "No entrena", "D": "Descanso", "NC": "No calificado",
+    "NJ": "No juega",
 }
 
 # Aliases para normalizar nombres que los jugadores escriben en los Forms
@@ -183,7 +184,7 @@ def _turnos_y_tipo_de_fecha(ss, fecha: str) -> list[tuple[str, str, str]]:
 
 def _leer_borg(ss, fecha: str, turno: str, roster: set[str]) -> dict[str, str]:
     """Devuelve {JUGADOR_CANONICO: valor_borg_str} para fecha+turno.
-    Valor puede ser número o estado (S/A/L/N/D/NC). Normaliza nombres
+    Valor puede ser número o estado (S/A/L/N/D/NC/NJ). Normaliza nombres
     aplicando ALIASES_JUGADOR para mapear 'HERRERO' → 'J.HERRERO' etc."""
     ws = ss.worksheet("BORG")
     rows = ws.get_all_values()
@@ -203,6 +204,66 @@ def _leer_borg(ss, fecha: str, turno: str, roster: set[str]) -> dict[str, str]:
             val = r[i_borg].strip()
             if jug:
                 out[jug] = val
+    return out
+
+
+def _leer_form_post_raw(ss, fecha: str, turno: str,
+                         roster: set[str]) -> dict[str, str]:
+    """Lee _FORM_POST y devuelve {JUGADOR_CANONICO: borg_str_literal}.
+    A diferencia de forms_utils.leer_respuestas_post, NO convierte el
+    BORG a float, así preservamos los estados (NJ, S, A, L, etc.) que
+    Arkaitz puede haber escrito a mano en esa columna.
+    """
+    try:
+        ws = ss.worksheet("_FORM_POST")
+        rows = ws.get_all_values()
+    except Exception:
+        return {}
+    if len(rows) < 2:
+        return {}
+    header = rows[0]
+    # Encontrar columnas por nombre flexible (Forms pone el texto de la
+    # pregunta como cabecera).
+    i_jug = next((i for i, c in enumerate(header)
+                  if "jugador" in c.lower()), None)
+    i_fec = next((i for i, c in enumerate(header)
+                  if "fecha" in c.lower()), None)
+    i_tur = next((i for i, c in enumerate(header)
+                  if "turno" in c.lower()), None)
+    i_borg = next((i for i, c in enumerate(header)
+                   if "borg" in c.lower()), None)
+    if None in (i_jug, i_fec, i_tur, i_borg):
+        return {}
+
+    out = {}
+    for r in rows[1:]:
+        if len(r) <= max(i_jug, i_fec, i_tur, i_borg):
+            continue
+        # Fecha: puede venir como string YYYY-MM-DD o con otro formato
+        fecha_raw = (r[i_fec] or "").strip()
+        if fecha_raw != fecha:
+            # _FORM_POST suele tener formato dd/mm/yyyy o dd/m/yyyy. Hay que
+            # parsear con dayfirst=True para no confundir día y mes.
+            try:
+                f_parsed = pd.to_datetime(fecha_raw, errors="coerce", dayfirst=True)
+                if pd.isna(f_parsed) or f_parsed.strftime("%Y-%m-%d") != fecha:
+                    continue
+            except Exception:
+                continue
+        # Turno: en _FORM_POST suele venir como "Mañana"/"Tarde"
+        turno_raw = (r[i_tur] or "").strip().upper()
+        if turno_raw.startswith("MA"):
+            turno_norm = "M"
+        elif turno_raw.startswith("TA"):
+            turno_norm = "T"
+        else:
+            turno_norm = turno_raw
+        if turno_norm != turno:
+            continue
+        jug = _norm_jugador(r[i_jug], roster)
+        if not jug:
+            continue
+        out[jug] = (r[i_borg] or "").strip()
     return out
 
 
@@ -248,11 +309,23 @@ def procesar_turno(ss, fecha: str, turno: str, tipo: str, mins: str,
     roster_set = set(roster)
     pre = _set_jugadores_pre(ss, fecha, turno, roster_set)
     post = _set_jugadores_post(ss, fecha, turno, roster_set)
-    borg_dict = _leer_borg(ss, fecha, turno, roster_set)
+
+    # ── Fuentes del BORG / estado ──
+    # _FORM_POST: lo que rellena el jugador o lo que Arkaitz modifica a mano
+    #             (suele ser su lugar canónico de cambio).
+    # BORG: hoja consolidada (se actualiza con /consolidar o con scripts
+    #       como apuntar_borg.py / marcar_lesion.py).
+    # Reglas: _FORM_POST gana si tiene valor; BORG es fallback.
+    borg_form = _leer_form_post_raw(ss, fecha, turno, roster_set)
+    borg_consolidado = _leer_borg(ss, fecha, turno, roster_set)
+    borg_dict = dict(borg_consolidado)
+    for jug, val in borg_form.items():
+        if val:  # solo sobrescribir si _FORM_POST tiene contenido
+            borg_dict[jug] = val
 
     # Set de jugadores con BORG NUMÉRICO (han entrenado y se les ha apuntado)
     borg_numerico = {j for j, v in borg_dict.items() if _es_numero(v)}
-    # Estado por jugador (S/A/L/N/D/NC)
+    # Estado por jugador (S/A/L/N/D/NC/NJ)
     borg_estado = {j: v.upper() for j, v in borg_dict.items()
                    if v.upper() in ESTADOS_BORG}
 

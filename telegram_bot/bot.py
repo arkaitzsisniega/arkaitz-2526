@@ -381,7 +381,8 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    ```
 
    Estados: S=Selección · A=Ausencia · L=Lesión (mejor marcar_lesion.py) ·
-            N=No entrena · D=Descanso · NC=No calificado.
+            N=No entrena · D=Descanso · NC=No calificado ·
+            NJ=No juega (convocado al partido pero no participa).
 
 3) **Apuntar PESO (PRE / POST / H2O)**:
    → USA SIEMPRE el script `src/apuntar_peso.py`. Idempotente.

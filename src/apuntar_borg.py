@@ -20,6 +20,7 @@ Argumentos:
               N  = No entrena
               D  = Descanso (rotación)
               NC = No calificado
+              NJ = No juega (convocado pero no participa en el partido)
   TURNO     M o T. Si se omite, se busca en SESIONES; si no hay match, M.
 
 Flags:
@@ -49,7 +50,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 MSG_SEP = "---MSG---"
-ESTADOS_VALIDOS = {"S", "A", "L", "N", "D", "NC"}
+ESTADOS_VALIDOS = {"S", "A", "L", "N", "D", "NC", "NJ"}
 
 
 def _open_sheet():

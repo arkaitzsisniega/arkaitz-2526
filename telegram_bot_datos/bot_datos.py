@@ -297,7 +297,8 @@ VISTAS PRE-CALCULADAS (lo que más vas a usar):
    EST_NC, SESIONES_CON_DATOS, PCT_PARTICIPACION`
   `SESIONES_CON_DATOS` = sesiones donde el jugador ha entrenado de verdad
   (Borg numérico). Los EST_X son contadores de cada estado (S=Selección,
-  A=Ausencia, L=Lesión, N=No entrena, D=Descanso, NC=No calificado).
+  A=Ausencia, L=Lesión, N=No entrena, D=Descanso, NC=No calificado,
+  NJ=No juega — convocado al partido pero no participa).
 
 EJEMPLOS DE PREGUNTAS Y CÓMO RESOLVERLAS
 
