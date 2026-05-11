@@ -143,7 +143,23 @@ def escribir_vista(ss, nombre_hoja, df):
 FACTOR_GYM = 1.25
 
 
-def vista_carga(ses, borg):
+def vista_carga(ses, borg, est_partidos=None):
+    """Construye _VISTA_CARGA = una fila por (jugador, sesión) con su sRPE.
+
+    Si `est_partidos` (DataFrame de EST_PARTIDOS) viene dado, cuando una
+    fila corresponde a un PARTIDO se sustituyen los MINUTOS de SESIONES
+    (40-50 min del partido completo) por el `min_total` real jugado del
+    jugador en ESE partido (de EST_PARTIDOS). Eso evita la sobrestimación
+    del suplente que entra 2 min y la subestimación del titular que juega
+    25.
+
+    Política:
+      - Si hay match (fecha, jugador) en EST_PARTIDOS y min_total > 0:
+        MINUTOS_EFECTIVOS = min_total (entero, sin decimales).
+      - Si no hay match (entrenamiento, o partido sin planilla extraída):
+        MINUTOS_EFECTIVOS = MINUTOS de SESIONES (fallback).
+      - Factor GYM (×1.25) se aplica DESPUÉS, igual que antes.
+    """
     # Unir BORG con info de sesión
     df = borg.merge(
         ses[["FECHA", "TURNO", "TIPO_SESION", "MINUTOS", "SEMANA", "COMPETICION"]],
@@ -151,17 +167,100 @@ def vista_carga(ses, borg):
         how="left"
     )
     # Convertir BORG a numérico (las letras de estado S/A/L/N/D/NC → NaN)
-    # BORG crudo con letras se preserva en `borg` (entrada) para vista_recuento.
     df["BORG"]  = pd.to_numeric(df["BORG"], errors="coerce")
-    df["CARGA"] = df["BORG"] * pd.to_numeric(df["MINUTOS"], errors="coerce")
+    df["MINUTOS"] = pd.to_numeric(df["MINUTOS"], errors="coerce")
+
+    # MINUTOS efectivos: empieza con los de SESIONES; si hay match en
+    # EST_PARTIDOS, se sustituye por min_total del jugador en ese partido.
+    df["MINUTOS_EFECTIVOS"] = df["MINUTOS"]
+
+    if est_partidos is not None and not est_partidos.empty:
+        ep = est_partidos.copy()
+        for c in ("fecha", "jugador", "min_total"):
+            if c not in ep.columns:
+                ep[c] = pd.NA
+        ep["fecha"] = pd.to_datetime(ep["fecha"], errors="coerce")
+        ep["jugador"] = ep["jugador"].astype(str).str.strip().str.upper()
+        # min_total puede venir como:
+        #   - número (40.0, 22.5) → directo.
+        #   - "MM:SS" string ("22:31") → 22 + 31/60.
+        #   - "MM:SS:cs" string ("40:00:00") → 40 + 0/60.
+        #   - vacío / NaN → None.
+        def _parse_minutos(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)) or v == "":
+                return None
+            if isinstance(v, (int, float)):
+                return float(v)
+            s = str(v).strip()
+            if not s:
+                return None
+            partes = s.split(":")
+            try:
+                if len(partes) == 1:
+                    return float(partes[0].replace(",", "."))
+                if len(partes) >= 2:
+                    mm = float(partes[0])
+                    ss = float(partes[1])
+                    return mm + ss / 60.0
+            except (ValueError, TypeError):
+                pass
+            return None
+        ep["min_total"] = ep["min_total"].apply(_parse_minutos)
+        ep_agg = (ep[["fecha", "jugador", "min_total"]]
+                  .dropna(subset=["fecha", "jugador"])
+                  .groupby(["fecha", "jugador"], as_index=False)["min_total"]
+                  .sum())
+        ep_agg = ep_agg.rename(columns={
+            "fecha": "FECHA",
+            "jugador": "JUGADOR",
+            "min_total": "MIN_REAL_PARTIDO",
+        })
+        df["JUGADOR_KEY"] = df["JUGADOR"].astype(str).str.strip().str.upper()
+        df = df.merge(
+            ep_agg, left_on=["FECHA", "JUGADOR_KEY"],
+            right_on=["FECHA", "JUGADOR"], how="left",
+            suffixes=("", "_ep"),
+        )
+        if "JUGADOR_ep" in df.columns:
+            df = df.drop(columns=["JUGADOR_ep"])
+        df = df.drop(columns=["JUGADOR_KEY"])
+        # SOLO sustituir cuando:
+        #   - La sesión es PARTIDO (TIPO_SESION contiene PARTIDO). Sin
+        #     este filtro, el entrenamiento del turno M del mismo día
+        #     también recibiría los minutos reales del partido (turno T),
+        #     lo cual no tiene sentido.
+        #   - min_real > 0. Si min_real = 0 caemos al fallback (MINUTOS
+        #     de SESIONES). Caso (a) jugador convocado que no jugó vs
+        #     (b) partido sin extraer — no podemos distinguir fácil, así
+        #     que preferimos sobreestimar un poco al jugador real que
+        #     infraestimar a 0 a alguien que sí jugó.
+        es_partido = df["TIPO_SESION"].astype(str).str.contains(
+            "PARTIDO", case=False, na=False
+        )
+        mask_real = (
+            es_partido
+            & df["MIN_REAL_PARTIDO"].notna()
+            & (df["MIN_REAL_PARTIDO"] > 0)
+        )
+        df.loc[mask_real, "MINUTOS_EFECTIVOS"] = df.loc[mask_real, "MIN_REAL_PARTIDO"]
+
+    # Carga = BORG × min efectivos
+    df["CARGA"] = df["BORG"] * df["MINUTOS_EFECTIVOS"]
     # Aplicar factor de corrección a sesiones con GYM
     es_gym = df["TIPO_SESION"].astype(str).str.contains("GYM", case=False, na=False)
     df.loc[es_gym, "CARGA"] = df.loc[es_gym, "CARGA"] * FACTOR_GYM
+
     df["FECHA_STR"]  = df["FECHA"].dt.strftime("%Y-%m-%d")
     df["DIA_SEMANA"] = df["FECHA"].dt.day_name()
     df = df.sort_values(["FECHA", "JUGADOR"])
-    return df[["FECHA", "FECHA_STR", "SEMANA", "DIA_SEMANA", "TURNO",
-               "JUGADOR", "TIPO_SESION", "COMPETICION", "MINUTOS", "BORG", "CARGA"]]
+    # Mantener el contrato de columnas: MINUTOS lo dejamos como los
+    # efectivos para que el resto del pipeline (vista_semanal, ACWR…) los
+    # use sin más cambios. La columna MIN_REAL_PARTIDO queda como
+    # diagnóstico opcional.
+    df["MINUTOS"] = df["MINUTOS_EFECTIVOS"]
+    cols_out = ["FECHA", "FECHA_STR", "SEMANA", "DIA_SEMANA", "TURNO",
+                "JUGADOR", "TIPO_SESION", "COMPETICION", "MINUTOS", "BORG", "CARGA"]
+    return df[cols_out]
 
 
 # ── VISTA 2: CARGA SEMANAL + ACWR EWMA ───────────────────────────────────────
@@ -617,6 +716,13 @@ def main():
     borg = leer_hoja(ss, "BORG",      parse_dates=["FECHA"])
     peso = leer_hoja(ss, "PESO",      parse_dates=["FECHA"])
     well = leer_hoja(ss, "WELLNESS",  parse_dates=["FECHA"])
+    # EST_PARTIDOS para cruzar minutos REALES por jugador en partidos.
+    # Opcional: si la hoja no existe o está vacía, vista_carga cae al
+    # fallback de minutos de SESIONES.
+    try:
+        est_partidos = leer_hoja(ss, "EST_PARTIDOS", parse_dates=["fecha"])
+    except Exception:
+        est_partidos = pd.DataFrame()
 
     # Parseo numérico robusto (tolera coma decimal y strings).
     # OJO: NO aplicamos to_num a borg["BORG"] porque contiene tanto números
@@ -632,8 +738,10 @@ def main():
 
     print(f"  Sesiones: {len(ses)} · Borg: {len(borg)} · Peso: {len(peso)} · Wellness: {len(well)}")
 
+    print(f"  EST_PARTIDOS: {len(est_partidos)} filas (para minutos reales en partidos)")
+
     print("\nCalculando métricas...")
-    carga_df   = vista_carga(ses, borg)
+    carga_df   = vista_carga(ses, borg, est_partidos=est_partidos)
     semanal_df = vista_semanal(carga_df)
     peso_df    = vista_peso(peso, ses)
     well_df    = vista_wellness(well, ses)
