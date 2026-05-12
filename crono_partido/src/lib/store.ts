@@ -193,6 +193,7 @@ export function usePartido() {
                     ?? { "1T": 1200, "2T": 1200, PR1: 0, PR2: 0 }),
               permiteTanda: cfgOrig.permiteTanda
                 ?? (PRESETS_COMPETICION[cfgOrig.competicion]?.permiteTanda ?? false),
+              direccionInter1T: cfgOrig.direccionInter1T ?? "der",
             }
           : null;
         const tiemposMig: Record<string, TiempoJugador> = {};

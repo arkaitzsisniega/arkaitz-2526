@@ -7,7 +7,8 @@ import { ROSTER } from "@/lib/roster";
 import { formatMMSS, colorTiempoPista, colorTiempoBanquillo } from "@/lib/utils";
 import { Campo } from "@/components/Campo";
 import { Porteria } from "@/components/Porteria";
-import type { ContadoresJugador, ResultadoDisparo, TandaPenaltis, TiroTanda, Partido, ParteId } from "@/lib/db";
+import type { ContadoresJugador, ResultadoDisparo, TandaPenaltis, TiroTanda, Partido, ParteId, ConfigPartido } from "@/lib/db";
+import { direccionAtaque } from "@/lib/db";
 
 export default function PartidoPage() {
   const router = useRouter();
@@ -258,6 +259,8 @@ export default function PartidoPage() {
           jugador={modalAccionInd.jugador}
           enPista={enPista}
           banquillo={banquillo}
+          cfg={cfg}
+          parteActual={p}
           onCerrar={() => setModalAccionInd(null)}
           onCambio={(sale, entra) => {
             cambiarJugador(sale, entra);
@@ -286,6 +289,8 @@ export default function PartidoPage() {
         <ModalFalta
           enPista={enPista}
           rivalNombre={cfg.rival}
+          cfg={cfg}
+          parteActual={p}
           onCerrar={() => setModalFalta(false)}
           onConfirmar={(ev) => {
             registrarEvento(ev as any);
@@ -298,6 +303,8 @@ export default function PartidoPage() {
         <ModalGol
           enPista={enPista}
           rivalNombre={cfg.rival}
+          cfg={cfg}
+          parteActual={p}
           onCerrar={() => setModalGol(false)}
           onConfirmar={(ev, penaltiExtra) => {
             registrarEvento(ev as any, penaltiExtra);
@@ -450,6 +457,7 @@ function ModalCambio(props: {
 
 function ModalFalta(props: {
   enPista: string[]; rivalNombre: string;
+  cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
@@ -514,7 +522,9 @@ function ModalFalta(props: {
 
       {equipo && (jugador || sinAsignar || rivalMano) && (
         <Paso n={3} titulo="Zona del campo donde se produce (tap = aplicar)" activo>
-          <Campo onSelect={(z) => aplicar(z)} />
+          <Campo onSelect={(z) => aplicar(z)}
+            direccion={direccionAtaque(props.parteActual, equipo, props.cfg)}
+            nombreAtacante={equipo === "INTER" ? "Inter" : props.rivalNombre} />
           <div className="mt-2 flex justify-end">
             <button onClick={() => aplicar(undefined)}
               className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-xs">
@@ -607,6 +617,7 @@ const ACCIONES_GOL = [
 
 function ModalGol(props: {
   enPista: string[]; rivalNombre: string;
+  cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   /** penaltiExtra: extras a pasar al store cuando acción=Penalti/10m. */
   onConfirmar: (ev: any, penaltiExtra?: { penaltiTipo?: "penalti" | "diezm"; penaltiPorteroRival?: string }) => void;
@@ -696,7 +707,9 @@ function ModalGol(props: {
 
       {accion && !esPenaltiOAccion && (
         <Paso n={5} titulo="Zona del campo desde donde se tira" activo={!zonaCampo}>
-          <Campo seleccionada={zonaCampo} onSelect={setZonaCampo} />
+          <Campo seleccionada={zonaCampo} onSelect={setZonaCampo}
+            direccion={equipo ? direccionAtaque(props.parteActual, equipo, props.cfg) : "der"}
+            nombreAtacante={equipo === "INTER" ? "Inter" : props.rivalNombre} />
           <div className="mt-1 text-right">
             <button onClick={() => setZonaCampo("__skip__")}
               className="px-3 py-1 bg-zinc-700 rounded text-xs">Saltar zona campo</button>
@@ -845,6 +858,7 @@ function ModalAccionIndividual(props: {
   jugador: string;
   enPista: string[];
   banquillo: string[];
+  cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
   onContador: (tipo: keyof ContadoresJugador) => void;
@@ -899,7 +913,9 @@ function ModalAccionIndividual(props: {
             setZonaCampo(z);
             if (disparoRes === "PUERTA") setPaso("disparoPorteria");
             else props.onDisparo({ resultado: disparoRes, zonaCampo: z, zonaPorteria: "" });
-          }} />
+          }}
+          direccion={direccionAtaque(props.parteActual, "INTER", props.cfg)}
+          nombreAtacante="Inter" />
           <div className="mt-2 flex justify-between">
             <button onClick={() => setPaso("disparoTipo")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
             <button onClick={() => {

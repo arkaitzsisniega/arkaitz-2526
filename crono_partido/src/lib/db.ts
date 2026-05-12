@@ -28,6 +28,34 @@ export interface ConfigPartido {
   duracionParte: Record<ParteId, number>;
   /** Si la competición permite tanda de penaltis tras empate (ko). */
   permiteTanda: boolean;
+  /** Hacia dónde ataca el INTER en la 1ª parte (vista del banquillo).
+   *  De ahí se deduce todo: Inter 2T = opuesto; rival siempre opuesto al
+   *  Inter en cada parte. En prórroga se sortea (Inter ataca como 2T por
+   *  defecto, configurable). */
+  direccionInter1T: "izq" | "der";
+}
+
+/** Calcula hacia dónde ataca un equipo en una parte dada del partido.
+ *  Devuelve "der" (portería rival a la derecha) o "izq". El componente
+ *  Campo se renderiza siempre con el atacante hacia la DERECHA por defecto;
+ *  si esta función devuelve "izq", el campo se gira 180° visualmente. */
+export function direccionAtaque(
+  parte: ParteId,
+  equipo: "INTER" | "RIVAL",
+  cfg: ConfigPartido
+): "izq" | "der" {
+  const interEnPrimera = cfg.direccionInter1T;
+  // Inter cambia de lado en 2T y vuelve al original en PR2.
+  const interEn: Record<ParteId, "izq" | "der"> = {
+    "1T": interEnPrimera,
+    "2T": interEnPrimera === "der" ? "izq" : "der",
+    PR1:  interEnPrimera === "der" ? "izq" : "der",  // como 2T
+    PR2:  interEnPrimera,                            // como 1T
+  };
+  const dirInter = interEn[parte];
+  if (equipo === "INTER") return dirInter;
+  // Rival siempre en sentido contrario al Inter en esa parte.
+  return dirInter === "der" ? "izq" : "der";
 }
 
 /** Presets de duración (segundos) y si hay tanda, por competición. */

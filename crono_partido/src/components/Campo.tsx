@@ -33,6 +33,10 @@ interface Props {
   seleccionada?: string;
   onSelect: (zona: string) => void;
   nombreAtacante?: string;
+  /** Dirección de ataque visual. "der" = portería rival a la derecha
+   *  (vista por defecto). "izq" = espejo horizontal (portería rival a
+   *  la izquierda). Útil para 2ª parte / equipo rival. */
+  direccion?: "izq" | "der";
 }
 
 // Escala
@@ -61,7 +65,7 @@ const X_MEDIA = W - 20 * M;            // 400
 // Centro vertical del campo (para dividir A1/A2 y la línea de 4m central)
 const Y_CENTRO = H / 2;                // 200
 
-export function Campo({ seleccionada, onSelect, nombreAtacante }: Props) {
+export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der" }: Props) {
   const sel = (z: string) => seleccionada === z;
   const colorZona = (z: string) => sel(z) ? "#1d4ed8" : "#ffffff";
   const opZona = (z: string) => sel(z) ? 0.55 : 0.05;
@@ -96,8 +100,17 @@ export function Campo({ seleccionada, onSelect, nombreAtacante }: Props) {
     Z
   `.trim();
 
+  // Si el atacante va hacia la izquierda, rotamos el SVG 180° con CSS.
+  // Esto invierte AMBOS ejes (espejo total): la portería rival queda
+  // físicamente a la izquierda y la "banda izquierda del atacante" (A3)
+  // queda en la parte INFERIOR del dibujo, que es lo correcto desde la
+  // perspectiva del banquillo cuando Inter ataca hacia la izquierda.
+  // Los clicks siguen funcionando porque CSS transforms no afectan al
+  // hit testing interno del SVG.
+  const flip = direccion === "izq";
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" style={{ maxHeight: "60vh" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none"
+      style={{ maxHeight: "60vh", transform: flip ? "rotate(180deg)" : undefined }}>
       {/* Césped */}
       <rect x="0" y="0" width={W} height={H} fill="#1b5e20" rx="8" />
 

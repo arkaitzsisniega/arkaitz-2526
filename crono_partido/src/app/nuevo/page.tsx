@@ -27,6 +27,9 @@ export default function NuevoPartido() {
   const [durPR2, setDurPR2] = useState(presetIni.duraciones.PR2 / 60);
   const [permiteTanda, setPermiteTanda] = useState(presetIni.permiteTanda);
 
+  // Hacia dónde ataca INTER en la 1ª parte (vista del banquillo).
+  const [direccionInter1T, setDireccionInter1T] = useState<"izq" | "der">("der");
+
   // Al cambiar competición, aplicar preset (el usuario puede ajustar manualmente después).
   const onCompChange = (c: string) => {
     setCompeticion(c);
@@ -82,6 +85,7 @@ export default function NuevoPartido() {
         PR2: Math.round(durPR2 * 60),
       },
       permiteTanda,
+      direccionInter1T,
     });
     router.push("/partido");
   };
@@ -173,6 +177,28 @@ export default function NuevoPartido() {
             onChange={(e) => setPermiteTanda(e.target.checked)} />
           <span className="text-sm">Permite tanda de penaltis si hay empate (eliminatoria)</span>
         </label>
+
+        <div className="mt-4 pt-3 border-t border-zinc-800">
+          <h3 className="text-sm font-semibold mb-2 text-zinc-300">
+            ¿Hacia dónde ataca INTER en la 1ª parte? (vista del banquillo)
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button"
+              onClick={() => setDireccionInter1T("izq")}
+              className={`py-3 rounded text-base font-bold ${
+                direccionInter1T === "izq" ? "bg-blue-700" : "bg-zinc-800"
+              }`}>← Izquierda</button>
+            <button type="button"
+              onClick={() => setDireccionInter1T("der")}
+              className={`py-3 rounded text-base font-bold ${
+                direccionInter1T === "der" ? "bg-blue-700" : "bg-zinc-800"
+              }`}>Derecha →</button>
+          </div>
+          <p className="text-xs text-zinc-500 mt-2">
+            En 2ª parte cambian de campo automáticamente. El rival siempre
+            ataca en sentido contrario a Inter.
+          </p>
+        </div>
       </section>
 
       {/* Convocados */}
