@@ -1578,33 +1578,92 @@ function ModalCambioParte(props: {
         )}
       </div>
 
-      {/* RESUMEN DEL EQUIPO */}
-      <div className="bg-zinc-900 rounded-lg p-3 mb-3">
-        <h3 className="text-xs font-bold text-zinc-300 mb-2">📊 Stats del equipo (acumulado)</h3>
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div className="bg-blue-900/30 rounded p-2">
-            <div className="text-blue-300 font-bold mb-1">🎯 Disparos INTER</div>
-            <div>Total <strong>{totalDispINTER}</strong> · A puerta <strong>{tot.dpp}</strong></div>
-            <div className="text-[10px] text-zinc-400">Palo {tot.dpa} · Fuera {tot.dpf} · Bloq {tot.dpb}</div>
+      {/* DISPAROS — destacado, grande y con énfasis */}
+      <div className="bg-zinc-900 rounded-lg p-4 mb-3">
+        <h3 className="text-base font-bold text-zinc-200 mb-3">🎯 Disparos</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {/* INTER */}
+          <div className="bg-blue-900/40 rounded-lg p-3 border border-blue-700/40">
+            <div className="text-sm text-blue-300 font-bold mb-2 uppercase tracking-wide">INTER</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-white tabular-nums">{totalDispINTER}</span>
+              <span className="text-xs text-blue-300">total</span>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-1 text-center">
+              <div className="bg-blue-800/40 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{tot.dpp}</div>
+                <div className="text-[10px] text-blue-200 uppercase">Puerta</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{tot.dpa}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Palo</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{tot.dpf}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Fuera</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{tot.dpb}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Bloq.</div>
+              </div>
+            </div>
           </div>
-          <div className="bg-red-900/30 rounded p-2">
-            <div className="text-red-300 font-bold mb-1">🎯 Disparos {cfg.rival}</div>
-            <div>Total <strong>{totalDispRIVAL}</strong> · A puerta <strong>{r.puerta}</strong></div>
-            <div className="text-[10px] text-zinc-400">Palo {r.palo} · Fuera {r.fuera} · Bloq {r.bloqueado}</div>
+          {/* RIVAL */}
+          <div className="bg-red-900/40 rounded-lg p-3 border border-red-700/40">
+            <div className="text-sm text-red-300 font-bold mb-2 uppercase tracking-wide">{cfg.rival}</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-white tabular-nums">{totalDispRIVAL}</span>
+              <span className="text-xs text-red-300">total</span>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-1 text-center">
+              <div className="bg-red-800/40 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{r.puerta}</div>
+                <div className="text-[10px] text-red-200 uppercase">Puerta</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{r.palo}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Palo</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{r.fuera}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Fuera</div>
+              </div>
+              <div className="bg-zinc-800/60 rounded py-1">
+                <div className="text-lg font-bold tabular-nums">{r.bloqueado}</div>
+                <div className="text-[10px] text-zinc-400 uppercase">Bloq.</div>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3 text-xs mt-2">
-          <div className="bg-red-900/20 rounded p-2">
-            <div className="text-red-300 font-bold">❌ Pérdidas</div>
-            <div>PF <strong>{tot.pf}</strong> · PNF <strong>{tot.pnf}</strong></div>
+      </div>
+
+      {/* OTROS STATS DEL EQUIPO — Pérdidas / Recuperaciones / Balones divididos */}
+      <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+        <div className="bg-red-900/20 rounded-lg p-3 border border-red-700/20">
+          <div className="text-red-300 font-bold mb-2 text-sm">❌ Pérdidas</div>
+          <div className="flex justify-between"><span>Forzada</span><strong>{tot.pf}</strong></div>
+          <div className="flex justify-between"><span>No forzada</span><strong>{tot.pnf}</strong></div>
+          <div className="border-t border-red-700/40 mt-1 pt-1 flex justify-between text-red-200">
+            <span>Total</span><strong>{tot.pf + tot.pnf}</strong>
           </div>
-          <div className="bg-green-900/20 rounded p-2">
-            <div className="text-green-300 font-bold">✅ Recuper.</div>
-            <div>Robos <strong>{tot.robos}</strong> · Cortes <strong>{tot.cortes}</strong></div>
+        </div>
+        <div className="bg-green-900/20 rounded-lg p-3 border border-green-700/20">
+          <div className="text-green-300 font-bold mb-2 text-sm">✅ Recuperaciones</div>
+          <div className="flex justify-between"><span>Robos</span><strong>{tot.robos}</strong></div>
+          <div className="flex justify-between"><span>Cortes</span><strong>{tot.cortes}</strong></div>
+          <div className="border-t border-green-700/40 mt-1 pt-1 flex justify-between text-green-200">
+            <span>Total</span><strong>{tot.robos + tot.cortes}</strong>
           </div>
-          <div className="bg-purple-900/20 rounded p-2">
-            <div className="text-purple-300 font-bold">⚖️ Divididos</div>
-            <div>BDG <strong>{tot.bdg}</strong> · BDP <strong>{tot.bdp}</strong></div>
+        </div>
+        <div className="bg-purple-900/20 rounded-lg p-3 border border-purple-700/20">
+          <div className="text-purple-300 font-bold mb-2 text-sm">⚖️ Balones divididos</div>
+          <div className="flex justify-between"><span>Ganados</span><strong>{tot.bdg}</strong></div>
+          <div className="flex justify-between"><span>No ganados</span><strong>{tot.bdp}</strong></div>
+          <div className="border-t border-purple-700/40 mt-1 pt-1 flex justify-between text-purple-200">
+            <span>Ratio</span>
+            <strong>{(tot.bdg + tot.bdp) > 0
+              ? `${Math.round(tot.bdg / (tot.bdg + tot.bdp) * 100)}%`
+              : "—"}</strong>
           </div>
         </div>
       </div>

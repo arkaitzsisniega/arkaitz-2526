@@ -319,8 +319,8 @@ export default function ResumenPage() {
               <div className="bg-red-900/30 rounded-lg p-3">
                 <div className="text-xs text-red-300 font-bold mb-2">❌ Pérdidas</div>
                 <div className="text-xs space-y-0.5">
-                  <div className="flex justify-between"><span>Forzadas (PF)</span><strong>{totalesEquipo.pf}</strong></div>
-                  <div className="flex justify-between"><span>No forzadas (PNF)</span><strong>{totalesEquipo.pnf}</strong></div>
+                  <div className="flex justify-between"><span>Forzada</span><strong>{totalesEquipo.pf}</strong></div>
+                  <div className="flex justify-between"><span>No forzada</span><strong>{totalesEquipo.pnf}</strong></div>
                   <div className="border-t border-red-700/50 mt-1 pt-1 flex justify-between text-red-200">
                     <span>Total</span><strong>{totalesEquipo.pf+totalesEquipo.pnf}</strong>
                   </div>
@@ -339,10 +339,10 @@ export default function ResumenPage() {
               </div>
               {/* Balones divididos */}
               <div className="bg-purple-900/30 rounded-lg p-3">
-                <div className="text-xs text-purple-300 font-bold mb-2">⚖️ Bal. divididos</div>
+                <div className="text-xs text-purple-300 font-bold mb-2">⚖️ Balones divididos</div>
                 <div className="text-xs space-y-0.5">
-                  <div className="flex justify-between"><span>Ganados (BDG)</span><strong>{totalesEquipo.bdg}</strong></div>
-                  <div className="flex justify-between"><span>Perdidos (BDP)</span><strong>{totalesEquipo.bdp}</strong></div>
+                  <div className="flex justify-between"><span>Ganados</span><strong>{totalesEquipo.bdg}</strong></div>
+                  <div className="flex justify-between"><span>No ganados</span><strong>{totalesEquipo.bdp}</strong></div>
                   <div className="border-t border-purple-700/50 mt-1 pt-1 flex justify-between text-purple-200">
                     <span>Ratio</span>
                     <strong>{(totalesEquipo.bdg + totalesEquipo.bdp) > 0
