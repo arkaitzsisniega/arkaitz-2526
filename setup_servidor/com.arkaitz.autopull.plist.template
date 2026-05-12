@@ -15,10 +15,14 @@
     <key>Label</key>
     <string>com.arkaitz.autopull</string>
 
+    <!-- Usamos el Python del venv del bot dev en vez de /bin/bash:
+         en Catalina+ (TCC), launchd no permite que /bin/bash lea
+         archivos en ~/Desktop/ (sale "Operation not permitted").
+         El Python del venv SÍ tiene los permisos. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>__HOME__/Desktop/Arkaitz/setup_servidor/auto_pull.sh</string>
+        <string>__HOME__/Desktop/Arkaitz/telegram_bot/venv/bin/python</string>
+        <string>__HOME__/Desktop/Arkaitz/setup_servidor/auto_pull.py</string>
     </array>
 
     <key>StartInterval</key>
