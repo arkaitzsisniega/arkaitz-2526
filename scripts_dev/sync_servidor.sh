@@ -12,14 +12,24 @@ set -e
 
 cd "$(git rev-parse --show-toplevel)"
 
-# 1. Ver si hay cambios sin commitear
-DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
-if [ "$DIRTY" -gt 0 ]; then
-    echo "⚠️  Hay $DIRTY archivos modificados sin commitear:"
-    git status --short
+# 1. Ver si hay cambios sin commitear (excluyendo untracked, que pueden
+#    ser temporales). Si hay modificados/staged, avisar pero seguir si
+#    el usuario aceptó (no es bloqueante).
+MOD=$(git status --porcelain | grep -E '^( M|M |MM| A|A |AM)' | wc -l | tr -d ' ')
+UNTRACKED=$(git status --porcelain | grep -E '^\?\?' | wc -l | tr -d ' ')
+
+if [ "$MOD" -gt 0 ]; then
+    echo "⚠️  Hay $MOD archivos modificados sin commitear:"
+    git status --short | grep -E '^( M|M |MM| A|A |AM)'
     echo ""
-    echo "   Commit primero (o stash) antes de sync."
+    echo "   Commit primero o haz stash antes de sync."
     exit 1
+fi
+
+if [ "$UNTRACKED" -gt 0 ]; then
+    echo "ℹ️  $UNTRACKED archivos untracked (no se van a sincronizar). Sigo."
+    git status --short | grep -E '^\?\?' | head -5
+    echo ""
 fi
 
 # 2. Fetch para comparar contra origin
