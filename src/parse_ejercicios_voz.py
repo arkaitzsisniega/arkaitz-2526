@@ -148,7 +148,8 @@ def claude_extraer(transcripcion: str) -> dict:
         generation_config={
             "temperature": 0.0,
             "response_mime_type": "application/json",
-            "max_output_tokens": 1024,
+            # 4096 para dejar margen al "thinking" interno de Gemini 2.5
+            "max_output_tokens": 4096,
         },
     )
     candidates = getattr(response, "candidates", None) or []

@@ -128,7 +128,9 @@ def gemini_extraer(transcripcion: str) -> list[dict]:
         generation_config={
             "temperature": 0.0,
             "response_mime_type": "application/json",
-            "max_output_tokens": 2048,
+            # 8192 para JSONs de goles (pueden ser arrays largos) + margen
+            # para "thinking" interno de Gemini 2.5.
+            "max_output_tokens": 8192,
         },
     )
     candidates = getattr(response, "candidates", None) or []
