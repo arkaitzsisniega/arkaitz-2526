@@ -2059,34 +2059,21 @@ def _detectar_intent_estado(prompt: str):
 
 
 def _run_estado_jugador(canonico: str, n: int) -> str:
-    """Ejecuta src/estado_jugador.py con el Python del venv del bot
-    (NO con /usr/bin/python3 que es 3.8 con paquetes viejos)."""
-    script = PROJECT_DIR / "src" / "estado_jugador.py"
-    if not script.is_file():
-        return f"⚠️ No encuentro el script de análisis ({script.name})."
+    """Ejecuta src/estado_jugador.py vía el helper común. Sin paths
+    hardcodeados ni filtros de warning duplicados (eso lo hace el helper)."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
     try:
-        res = subprocess.run(
-            [sys.executable, str(script), canonico, str(n)],
-            capture_output=True, text=True, timeout=60,
-            cwd=str(PROJECT_DIR),
-            env={**os.environ, "PYTHONWARNINGS": "ignore"},
-        )
-        if res.returncode != 0:
-            err_lines = [
-                ln for ln in (res.stderr or "").splitlines()
-                if "FutureWarning" not in ln
-                and "warnings.warn" not in ln
-                and "ABSL" not in ln
-                and "NotOpenSSLWarning" not in ln
-                and "urllib3" not in ln
-            ]
-            err = "\n".join(err_lines).strip() or (res.stdout or "").strip()
-            return f"⚠️ Error al consultar {canonico}: {err[:600]}"
-        return (res.stdout or "").strip() or "(sin datos)"
-    except subprocess.TimeoutExpired:
-        return f"⚠️ La consulta de {canonico} ha tardado demasiado, reintenta."
+        from script_runner import run_curated_script  # type: ignore
     except Exception as e:
-        return f"⚠️ Fallo lanzando el script: {type(e).__name__}: {e}"
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "estado_jugador.py"),
+        [canonico, str(n)],
+        timeout=60,
+    )
+    if not res.ok:
+        return f"⚠️ Error al consultar {canonico}: {res.salida}"
+    return res.salida
 
 
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
@@ -2748,6 +2735,42 @@ def main():
 
     log.info("Bot arrancado (voz: %s). Escuchando mensajes… (Ctrl+C para parar)",
              "ON" if _WHISPER_OK else "OFF")
+
+    # ── Validación al arrancar: mandar Telegram a Arkaitz con el estado ──
+    # No bloqueamos si falla, pero avisamos si hay algún componente roto.
+    # Esto detecta a tiempo problemas tras reinicio (Sheet sin acceso,
+    # paquetes Python rotos, etc.) en lugar de descubrirlos al usar el bot.
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from health_check import (  # type: ignore
+            run_health_check_quick, format_resultados, all_ok,
+        )
+        _hc = run_health_check_quick()
+        _hc_txt = format_resultados(_hc)
+        if all_ok(_hc):
+            _msg = f"✅ *Bot dev arrancado* — health check OK\n```\n{_hc_txt}\n```"
+        else:
+            _msg = f"⚠️ *Bot dev arrancado con avisos*\n```\n{_hc_txt}\n```"
+        # Mandamos por sendMessage HTTP directo para no depender del polling
+        import urllib.parse as _u
+        import urllib.request as _r
+        _data = _u.urlencode({
+            "chat_id": str(ALLOWED_CHAT_ID),
+            "text": _msg,
+            "parse_mode": "Markdown",
+            "disable_notification": "true",
+        }).encode()
+        _req = _r.Request(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            data=_data, method="POST",
+        )
+        try:
+            _r.urlopen(_req, timeout=20).read()
+        except Exception:
+            pass
+    except Exception as _e:
+        log.warning("health check al arrancar falló: %s", _e)
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

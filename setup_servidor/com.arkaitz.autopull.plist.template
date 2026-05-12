@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Plantilla del LaunchAgent del auto_pull. install.sh genera el .plist
+  final con las rutas absolutas del HOME del usuario (mac u arkaitz).
+  Este fichero queda como referencia/documentación; el real va a
+  ~/Library/LaunchAgents/com.arkaitz.autopull.plist.
+
+  Frecuencia: cada 5 min (StartInterval=300). Reduce a 60 si quieres
+  reaccionar más rápido a un push. Sube a 600 si quieres menos overhead.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arkaitz.autopull</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/Desktop/Arkaitz/setup_servidor/auto_pull.sh</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Desktop/Arkaitz/logs/autopull.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Desktop/Arkaitz/logs/autopull.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+</dict>
+</plist>

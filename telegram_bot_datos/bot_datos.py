@@ -1431,39 +1431,20 @@ def _detectar_intent_estado(prompt: str) -> Optional[Tuple[str, int]]:
 
 
 def _run_estado_jugador(canonico: str, n: int) -> str:
-    """Ejecuta src/estado_jugador.py y devuelve su stdout.
-
-    Usa `sys.executable` para garantizar que se ejecuta con el Python del
-    venv del bot (3.11 con gspread/pandas/numpy<2 ya verificados), no con
-    el /usr/bin/python3 del sistema (que es 3.8 y tiene paquetes viejos).
-    """
-    script = PROJECT_DIR / "src" / "estado_jugador.py"
-    if not script.is_file():
-        return f"⚠️ No encuentro el script de análisis ({script.name})."
+    """Ejecuta src/estado_jugador.py vía el helper común script_runner."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
     try:
-        res = subprocess.run(
-            [sys.executable, str(script), canonico, str(n)],
-            capture_output=True, text=True, timeout=60,
-            cwd=str(PROJECT_DIR),
-            env={**os.environ, "PYTHONWARNINGS": "ignore"},
-        )
-        if res.returncode != 0:
-            # Filtramos warnings ruidosos del stderr
-            err_lines = [
-                ln for ln in (res.stderr or "").splitlines()
-                if "FutureWarning" not in ln
-                and "warnings.warn" not in ln
-                and "ABSL" not in ln
-                and "NotOpenSSLWarning" not in ln
-                and "urllib3" not in ln
-            ]
-            err = "\n".join(err_lines).strip() or (res.stdout or "").strip()
-            return f"⚠️ Error al consultar {canonico}: {err[:600]}"
-        return (res.stdout or "").strip() or "(sin datos)"
-    except subprocess.TimeoutExpired:
-        return f"⚠️ La consulta de {canonico} ha tardado demasiado, reintenta."
+        from script_runner import run_curated_script  # type: ignore
     except Exception as e:
-        return f"⚠️ Fallo lanzando el script: {type(e).__name__}: {e}"
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "estado_jugador.py"),
+        [canonico, str(n)],
+        timeout=60,
+    )
+    if not res.ok:
+        return f"⚠️ Error al consultar {canonico}: {res.salida}"
+    return res.salida
 
 
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
@@ -1669,6 +1650,41 @@ def main():
     app.add_error_handler(on_error)
     log.info("Bot de DATOS arrancado (voz: %s). Ctrl+C para parar.",
              "ON" if _WHISPER_OK else "OFF")
+
+    # ── Validación al arrancar: notificar a Arkaitz (ALLOWED_CHAT_IDS[0]) ──
+    # Solo si hay un fallo, evitamos spam si todo está bien.
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from health_check import (  # type: ignore
+            run_health_check_quick, format_resultados, all_ok,
+        )
+        _hc = run_health_check_quick()
+        if not all_ok(_hc):
+            # Mandar solo cuando algo falla. El bot dev manda siempre, este no.
+            _hc_txt = format_resultados(_hc)
+            _msg = f"⚠️ *Bot DATOS arrancado con avisos*\n```\n{_hc_txt}\n```"
+            # Coger el primer chat autorizado
+            _chats = [c.strip() for c in ALLOWED_CHAT_IDS_ST.split(",") if c.strip()]
+            if _chats and TOKEN:
+                import urllib.parse as _u
+                import urllib.request as _r
+                for _c in _chats[:1]:  # solo el primero
+                    _data = _u.urlencode({
+                        "chat_id": _c, "text": _msg,
+                        "parse_mode": "Markdown",
+                        "disable_notification": "true",
+                    }).encode()
+                    _req = _r.Request(
+                        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                        data=_data, method="POST",
+                    )
+                    try:
+                        _r.urlopen(_req, timeout=20).read()
+                    except Exception:
+                        pass
+    except Exception as _e:
+        log.warning("health check al arrancar falló: %s", _e)
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

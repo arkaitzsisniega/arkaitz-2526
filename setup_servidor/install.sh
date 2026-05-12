@@ -126,6 +126,44 @@ for entry in "${BOTS[@]}"; do
     genera_plist "$label_corto" "$subdir" "$script" || true
 done
 
+# ─── EXTRAS: auto_pull + health_check ──────────────────────────────────
+# Solo se instalan si no se ha pasado un filtro (instalación completa).
+# Si se filtró por un bot concreto, no tocamos los servicios extra.
+if [ -z "$FILTRO" ]; then
+
+instala_extra_plist() {
+    local label_corto="$1"          # autopull, healthcheck
+    local template="$2"             # ruta al .template
+    local label="com.arkaitz.${label_corto}"
+    local plist_path="$LAUNCH_DIR/${label}.plist"
+
+    if [ ! -f "$template" ]; then
+        echo "⚠️  $label_corto: no encuentro la plantilla $template — saltando."
+        return 1
+    fi
+    # Sustituir __HOME__ por $HOME en la plantilla
+    sed "s|__HOME__|${HOME}|g" "$template" > "$plist_path"
+
+    echo "✅ Plist generado: $plist_path"
+    launchctl unload "$plist_path" 2>/dev/null || true
+    launchctl load -w "$plist_path"
+    echo "🚀 Activado: $label_corto"
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# auto_pull: hace git pull cada 5 min y reinicia bots si hay cambios.
+# Asegurar permisos de ejecución del script.
+chmod +x "$SCRIPT_DIR/auto_pull.sh" 2>/dev/null || true
+instala_extra_plist "autopull" \
+    "$SCRIPT_DIR/com.arkaitz.autopull.plist.template" || true
+
+# health_check: cada hora verifica todo y notifica si algo falla.
+instala_extra_plist "healthcheck" \
+    "$SCRIPT_DIR/com.arkaitz.healthcheck.plist.template" || true
+
+fi
+
 echo ""
 echo "Estado:"
 launchctl list | grep arkaitz || echo "  (vacío — revisa los logs)"

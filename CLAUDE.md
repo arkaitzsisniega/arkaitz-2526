@@ -101,6 +101,44 @@ Todos idempotentes, con `--dry-run`, validación, y output con `---MSG---` para 
     RECUP, PARTIDO, PORTEROS, **MATINAL**, **GYM+TEC-TAC**,
     **FISICO+TEC-TAC** (ampliación 29/04 incluida).
 
+### ✅ Cerrados (12 mayo 2026 — sesión maratoniana, ver `docs/PENDIENTES_PROXIMA_OFICINA.md`)
+Cadena de 6 bugs del bot Telegram resueltos + INFRAESTRUCTURA NUEVA:
+
+- `numpy<2` en venvs (audios mudos por incompatibilidad onnxruntime).
+- Sandbox Python del bot dev: auto-prelude con gspread/pd/ss preimportados
+  para que Gemini Lite no rompa con `NameError: gspread`.
+- System prompt con schema EXACTO de cada `_VISTA_*` (antes tenía `…` que
+  ocultaba columnas y Gemini asumía FECHA en `_VISTA_SEMANAL` cuando es
+  `FECHA_LUNES`).
+- `safety_settings=BLOCK_NONE` en ambos bots Y en los 3 scripts `parse_*_voz.py`
+  (Gemini 2.5 Flash bloqueaba apodos del roster con `finish_reason=10`).
+- `max_output_tokens=4096+` en scripts parse_* (Gemini 2.5 thinking tokens
+  consumían el budget y dejaban JSON truncado).
+- Bot ejecuta subprocesses con `sys.executable` (venv del bot) en vez de
+  `/usr/bin/python3` (3.8 del sistema con paquetes viejos).
+- **NEW**: `src/estado_jugador.py` — script CURADO que devuelve análisis
+  profesional de un jugador (carga + histórico + equipo + ACWR + monotonía
+  + wellness + recomendación). Determinista, sin LLM.
+- **NEW**: detector de intent en ambos bots que cortocircuita Gemini para
+  consultas tipo "cómo está X" / "carga últimas N de X" / "estado/fatiga/
+  wellness/resumen de X" → ejecuta el script y devuelve output directo.
+- **NEW**: `src/script_runner.py` — helper común para `subprocess` con
+  `sys.executable`, `PYTHONWARNINGS=ignore`, filtro de stderr ruidoso y
+  manejo automático de `MSG_SEP`.
+- **NEW**: `src/health_check.py` — verifica Sheet/Whisper/Gemini/scripts
+  curados. Se invoca al arrancar cada bot (manda Telegram con el estado)
+  y por cron horario (`com.arkaitz.healthcheck`).
+- **NEW**: `setup_servidor/auto_pull.sh` + LaunchAgent → cada 5 min hace
+  `git pull` y reinicia los bots si hay commits nuevos. Elimina el paso
+  manual de "pull + kickstart" tras cada cambio.
+- **NEW**: `tests/test_smoke.py` + `run_smoke.sh` — tests humo
+  (bots compilan, intent detector funciona, aliases consistentes,
+  estado_jugador devuelve formato esperado).
+- **NEW**: `docs/operaciones_bot.md` — manual operacional completo del
+  sistema (arquitectura, diagnóstico, recetas).
+- Modelo subido en .env de ambos bots: `gemini-2.5-flash-lite` →
+  `gemini-2.5-flash`.
+
 ### 🕐 Pospuesto (por decisión del usuario)
 - Mejorar pestaña Lesiones (el usuario dijo "es mejorable, pero más adelante").
   Temas candidatos: gráfico de días baja por zona, tiempos medios de retorno,

@@ -5,7 +5,7 @@
 set -e
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
 
-for f in com.arkaitz.bot com.arkaitz.bot_datos com.arkaitz.gastos_bot; do
+for f in com.arkaitz.bot com.arkaitz.bot_datos com.arkaitz.gastos_bot com.arkaitz.autopull com.arkaitz.healthcheck; do
     plist="$LAUNCH_DIR/${f}.plist"
     if [ -f "$plist" ]; then
         launchctl unload "$plist" 2>/dev/null || true

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent del health check periódico. Ejecuta health_check.py cada
+  hora (StartInterval=3600). Si algo falla, manda un Telegram al chat
+  autorizado (ALLOWED_CHAT_ID) usando el token del bot dev.
+
+  Si todo está OK, el script no manda nada (no spamea). Solo notifica
+  cuando hay un fallo real (Sheet caído, Whisper roto, etc.).
+
+  IMPORTANTE: usa el Python del venv del bot dev (que tiene gspread/
+  pandas/numpy<2/faster-whisper/google.generativeai), NO el Python del
+  sistema (3.8 con paquetes viejos).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arkaitz.healthcheck</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/Desktop/Arkaitz/telegram_bot/venv/bin/python</string>
+        <string>__HOME__/Desktop/Arkaitz/src/health_check.py</string>
+        <string>--notificar-si-falla</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__/Desktop/Arkaitz</string>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Desktop/Arkaitz/logs/healthcheck.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Desktop/Arkaitz/logs/healthcheck.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PYTHONWARNINGS</key>
+        <string>ignore</string>
+    </dict>
+</dict>
+</plist>

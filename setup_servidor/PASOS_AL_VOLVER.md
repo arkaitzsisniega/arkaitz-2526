@@ -1,236 +1,115 @@
-# 🚀 Pasos para activar bot dev + gastos_bot en el Mac viejo
+# 🚀 Pasos para activar el setup completo en el server
 
-Cuando vuelvas, sigue esta guía **paso a paso**. Cada bloque es un pegote
-en el SSH del Mac viejo. Tiempo total ~20-30 min (la mayoría espera).
-
----
-
-## 0. Prerequisitos (verificación)
-
-```bash
-ssh arkaitz@10.48.0.113
-```
-
-Si pide contraseña, la pones. Una vez dentro:
-
-```bash
-launchctl list | grep arkaitz 2>/dev/null  # debería estar vacío (ya no usamos launchd)
-ps aux | grep bot_datos.py | grep -v grep   # debería listar el bot_datos corriendo
-```
-
-Si bot_datos no está corriendo, primero arregla eso:
-```bash
-cd ~/Desktop/Arkaitz/telegram_bot_datos
-nohup ./venv/bin/python bot_datos.py >> ~/Desktop/Arkaitz/logs/bot_datos.log 2>&1 &
-disown
-```
+> Actualizado **12 mayo 2026**. Reemplaza el sistema antiguo basado en cron
+> por **launchd** (LaunchAgents) + `auto_pull` + `health_check`.
 
 ---
 
-## 1. Pull el código nuevo
+## TL;DR — primera vez
+
+```bash
+ssh arkaitz@<ip-del-server>
+cd ~/Desktop/Arkaitz
+git pull
+./setup_servidor/install.sh
+launchctl list | grep arkaitz   # debe haber 5 entradas
+```
+
+Eso es todo. A partir de ahí:
+- Los **3 bots** corren 24/7 (`KeepAlive=true`).
+- **auto_pull** hace `git pull` cada 5 min y reinicia bots si hay cambios.
+- **health_check** comprueba cada hora todo el sistema y avisa por Telegram si algo falla.
+
+---
+
+## Detalle paso a paso
+
+### 0. Prerequisitos (una vez)
+
+- Repo clonado en `~/Desktop/Arkaitz/`.
+- `google_credentials.json` en la raíz del repo.
+- Cada bot con su `.env` configurado (`TELEGRAM_BOT_TOKEN`, `ALLOWED_CHAT_ID`/`ALLOWED_CHAT_IDS`, `GEMINI_API_KEY`, `GEMINI_MODEL`).
+- Cada bot con su `venv/` y dependencias instaladas:
+
+```bash
+cd ~/Desktop/Arkaitz/telegram_bot && ./venv/bin/pip install -r requirements.txt
+cd ~/Desktop/Arkaitz/telegram_bot_datos && ./venv/bin/pip install -r requirements.txt
+cd ~/Desktop/Arkaitz/gastos_bot && ./venv/bin/pip install -r requirements.txt
+```
+
+⚠️ **Importante**: `numpy<2` en los venvs de telegram_bot y telegram_bot_datos
+(faster-whisper / onnxruntime 1.16.3 no son compatibles con numpy 2.x):
+
+```bash
+~/Desktop/Arkaitz/telegram_bot/venv/bin/pip install "numpy<2"
+~/Desktop/Arkaitz/telegram_bot_datos/venv/bin/pip install "numpy<2"
+```
+
+### 1. Arrancar el setup
 
 ```bash
 cd ~/Desktop/Arkaitz
-git pull
-git log --oneline -3
+./setup_servidor/install.sh
 ```
 
-Deberías ver arriba commits `docs: arquitectura nueva del servidor 24/7...` y
-`bots: migra dev y gastos a Gemini, anade watchdog comun`.
+Eso genera y carga 5 LaunchAgents:
+- `com.arkaitz.bot` — bot dev (Alfred)
+- `com.arkaitz.bot_datos` — bot de datos (cuerpo técnico)
+- `com.arkaitz.gastos_bot` — bot de gastos
+- `com.arkaitz.autopull` — `git pull` cada 5 min + reinicio si hay cambios
+- `com.arkaitz.healthcheck` — verificación horaria con notificación si falla
+
+### 2. Verificar
+
+```bash
+launchctl list | grep arkaitz
+```
+
+Debe mostrar 5 servicios con PIDs reales (no `-`).
+
+```bash
+tail -20 ~/Desktop/Arkaitz/logs/bot.err.log
+```
+
+Debe ver "Bot arrancado..." y "Application started" reciente.
+
+### 3. Probar desde móvil
+
+- `@InterFS_bot` (Alfred) → debe mandarte automáticamente al arrancar un mensaje "✅ Bot dev arrancado — health check OK".
+- `@InterFS_datos_bot` → mandar "cómo está Pirata" → debe responder con el bloque profesional del script `estado_jugador.py`.
 
 ---
 
-## 2. Añadir `GEMINI_API_KEY` a los 2 .env que faltan
+## Comandos útiles del día a día
 
-El `.env` de `telegram_bot_datos` ya tiene la key. Falta en los otros dos:
-
-### Bot dev (telegram_bot/.env)
-
-```bash
-nano ~/Desktop/Arkaitz/telegram_bot/.env
-```
-
-Al final del archivo (línea nueva):
-```
-GEMINI_API_KEY=AIza...tu_key_completa...
-GEMINI_MODEL=gemini-2.5-flash-lite
-```
-
-(Usa la **misma key** que ya tienes en bot_datos. Funciona para los 3 bots.)
-
-`Ctrl+O`, Enter, `Ctrl+X`.
-
-### Gastos bot (gastos_bot/.env)
-
-```bash
-nano ~/Desktop/Arkaitz/gastos_bot/.env
-```
-
-Al final, igual:
-```
-GEMINI_API_KEY=AIza...tu_key_completa...
-GEMINI_MODEL=gemini-2.5-flash-lite
-```
-
-`Ctrl+O`, Enter, `Ctrl+X`.
+| Acción | Comando |
+|---|---|
+| Ver estado de los 5 servicios | `launchctl list \| grep arkaitz` |
+| Reiniciar un bot manualmente | `launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot` |
+| Forzar un git pull ahora mismo | `~/Desktop/Arkaitz/setup_servidor/auto_pull.sh` |
+| Ejecutar health check ahora | `~/Desktop/Arkaitz/telegram_bot/venv/bin/python ~/Desktop/Arkaitz/src/health_check.py` |
+| Ver log de un bot | `tail -50 ~/Desktop/Arkaitz/logs/bot.err.log` |
+| Ver log del auto_pull | `tail -30 ~/Desktop/Arkaitz/logs/autopull.log` |
+| Ver log del health_check | `tail -30 ~/Desktop/Arkaitz/logs/healthcheck.out.log` |
+| Desinstalar todo | `~/Desktop/Arkaitz/setup_servidor/uninstall.sh` |
+| Tests humo del proyecto | `~/Desktop/Arkaitz/tests/run_smoke.sh` |
 
 ---
 
-## 3. Instalar dependencias Python nuevas en los 2 venvs
+## ⚠️ Si algo falla
 
-### Bot dev
+1. **Comprueba el log del bot** (`tail -50 ~/Desktop/Arkaitz/logs/bot.err.log`).
+2. **Ejecuta el health check manualmente** para ver qué pieza está rota:
+   ```bash
+   ~/Desktop/Arkaitz/telegram_bot/venv/bin/python ~/Desktop/Arkaitz/src/health_check.py
+   ```
+3. Consulta `docs/operaciones_bot.md` para los diagnósticos típicos (Whisper, Gemini, 409 Conflict, etc.).
 
-```bash
-cd ~/Desktop/Arkaitz/telegram_bot
-./venv/bin/pip install google-generativeai gspread pandas openpyxl google-auth
-```
-
-⏱ ~3-5 min. Cuando vuelva el prompt, sigue.
-
-### Gastos bot
-
-```bash
-cd ~/Desktop/Arkaitz/gastos_bot
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install google-generativeai gspread google-auth python-dotenv python-telegram-bot faster-whisper
-```
-
-⏱ Más lento la primera vez (5-15 min) si compila Whisper otra vez.
-
----
-
-## 4. Probar arrancar el bot dev manualmente
+Si nada funciona y necesitas el bot para una demo / partido inminente,
+ejecuta los **scripts curados a mano**:
 
 ```bash
-cd ~/Desktop/Arkaitz/telegram_bot
-./venv/bin/python bot.py
+~/Desktop/Arkaitz/telegram_bot/venv/bin/python ~/Desktop/Arkaitz/src/estado_jugador.py PIRATA 10
 ```
 
-Verás:
-```
-[INFO] Backend LLM: Gemini (gemini-2.5-flash-lite)
-[INFO] Proyecto: /Users/arkaitz/Desktop/Arkaitz
-[INFO] Autorizado chat_id: 6357476517
-[INFO] Bot arrancado (voz: ON). Escuchando mensajes...
-[INFO] Application started
-```
-
-**Desde el móvil**, manda al bot dev `@InterFS_bot` un mensaje:
-> "hola, ¿estás vivo?"
-
-Si responde algo, va bien.
-
-Para probar tools: `/nuevo` y luego "léeme la primera línea del CLAUDE.md".
-Si invoca `read_file` y devuelve contenido, las tools funcionan.
-
-`Ctrl+C` para parar el bot manual cuando hayas terminado de probar.
-
----
-
-## 5. Probar arrancar el gastos_bot manualmente
-
-```bash
-cd ~/Desktop/Arkaitz/gastos_bot
-./venv/bin/python bot.py
-```
-
-Verás líneas similares de arranque.
-
-Manda al `@GastosComunes_ArkaitzLis_bot` algo como:
-> "12 euros en el mercado"
-
-Debería apuntarlo. `Ctrl+C` para parar.
-
----
-
-## 6. Configurar cron @reboot para los 3 bots + watchdog
-
-El `bot_datos` ya tiene su `@reboot` puesto. Vamos a sumar los otros 2 + el
-watchdog que comprueba cada minuto si los bots viven.
-
-```bash
-(crontab -l 2>/dev/null | grep -v -E 'bot_datos.py|telegram_bot/bot.py|gastos_bot/bot.py|watchdog.sh'
-echo '@reboot sleep 30 && cd ~/Desktop/Arkaitz/telegram_bot_datos && nohup ./venv/bin/python bot_datos.py >> ~/Desktop/Arkaitz/logs/bot_datos.log 2>&1'
-echo '@reboot sleep 35 && cd ~/Desktop/Arkaitz/telegram_bot && nohup ./venv/bin/python bot.py >> ~/Desktop/Arkaitz/logs/bot.log 2>&1'
-echo '@reboot sleep 40 && cd ~/Desktop/Arkaitz/gastos_bot && nohup ./venv/bin/python bot.py >> ~/Desktop/Arkaitz/logs/gastos_bot.log 2>&1'
-echo '* * * * * /Users/arkaitz/Desktop/Arkaitz/setup_servidor/watchdog.sh >> ~/Desktop/Arkaitz/logs/watchdog.log 2>&1'
-) | crontab -
-```
-
-Verifica:
-```bash
-crontab -l
-```
-
-Tienes que ver 4 líneas (3 @reboot + 1 watchdog). Pega la salida si quieres
-que la verifique.
-
----
-
-## 7. Lanzar los bots dev y gastos AHORA (sin esperar a reiniciar)
-
-```bash
-cd ~/Desktop/Arkaitz/telegram_bot
-nohup ./venv/bin/python bot.py >> ~/Desktop/Arkaitz/logs/bot.log 2>&1 &
-disown
-
-cd ~/Desktop/Arkaitz/gastos_bot
-nohup ./venv/bin/python bot.py >> ~/Desktop/Arkaitz/logs/gastos_bot.log 2>&1 &
-disown
-
-sleep 5
-ps aux | grep -E "bot.py|bot_datos.py" | grep -v grep
-```
-
-Deberías ver **3 procesos Python**, uno por cada bot.
-
----
-
-## 8. Cierra Terminal y prueba todo desde el móvil
-
-Cierra la sesión SSH y la app Terminal. Desde el móvil:
-
-- `@InterFS_bot` (dev) → "hola, ¿qué tal?"
-- `@InterFS_datos_bot` → "¿cuántas filas tiene la hoja BORG?"
-- `@GastosComunes_ArkaitzLis_bot` → "5 euros en café"
-
-Si los 3 responden → 🎉 servidor 24/7 con los 3 bots funcionando.
-
----
-
-## 9. Apaga el portátil de oficina
-
-Cuando confirmes que va todo, ya puedes apagar el portátil. El Mac viejo
-sigue solo.
-
----
-
-## ⚠️ Si algo va mal
-
-```bash
-# Ver el log del bot que falla:
-tail -50 ~/Desktop/Arkaitz/logs/bot.log         # bot dev
-tail -50 ~/Desktop/Arkaitz/logs/bot_datos.log   # bot datos
-tail -50 ~/Desktop/Arkaitz/logs/gastos_bot.log  # gastos
-tail -50 ~/Desktop/Arkaitz/logs/watchdog.log    # watchdog
-
-# Ver qué procesos Python corren:
-ps aux | grep bot.py | grep -v grep
-
-# Matar un bot (el watchdog lo relanzará en <1 min):
-pkill -f telegram_bot/bot.py
-pkill -f telegram_bot_datos/bot_datos.py
-pkill -f gastos_bot/bot.py
-```
-
----
-
-## 📊 Resumen de la arquitectura final
-
-| Bot | Telegram | Modelo Gemini | Tools | Quién lo usa |
-|---|---|---|---|---|
-| dev | @InterFS_bot | Flash-Lite | python+bash+read+write+edit | Solo Arkaitz |
-| datos | @InterFS_datos_bot | Flash-Lite | python+bash+read | Cuerpo técnico (5) |
-| gastos | @GastosComunes_ArkaitzLis_bot | Flash-Lite (clasificador JSON) | — | Arkaitz + Lis |
-
-Coste total: **0€/mes** (todo dentro del free tier de Gemini, ~1500 req/día por bot).
+Eso te da el análisis del jugador sin Telegram, sin Gemini, solo Python + Sheet.
