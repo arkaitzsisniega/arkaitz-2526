@@ -20,7 +20,7 @@ export default function PartidoPage() {
     play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
-    setDuracionesParte, finalizarPartido,
+    setDuracionesParte, finalizarPartido, retrocederParte,
   } = usePartido();
 
   // Estado UI
@@ -104,6 +104,17 @@ export default function PartidoPage() {
           {!corriendo
             ? <button onClick={play} className="px-5 py-3 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">▶ INICIAR</button>
             : <button onClick={pausa} className="px-5 py-3 bg-orange-700 hover:bg-orange-600 rounded-lg text-lg font-bold">⏸ PAUSAR</button>}
+          <button
+            onClick={() => {
+              if (p !== "1T" && confirm(`¿Volver a la parte anterior? (estás en ${p})`)) {
+                retrocederParte();
+              }
+            }}
+            disabled={p === "1T"}
+            className="px-2 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm"
+            title="Volver a la parte anterior (deshacer ⏭)">
+            ⏮
+          </button>
           <button onClick={() => setModalCambioParte(true)}
             className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
             ⏭ parte

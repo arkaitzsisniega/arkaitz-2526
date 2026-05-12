@@ -882,6 +882,64 @@ export function usePartido() {
   }
 
   /**
+   * Retrocede una parte (2T→1T, PR1→2T, PR2→PR1). Útil para deshacer
+   * un avance accidental. Comportamiento:
+   *   - Pausa el reloj si corre.
+   *   - Cambia parteActual a la anterior.
+   *   - Reinicia segundosParte=0 (la parte "vuelve a empezar" para el
+   *     cronómetro). Los `porParte` ya consolidados se mantienen.
+   *   - Reinicia segTurnoActual=0 para los jugadores en pista (mismo
+   *     trato que en avanzarParte).
+   *
+   * NOTA: el reloj de la parte anterior se reinicia a 0. Si necesitas
+   * volver al minuto exacto donde estabas, usa los botones ±1m/±10s
+   * después de retroceder.
+   */
+  function retrocederParte() {
+    const orden: ParteId[] = ["1T", "2T", "PR1", "PR2"];
+    setPartido((prev) => {
+      const idx = orden.indexOf(prev.cronometro.parteActual);
+      if (idx <= 0) return prev;  // ya está en 1T, nada que retroceder
+      let p = prev;
+      if (p.cronometro.ultimoStart != null) {
+        const ahora = Date.now();
+        const transcurrido = (ahora - p.cronometro.ultimoStart) / 1000;
+        const tiempos = { ...p.tiempos };
+        const parte = p.cronometro.parteActual;
+        for (const nombre of p.enPista) {
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaTurno(t, parte);
+        }
+        for (const nombre of Object.keys(tiempos)) {
+          if (p.enPista.includes(nombre)) continue;
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaDescanso(t);
+        }
+        p = {
+          ...p,
+          cronometro: {
+            ...p.cronometro,
+            segundosParte: p.cronometro.segundosParte + transcurrido,
+            ultimoStart: null,
+          },
+          tiempos,
+        };
+      }
+      const partePrev = orden[idx - 1];
+      const tiempos = { ...p.tiempos };
+      for (const nombre of p.enPista) {
+        const t = tiempos[nombre];
+        if (t) tiempos[nombre] = { ...t, segTurnoActual: 0, turnoStart: null };
+      }
+      return {
+        ...p,
+        cronometro: { parteActual: partePrev, segundosParte: 0, ultimoStart: null },
+        tiempos,
+      };
+    });
+  }
+
+  /**
    * Cambia la duración de una o varias partes en la config en CALIENTE.
    * Útil para configurar la prórroga ("¿De cuántos minutos?") tras un
    * empate al final de 2T. minutos=0 significa "no se juega esa parte".
@@ -1007,6 +1065,6 @@ export function usePartido() {
     iniciarPartido, play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual, reset,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
-    setDuracionesParte, finalizarPartido,
+    setDuracionesParte, finalizarPartido, retrocederParte,
   };
 }
