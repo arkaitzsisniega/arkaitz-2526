@@ -100,17 +100,21 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
     Z
   `.trim();
 
-  // Si el atacante va hacia la izquierda, rotamos el SVG 180° con CSS.
-  // Esto invierte AMBOS ejes (espejo total): la portería rival queda
-  // físicamente a la izquierda y la "banda izquierda del atacante" (A3)
-  // queda en la parte INFERIOR del dibujo, que es lo correcto desde la
-  // perspectiva del banquillo cuando Inter ataca hacia la izquierda.
-  // Los clicks siguen funcionando porque CSS transforms no afectan al
-  // hit testing interno del SVG.
+  // Si el atacante va hacia la izquierda, rotamos GEOMETRICAMENTE el SVG
+  // 180° (con <g transform> SVG, no CSS) y contra-rotamos cada texto para
+  // que siga legible. Así A3 queda físicamente en la banda inferior (que
+  // es la izquierda del atacante cuando ataca hacia la izquierda) y los
+  // textos "A1", "A11" etc. se siguen leyendo del derecho.
   const flip = direccion === "izq";
+  const gTransform = flip ? `rotate(180 ${W / 2} ${H / 2})` : undefined;
+  // Helper para contra-rotar un texto ubicado en (x, y).
+  const tT = (x: number, y: number) =>
+    flip ? `rotate(180 ${x} ${y})` : undefined;
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none"
-      style={{ maxHeight: "60vh", transform: flip ? "rotate(180deg)" : undefined }}>
+      style={{ maxHeight: "60vh" }}>
+      <g transform={gTransform}>
       {/* Césped */}
       <rect x="0" y="0" width={W} height={H} fill="#1b5e20" rx="8" />
 
@@ -134,10 +138,12 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A11")} fillOpacity={opZona("A11")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={X_MEDIA / 2} y={Y_CENTRO + 18}
+          transform={tT(X_MEDIA / 2, Y_CENTRO + 18)}
           textAnchor="middle" fontSize="56" fontWeight="bold"
           fill={sel("A11") ? "#ffffff" : "#d4d4d8"} opacity="0.85"
           style={{ pointerEvents: "none" }}>A11</text>
         <text x={X_MEDIA / 2} y={Y_CENTRO + 42}
+          transform={tT(X_MEDIA / 2, Y_CENTRO + 42)}
           textAnchor="middle" fontSize="11"
           fill={sel("A11") ? "#ffffff" : "#a1a1aa"} opacity="0.7"
           style={{ pointerEvents: "none" }}>todo el medio campo defensivo</text>
@@ -149,6 +155,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A3")} fillOpacity={opZona("A3")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={X_10 + (W - X_10) / 2} y={BANDA_SUP_Y / 2 + 5}
+          transform={tT(X_10 + (W - X_10) / 2, BANDA_SUP_Y / 2 + 5)}
           textAnchor="middle" fontSize="14" fontWeight="bold"
           fill={sel("A3") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A3</text>
@@ -160,6 +167,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A6")} fillOpacity={opZona("A6")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={X_10 + (W - X_10) / 2} y={BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5}
+          transform={tT(X_10 + (W - X_10) / 2, BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5)}
           textAnchor="middle" fontSize="14" fontWeight="bold"
           fill={sel("A6") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A6</text>
@@ -171,6 +179,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A4")} fillOpacity={opZona("A4")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_10 + AREA_BORDE_X) / 2} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 6}
+          transform={tT((X_10 + AREA_BORDE_X) / 2, (BANDA_SUP_Y + Y_CENTRO) / 2 + 6)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A4") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A4</text>
@@ -182,6 +191,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A5")} fillOpacity={opZona("A5")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_10 + AREA_BORDE_X) / 2} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 6}
+          transform={tT((X_10 + AREA_BORDE_X) / 2, (Y_CENTRO + BANDA_INF_Y) / 2 + 6)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A5") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A5</text>
@@ -193,6 +203,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A7")} fillOpacity={opZona("A7")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_MEDIA + X_10) / 2} y={BANDA_SUP_Y / 2 + 5}
+          transform={tT((X_MEDIA + X_10) / 2, BANDA_SUP_Y / 2 + 5)}
           textAnchor="middle" fontSize="14" fontWeight="bold"
           fill={sel("A7") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A7</text>
@@ -204,6 +215,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A10")} fillOpacity={opZona("A10")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_MEDIA + X_10) / 2} y={BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5}
+          transform={tT((X_MEDIA + X_10) / 2, BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5)}
           textAnchor="middle" fontSize="14" fontWeight="bold"
           fill={sel("A10") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A10</text>
@@ -215,6 +227,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A8")} fillOpacity={opZona("A8")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_MEDIA + X_10) / 2} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 8}
+          transform={tT((X_MEDIA + X_10) / 2, (BANDA_SUP_Y + Y_CENTRO) / 2 + 8)}
           textAnchor="middle" fontSize="22" fontWeight="bold"
           fill={sel("A8") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A8</text>
@@ -226,6 +239,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           fill={colorZona("A9")} fillOpacity={opZona("A9")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
         <text x={(X_MEDIA + X_10) / 2} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 8}
+          transform={tT((X_MEDIA + X_10) / 2, (Y_CENTRO + BANDA_INF_Y) / 2 + 8)}
           textAnchor="middle" fontSize="22" fontWeight="bold"
           fill={sel("A9") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A9</text>
@@ -236,6 +250,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
         <path d={pathA1}
           fill={colorZona("A1")} fillOpacity={opZona("A1")} />
         <text x={W - 50} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 5}
+          transform={tT(W - 50, (BANDA_SUP_Y + Y_CENTRO) / 2 + 5)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A1") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A1</text>
@@ -246,6 +261,7 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
         <path d={pathA2}
           fill={colorZona("A2")} fillOpacity={opZona("A2")} />
         <text x={W - 50} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 5}
+          transform={tT(W - 50, (Y_CENTRO + BANDA_INF_Y) / 2 + 5)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A2") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A2</text>
@@ -271,10 +287,16 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
         <rect x={W - 4} y={POSTE_SUP_Y} width="4" height={POSTE_INF_Y - POSTE_SUP_Y} fill="#ffffff" />
       </g>
 
-      {/* Etiqueta del atacante */}
-      <text x="8" y="18" textAnchor="start" fontSize="11"
-        fill="#ffffff" opacity="0.55">
-        {nombreAtacante ? `${nombreAtacante} ataca →` : "Atacante →"}
+      </g>{/* fin del grupo rotable */}
+
+      {/* Etiqueta del atacante FUERA del grupo rotado: siempre legible,
+          y la flecha apunta hacia donde realmente está atacando. */}
+      <text x={flip ? W - 8 : 8} y="18"
+        textAnchor={flip ? "end" : "start"} fontSize="11"
+        fill="#ffffff" opacity="0.65">
+        {flip
+          ? `← ${nombreAtacante ?? "Atacante"} ataca`
+          : `${nombreAtacante ?? "Atacante"} ataca →`}
       </text>
     </svg>
   );
