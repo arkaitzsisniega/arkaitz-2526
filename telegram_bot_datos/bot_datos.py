@@ -204,17 +204,14 @@ Los datos están en un Google Sheet. **Usa SIEMPRE la herramienta `python`**
 + abrir Sheet + leer + filtrar + imprimir). NO partas en varias llamadas
 porque cada una arranca un proceso nuevo y pierdes la conexión.
 
-Plantilla base — copia y pega, cambia lo de `# >>>`:
+⚡ El sandbox YA TIENE PREIMPORTADOS: `pd` (pandas), `gspread`,
+`ss` (Spreadsheet ya abierto). NO escribas imports ni creds.
+Escribe SOLO la lógica:
 
 ```python
-import pandas as pd, gspread
-from google.oauth2.service_account import Credentials
-creds = Credentials.from_service_account_file(
-    '{PROJECT_DIR}/google_credentials.json',
-    scopes=['https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'])
-ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
-# >>> tu código aquí
+df = pd.DataFrame(ss.worksheet('NOMBRE').get_all_records(
+    value_render_option=gspread.utils.ValueRenderOption.unformatted))
+# >>> tu lógica aquí
 ```
 
 ⚠️ **IMPORTANTE — value_render_option=UNFORMATTED**:
@@ -874,6 +871,29 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
                     "_sa_ro.Credentials.from_service_account_file = _readonly_from_file\n"
                     "del _orig_from_file_ro, _readonly_from_file, _sa_ro\n"
                     "\n"
+                )
+
+            # ── Auto-prelude del Sheet ──
+            # Si el código menciona el Sheet, le inyectamos imports + ss ya abierto
+            # para que Gemini no se olvide de los imports (atajo típico de 2.5 Flash Lite).
+            needs_sheet = any(
+                k in code
+                for k in ("ss.", "gspread", "creds", "gc.open", "from google.oauth2")
+            )
+            if needs_sheet:
+                preludio += (
+                    "# --- Auto-prelude inyectado por el bot ---\n"
+                    "import pandas as pd\n"
+                    "import gspread\n"
+                    "from google.oauth2.service_account import Credentials\n"
+                    "_creds = Credentials.from_service_account_file(\n"
+                    f"    {repr(str(PROJECT_DIR / 'google_credentials.json'))},\n"
+                    "    scopes=['https://www.googleapis.com/auth/spreadsheets',\n"
+                    "            'https://www.googleapis.com/auth/drive'])\n"
+                    "_gc = gspread.authorize(_creds)\n"
+                    "ss = _gc.open('Arkaitz - Datos Temporada 2526')\n"
+                    "creds, gc = _creds, _gc\n"
+                    "# --- Fin del prelude ---\n\n"
                 )
 
             # Pasamos el código por stdin para evitar escapado de shell

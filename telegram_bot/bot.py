@@ -322,15 +322,18 @@ Esquema clave (verificado mayo 2026):
   SEMAFORO_WELLNESS, SEMAFORO_GLOBAL, ALERTAS_ACTIVAS
 - _VISTA_RECUENTO: asistencia: SESIONES_CON_DATOS, EST_S/A/L/N/D/NC
 
-Plantilla Python para consultar el Sheet:
+⚡ MUY IMPORTANTE — SANDBOX PYTHON PARA EL SHEET ⚡
+El sandbox Python YA TIENE PREIMPORTADOS y listos para usar:
+  - `pd` (pandas)
+  - `gspread`
+  - `ss` ← objeto Spreadsheet ya abierto ("Arkaitz - Datos Temporada 2526")
+  - `creds`, `gc` (por si los necesitas)
+
+NO escribas `import gspread`, NO escribas `Credentials.from_service_account_file(...)`,
+NO escribas `creds = ...`. Solo usa `ss.worksheet(...)` directamente.
+
+Plantilla MÍNIMA (escribe solo lo de debajo, sin imports ni creds):
 ```python
-import pandas as pd, gspread
-from google.oauth2.service_account import Credentials
-creds = Credentials.from_service_account_file(
-    '{PROJECT_DIR}/google_credentials.json',
-    scopes=['https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'])
-ss = gspread.authorize(creds).open('Arkaitz - Datos Temporada 2526')
 df = pd.DataFrame(ss.worksheet('NOMBRE_HOJA').get_all_records(
     value_render_option=gspread.utils.ValueRenderOption.unformatted))
 # ⚠️ SIEMPRE con value_render_option=UNFORMATTED: sin esto los números
@@ -634,12 +637,37 @@ def _resolve_path(p: str) -> Path:
     return path.resolve()
 
 
+_PY_PRELUDIO_GSHEET = (
+    "# --- Auto-prelude inyectado por el bot (NO lo escribió el modelo) ---\n"
+    "import pandas as pd\n"
+    "import gspread\n"
+    "from google.oauth2.service_account import Credentials\n"
+    "_creds = Credentials.from_service_account_file(\n"
+    f"    {repr(str(PROJECT_DIR / 'google_credentials.json'))},\n"
+    "    scopes=['https://www.googleapis.com/auth/spreadsheets',\n"
+    "            'https://www.googleapis.com/auth/drive'])\n"
+    "_gc = gspread.authorize(_creds)\n"
+    "ss = _gc.open('Arkaitz - Datos Temporada 2526')\n"
+    "# Aliases por compatibilidad con código que el modelo ya conozca:\n"
+    "creds, gc = _creds, _gc\n"
+    "# --- Fin del prelude ---\n"
+)
+
 def _exec_tool(name: str, args: Dict[str, Any]) -> str:
     try:
         if name == "python":
             code = args.get("code", "")
             if not code.strip():
                 return "ERROR: código vacío."
+            # Si el código menciona el Sheet (ss, gspread, creds, gc.open…),
+            # inyectamos el prelude para que no falle por imports ni creds
+            # olvidados (típico atajo de Gemini Lite).
+            needs_sheet = any(
+                k in code
+                for k in ("ss.", "gspread", "creds", "gc.open", "from google.oauth2")
+            )
+            if needs_sheet:
+                code = _PY_PRELUDIO_GSHEET + "\n" + code
             result = subprocess.run(
                 [sys.executable], input=code,
                 capture_output=True, text=True,
