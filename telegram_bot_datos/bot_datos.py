@@ -1097,10 +1097,21 @@ async def _run_gemini(chat_id: int, prompt: str, continue_session: bool = True,
     hoy_iso = _dt.date.today().isoformat()
     system_eff = SYSTEM_PROMPT.replace("__HOY__", hoy_iso)
 
+    # Safety: deshabilitamos los filtros (uso interno club, datos
+    # deportivos neutros, falsos positivos frecuentes con apodos como
+    # "Pirata" + "fatiga"/"carga").
+    _safety_off = [
+        {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+
     model = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
         system_instruction=system_eff,
         tools=TOOLS_BOT_DATOS,
+        safety_settings=_safety_off,
     )
 
     progress_sent = False
