@@ -907,11 +907,18 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             # ── Auto-prelude del Sheet ──
             # Si el código menciona el Sheet, le inyectamos imports + ss ya abierto
             # para que Gemini no se olvide de los imports (atajo típico de 2.5 Flash Lite).
+            # Pero si el código YA tiene imports completos, NO inyectamos (sería
+            # duplicar la llamada a Sheets/Drive y a veces falla por throttle).
             needs_sheet = any(
                 k in code
                 for k in ("ss.", "gspread", "creds", "gc.open", "from google.oauth2")
             )
-            if needs_sheet:
+            has_full_imports = (
+                "from google.oauth2" in code
+                and "from_service_account_file" in code
+                and "gspread.authorize" in code
+            )
+            if needs_sheet and not has_full_imports:
                 preludio += (
                     "# --- Auto-prelude inyectado por el bot ---\n"
                     "import pandas as pd\n"

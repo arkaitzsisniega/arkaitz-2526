@@ -708,11 +708,19 @@ def _exec_tool(name: str, args: Dict[str, Any]) -> str:
             # Si el código menciona el Sheet (ss, gspread, creds, gc.open…),
             # inyectamos el prelude para que no falle por imports ni creds
             # olvidados (típico atajo de Gemini Lite).
+            # PERO si el código YA TIENE los imports completos, no inyectamos
+            # el prelude (sería duplicar 2 llamadas a Sheets/Drive API y a
+            # veces falla por throttle).
             needs_sheet = any(
                 k in code
                 for k in ("ss.", "gspread", "creds", "gc.open", "from google.oauth2")
             )
-            if needs_sheet:
+            has_full_imports = (
+                "from google.oauth2" in code
+                and "from_service_account_file" in code
+                and "gspread.authorize" in code
+            )
+            if needs_sheet and not has_full_imports:
                 code = _PY_PRELUDIO_GSHEET + "\n" + code
             result = subprocess.run(
                 [sys.executable], input=code,
@@ -977,7 +985,7 @@ async def _run_gemini(prompt: str, continue_session: bool = True,
                             log.info("[%s] >>> %s args=%s", chat_id, fc.name, str(args)[:200])
                         result = await asyncio.to_thread(_exec_tool, fc.name, args)
                         log.info("[%s] <<< %s (%d chars):\n%s",
-                                 chat_id, fc.name, len(result), result[:600])
+                                 chat_id, fc.name, len(result), result[:3000])
                         tool_response_parts.append({
                             "function_response": {
                                 "name": fc.name,
