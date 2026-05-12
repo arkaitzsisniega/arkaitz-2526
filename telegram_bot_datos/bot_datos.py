@@ -1364,6 +1364,93 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
 
+def _detectar_intent_estado(prompt: str) -> Optional[Tuple[str, int]]:
+    """Detecta si el prompt es del tipo 'estado/carga/qué tal de JUGADOR'.
+
+    Devuelve (canónico, N_sesiones) si lo detecta, None si no.
+    Cuando detecta, el bot ejecuta directamente `estado_jugador.py` sin
+    pasar por Gemini (más rápido y robusto: zero LLM, zero safety filters).
+    """
+    if not prompt:
+        return None
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+
+    # Normalizar: minúsculas, sin acentos
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+
+    # Triggers: palabras que indican intent de "estado del jugador"
+    triggers = (
+        "como esta", "como va", "que tal", "estado de", "estado ",
+        "carga ", "fatiga", "borg", "minutos de", "wellness de",
+        "resumen de", "cuentame de", "como anda",
+    )
+    if not any(t in p for t in triggers):
+        return None
+
+    # Buscar nombre del jugador (tokenizado por espacios y signos)
+    tokens = re.findall(r"[a-z0-9]+", p)
+    canonico: Optional[str] = None
+
+    # Construir mapa de candidatos: aliases + canónicos normalizados.
+    candidatos: Dict[str, str] = {}
+    for canon in ROSTER_CANONICO:
+        candidatos[canon.lower()] = canon
+    for ali, canon in ALIASES_JUGADOR.items():
+        ali_low = ali.lower().replace(".", "").replace(" ", "")
+        candidatos[ali_low] = canon
+        for w in ali.lower().split():
+            w_clean = w.replace(".", "")
+            if len(w_clean) >= 4:  # evita matches de "j", "de", etc.
+                candidatos.setdefault(w_clean, canon)
+
+    for tok in tokens:
+        if tok in candidatos:
+            canonico = candidatos[tok]
+            break
+    if canonico is None:
+        return None
+
+    # N de sesiones (default 10)
+    n = 10
+    m = re.search(r"ultim[ao]s?\s+(\d+)", p)
+    if not m:
+        m = re.search(r"(\d+)\s*sesiones?", p)
+    if m:
+        try:
+            n = max(1, min(50, int(m.group(1))))
+        except ValueError:
+            pass
+
+    return (canonico, n)
+
+
+def _run_estado_jugador(canonico: str, n: int) -> str:
+    """Ejecuta src/estado_jugador.py y devuelve su stdout."""
+    script = PROJECT_DIR / "src" / "estado_jugador.py"
+    if not script.is_file():
+        return f"⚠️ No encuentro el script de análisis ({script.name})."
+    try:
+        res = subprocess.run(
+            ["/usr/bin/python3", str(script), canonico, str(n)],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(PROJECT_DIR),
+        )
+        if res.returncode != 0:
+            err = (res.stderr or res.stdout or "").strip()
+            return f"⚠️ Error al consultar {canonico}: {err[:300]}"
+        return (res.stdout or "").strip() or "(sin datos)"
+    except subprocess.TimeoutExpired:
+        return f"⚠️ La consulta de {canonico} ha tardado demasiado, reintenta."
+    except Exception as e:
+        return f"⚠️ Fallo lanzando el script: {type(e).__name__}: {e}"
+
+
 async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
                           kind: str = "texto"):
     """Pasa el prompt a Claude y devuelve la respuesta al chat.
@@ -1372,6 +1459,22 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
+
+    # ── ATAJO sin LLM: estado de jugador ──
+    # Si el prompt es claramente "cómo está X / carga últimas N de X / qué tal X",
+    # ejecuta directamente el script curado y responde. Sin pasar por Gemini
+    # (más rápido, más fiable, sin riesgo de safety filters).
+    intent = _detectar_intent_estado(prompt)
+    if intent:
+        canonico, n = intent
+        log.info("[%s] ATAJO intent=estado_jugador jugador=%s n=%d (prompt='%s')",
+                 chat_id, canonico, n, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_estado_jugador, canonico, n)
+        # Mandar en trozos si es muy largo (limite Telegram 4096)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            await update.message.reply_text(trozo, parse_mode="Markdown")
+        return
 
     log.info("[%s] → %s: %s",
              chat_id,
