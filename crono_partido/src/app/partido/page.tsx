@@ -20,6 +20,7 @@ export default function PartidoPage() {
     play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
+    setDuracionesParte, finalizarPartido,
   } = usePartido();
 
   // Estado UI
@@ -33,6 +34,7 @@ export default function PartidoPage() {
   const [modalTanda, setModalTanda] = useState(false);
   const [modalTiempos, setModalTiempos] = useState(false);
   const [modalDisparoRival, setModalDisparoRival] = useState(false);
+  const [modalCambioParte, setModalCambioParte] = useState(false);
 
   // Jugadores nuestros que tienen al menos una amarilla.
   // OJO: useMemo debe ir ANTES de los early returns (reglas de hooks).
@@ -102,7 +104,10 @@ export default function PartidoPage() {
           {!corriendo
             ? <button onClick={play} className="px-5 py-3 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">▶ INICIAR</button>
             : <button onClick={pausa} className="px-5 py-3 bg-orange-700 hover:bg-orange-600 rounded-lg text-lg font-bold">⏸ PAUSAR</button>}
-          <button onClick={avanzarParte} className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">⏭ parte</button>
+          <button onClick={() => setModalCambioParte(true)}
+            className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
+            ⏭ parte
+          </button>
         </div>
       </div>
 
@@ -391,6 +396,33 @@ export default function PartidoPage() {
           enPista={enPista}
           onCerrar={() => setModalTiempos(false)}
           segundosTurnoActual={segundosTurnoActual}
+        />
+      )}
+
+      {modalCambioParte && (
+        <ModalCambioParte
+          partido={partido}
+          desde={p}
+          onCerrar={() => setModalCambioParte(false)}
+          onContinuarSiguienteParte={() => {
+            avanzarParte();
+            setModalCambioParte(false);
+          }}
+          onConfigurarProrroga={(minutos) => {
+            setDuracionesParte({ PR1: minutos, PR2: minutos });
+            avanzarParte();
+            setModalCambioParte(false);
+          }}
+          onIrATanda={() => {
+            iniciarTanda();
+            setModalCambioParte(false);
+            setModalTanda(true);
+          }}
+          onFinalizar={() => {
+            finalizarPartido();
+            setModalCambioParte(false);
+            router.push("/resumen");
+          }}
         />
       )}
     </div>
@@ -1438,6 +1470,280 @@ function ModalTanda(props: {
       <div className="mt-4 flex justify-end gap-2 border-t border-zinc-800 pt-3">
         <button onClick={props.onCerrar}
           className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded">Cerrar tanda</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ──────────────── MODAL CAMBIO DE PARTE / DESCANSO / FIN ────────────────
+//
+// Lógica según la parte de la que veníamos:
+//   - 1T → modal "Descanso de 1ª parte" con resumen + botón "Empezar 2ª".
+//   - 2T → modal "Final de 2ª parte" con 3 opciones:
+//          - Hay prórroga (config minutos) → setDuracionesParte + avanzar a PR1.
+//          - Tanda de penaltis directos → abrir tanda.
+//          - Finalizar partido → ir a /resumen.
+//   - PR1 → "Descanso de prórroga" con resumen + botón "Empezar PR2".
+//   - PR2 → "Final de prórroga" con 2 opciones (tanda / finalizar).
+
+function ModalCambioParte(props: {
+  partido: Partido;
+  desde: ParteId;
+  onCerrar: () => void;
+  onContinuarSiguienteParte: () => void;
+  onConfigurarProrroga: (minutos: number) => void;
+  onIrATanda: () => void;
+  onFinalizar: () => void;
+}) {
+  const { partido, desde } = props;
+  const cfg = partido.config!;
+  const [minProrroga, setMinProrroga] = useState(5);
+
+  const TITULOS: Record<ParteId, string> = {
+    "1T": "🔵 Final de 1ª parte",
+    "2T": "🏁 Final del partido (2ª parte)",
+    PR1: "🟣 Final de prórroga 1",
+    PR2: "🏁 Final de prórroga 2",
+  };
+
+  // Empate? Útil para 2T y PR2.
+  const empate = partido.marcador.inter === partido.marcador.rival;
+
+  // Resumen rápido por jugador (tiempo en la parte que acaba)
+  const filasTiempos = cfg.convocados
+    .map((nombre) => {
+      const t = partido.tiempos[nombre];
+      if (!t) return null;
+      const totalParte = (t.porParte?.[desde] ?? 0);
+      const total = t.totalSegundos ?? 0;
+      const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
+      const c = partido.acciones.porJugador[nombre];
+      return { nombre, totalParte, total, esPortero, c };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null && (x.totalParte > 0 || x.total > 0))
+    .sort((a, b) => b.totalParte - a.totalParte);
+
+  // Totales de equipo (acumulados a TODO el partido, no solo a esta parte)
+  const tot = cfg.convocados.reduce((acc, n) => {
+    const c = partido.acciones.porJugador[n];
+    if (!c) return acc;
+    return {
+      dpp: acc.dpp + (c.dpp || 0),
+      dpa: acc.dpa + (c.dpa || 0),
+      dpf: acc.dpf + (c.dpf || 0),
+      dpb: acc.dpb + (c.dpb || 0),
+      pf: acc.pf + (c.pf || 0),
+      pnf: acc.pnf + (c.pnf || 0),
+      robos: acc.robos + (c.robos || 0),
+      cortes: acc.cortes + (c.cortes || 0),
+      bdg: acc.bdg + (c.bdg || 0),
+      bdp: acc.bdp + (c.bdp || 0),
+    };
+  }, { dpp:0,dpa:0,dpf:0,dpb:0,pf:0,pnf:0,robos:0,cortes:0,bdg:0,bdp:0 });
+
+  const totalDispINTER = tot.dpp + tot.dpa + tot.dpf + tot.dpb;
+  const r = partido.disparosRival;
+  const totalDispRIVAL = r.puerta + r.palo + r.fuera + r.bloqueado;
+
+  // ¿Mostramos opciones de final (2T o PR2)?
+  const esFinal2T = desde === "2T";
+  const esFinalPR2 = desde === "PR2";
+  const esFinalParte = esFinal2T || esFinalPR2;
+
+  return (
+    <ModalShell titulo={TITULOS[desde]} onCerrar={props.onCerrar}>
+
+      {/* Marcador actual + estado */}
+      <div className="text-center bg-zinc-950 rounded-lg p-3 mb-4">
+        <div className="text-3xl font-bold tabular-nums">
+          <span className="text-blue-400">INTER {partido.marcador.inter}</span>
+          <span className="text-zinc-500 mx-2">-</span>
+          <span className="text-red-400">{partido.marcador.rival} {cfg.rival}</span>
+        </div>
+        {esFinalParte && empate && (
+          <div className="text-yellow-400 text-xs mt-1">
+            ⚠️ Empate · hay que decidir cómo seguir
+          </div>
+        )}
+      </div>
+
+      {/* RESUMEN DEL EQUIPO */}
+      <div className="bg-zinc-900 rounded-lg p-3 mb-3">
+        <h3 className="text-xs font-bold text-zinc-300 mb-2">📊 Stats del equipo (acumulado)</h3>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="bg-blue-900/30 rounded p-2">
+            <div className="text-blue-300 font-bold mb-1">🎯 Disparos INTER</div>
+            <div>Total <strong>{totalDispINTER}</strong> · A puerta <strong>{tot.dpp}</strong></div>
+            <div className="text-[10px] text-zinc-400">Palo {tot.dpa} · Fuera {tot.dpf} · Bloq {tot.dpb}</div>
+          </div>
+          <div className="bg-red-900/30 rounded p-2">
+            <div className="text-red-300 font-bold mb-1">🎯 Disparos {cfg.rival}</div>
+            <div>Total <strong>{totalDispRIVAL}</strong> · A puerta <strong>{r.puerta}</strong></div>
+            <div className="text-[10px] text-zinc-400">Palo {r.palo} · Fuera {r.fuera} · Bloq {r.bloqueado}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-xs mt-2">
+          <div className="bg-red-900/20 rounded p-2">
+            <div className="text-red-300 font-bold">❌ Pérdidas</div>
+            <div>PF <strong>{tot.pf}</strong> · PNF <strong>{tot.pnf}</strong></div>
+          </div>
+          <div className="bg-green-900/20 rounded p-2">
+            <div className="text-green-300 font-bold">✅ Recuper.</div>
+            <div>Robos <strong>{tot.robos}</strong> · Cortes <strong>{tot.cortes}</strong></div>
+          </div>
+          <div className="bg-purple-900/20 rounded p-2">
+            <div className="text-purple-300 font-bold">⚖️ Divididos</div>
+            <div>BDG <strong>{tot.bdg}</strong> · BDP <strong>{tot.bdp}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      {/* TIEMPOS POR JUGADOR */}
+      <div className="bg-zinc-900 rounded-lg p-3 mb-3">
+        <h3 className="text-xs font-bold text-zinc-300 mb-2">
+          ⏱ Tiempos por jugador ({desde})
+        </h3>
+        <div className="max-h-60 overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
+              <tr>
+                <th className="text-left py-1">Jugador</th>
+                <th className="text-right px-1">{desde}</th>
+                <th className="text-right px-1">Total partido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filasTiempos.map((f) => (
+                <tr key={f.nombre} className="border-b border-zinc-900">
+                  <td className={`py-1 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>
+                    {f.nombre}{f.esPortero ? " 🥅" : ""}
+                  </td>
+                  <td className="text-right font-mono tabular-nums px-1">{formatMMSS(f.totalParte)}</td>
+                  <td className="text-right font-mono tabular-nums px-1 text-zinc-400">{formatMMSS(f.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* INDIVIDUAL — solo top scorers de cada categoría para no saturar */}
+      <div className="bg-zinc-900 rounded-lg p-3 mb-4">
+        <h3 className="text-xs font-bold text-zinc-300 mb-2">👤 Acciones individuales (jugadores con stats)</h3>
+        <div className="max-h-60 overflow-y-auto">
+          <table className="w-full text-[11px]">
+            <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
+              <tr>
+                <th className="text-left py-1">Jugador</th>
+                <th className="text-right px-1 text-blue-300">Disp</th>
+                <th className="text-right px-1 text-red-300">Pérd</th>
+                <th className="text-right px-1 text-green-300">Recup</th>
+                <th className="text-right px-1 text-purple-300">Divid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filasTiempos
+                .filter((f) => f.c && (
+                  (f.c.dpp || 0) + (f.c.dpa || 0) + (f.c.dpf || 0) + (f.c.dpb || 0) +
+                  (f.c.pf || 0) + (f.c.pnf || 0) + (f.c.robos || 0) + (f.c.cortes || 0) +
+                  (f.c.bdg || 0) + (f.c.bdp || 0) > 0
+                ))
+                .map((f) => {
+                  const c = f.c!;
+                  const disp = (c.dpp||0)+(c.dpa||0)+(c.dpf||0)+(c.dpb||0);
+                  const perd = (c.pf||0)+(c.pnf||0);
+                  const rec = (c.robos||0)+(c.cortes||0);
+                  const div = (c.bdg||0)+(c.bdp||0);
+                  return (
+                    <tr key={f.nombre} className="border-b border-zinc-900">
+                      <td className={`py-1 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>{f.nombre}</td>
+                      <td className="text-right font-mono px-1">{disp}</td>
+                      <td className="text-right font-mono px-1">{perd}</td>
+                      <td className="text-right font-mono px-1">{rec}</td>
+                      <td className="text-right font-mono px-1">{div}</td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ACCIONES SEGÚN PARTE */}
+      <div className="border-t border-zinc-800 pt-3">
+
+        {/* 1T → solo botón continuar */}
+        {desde === "1T" && (
+          <div className="grid grid-cols-1 gap-2">
+            <button onClick={props.onContinuarSiguienteParte}
+              className="py-4 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">
+              ▶ Empezar 2ª parte
+            </button>
+          </div>
+        )}
+
+        {/* PR1 → solo botón continuar a PR2 */}
+        {desde === "PR1" && (
+          <div className="grid grid-cols-1 gap-2">
+            <button onClick={props.onContinuarSiguienteParte}
+              className="py-4 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">
+              ▶ Empezar prórroga 2
+            </button>
+          </div>
+        )}
+
+        {/* 2T → tres opciones (prórroga / penaltis / finalizar) */}
+        {esFinal2T && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-zinc-300">¿Cómo seguimos?</h3>
+
+            {/* Prórroga */}
+            <div className="bg-zinc-800 rounded-lg p-3">
+              <div className="flex items-center gap-3 mb-2">
+                <label className="text-sm font-semibold">🟣 Hay prórroga de</label>
+                <input type="number" min={1} max={20} value={minProrroga}
+                  onChange={(e) => setMinProrroga(Number(e.target.value) || 5)}
+                  className="w-16 bg-zinc-950 rounded px-2 py-1 text-center" />
+                <span className="text-sm">min cada parte</span>
+              </div>
+              <button onClick={() => props.onConfigurarProrroga(minProrroga)}
+                className="w-full py-3 bg-purple-700 hover:bg-purple-600 rounded font-bold">
+                ▶ Empezar prórroga ({minProrroga}+{minProrroga} min)
+              </button>
+            </div>
+
+            {/* Tanda directa (sin prórroga) — solo si la competición la permite */}
+            {cfg.permiteTanda && (
+              <button onClick={props.onIrATanda}
+                className="w-full py-3 bg-pink-700 hover:bg-pink-600 rounded font-bold">
+                🥇 Pasar directo a tanda de penaltis
+              </button>
+            )}
+
+            {/* Finalizar */}
+            <button onClick={props.onFinalizar}
+              className="w-full py-3 bg-zinc-700 hover:bg-zinc-600 rounded font-bold">
+              🏁 Finalizar partido y ver resumen
+            </button>
+          </div>
+        )}
+
+        {/* PR2 → tanda o finalizar */}
+        {esFinalPR2 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-zinc-300">¿Cómo seguimos?</h3>
+            {cfg.permiteTanda && (
+              <button onClick={props.onIrATanda}
+                className="w-full py-3 bg-pink-700 hover:bg-pink-600 rounded font-bold">
+                🥇 Tanda de penaltis
+              </button>
+            )}
+            <button onClick={props.onFinalizar}
+              className="w-full py-3 bg-zinc-700 hover:bg-zinc-600 rounded font-bold">
+              🏁 Finalizar partido y ver resumen
+            </button>
+          </div>
+        )}
       </div>
     </ModalShell>
   );

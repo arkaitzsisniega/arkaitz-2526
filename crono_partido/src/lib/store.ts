@@ -881,6 +881,55 @@ export function usePartido() {
     setPartido(partidoVacio(ID_PARTIDO));
   }
 
+  /**
+   * Cambia la duración de una o varias partes en la config en CALIENTE.
+   * Útil para configurar la prórroga ("¿De cuántos minutos?") tras un
+   * empate al final de 2T. minutos=0 significa "no se juega esa parte".
+   */
+  function setDuracionesParte(durMinutos: Partial<Record<ParteId, number>>) {
+    setPartido((prev) => {
+      if (!prev.config) return prev;
+      const nuevas: Record<ParteId, number> = { ...prev.config.duracionParte };
+      for (const [k, v] of Object.entries(durMinutos)) {
+        nuevas[k as ParteId] = Math.max(0, Math.round((v ?? 0) * 60));
+      }
+      return { ...prev, config: { ...prev.config, duracionParte: nuevas } };
+    });
+  }
+
+  /** Marca el partido como finalizado (estado="finalizado"). */
+  function finalizarPartido() {
+    setPartido((prev) => {
+      // Pausar reloj si corre
+      let p = prev;
+      if (p.cronometro.ultimoStart != null) {
+        const ahora = Date.now();
+        const transcurrido = (ahora - p.cronometro.ultimoStart) / 1000;
+        const tiempos = { ...p.tiempos };
+        const parte = p.cronometro.parteActual;
+        for (const nombre of p.enPista) {
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaTurno(t, parte);
+        }
+        for (const nombre of Object.keys(tiempos)) {
+          if (p.enPista.includes(nombre)) continue;
+          const t = tiempos[nombre];
+          if (t) tiempos[nombre] = congelaDescanso(t);
+        }
+        p = {
+          ...p,
+          cronometro: {
+            ...p.cronometro,
+            segundosParte: p.cronometro.segundosParte + transcurrido,
+            ultimoStart: null,
+          },
+          tiempos,
+        };
+      }
+      return { ...p, estado: "finalizado" };
+    });
+  }
+
   // ────────────────── TANDA DE PENALTIS ────────────────────────────────
 
   function iniciarTanda() {
@@ -958,5 +1007,6 @@ export function usePartido() {
     iniciarPartido, play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
     registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual, reset,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
+    setDuracionesParte, finalizarPartido,
   };
 }
