@@ -73,28 +73,69 @@ Si no estás seguro de algún campo, usa null.
 
 Esquema exacto:
 {
-  "duracion_total_min": <int o null>,
+  "duracion_total_min": <number o null, suma total incluyendo descansos>,
   "hora_inicio": "<HH:MM 24h o null>",
   "ejercicios": [
     {
       "nombre": "<descripción concisa>",
-      "duracion_min": <int>,
+      "duracion_min": <number, decimales OK: 11.5 → 11.5>,
       "tipo": "<CALENTAMIENTO|MOVILIDAD|TECNICA|TACTICO|FISICO|BALON_PARADO|PARTIDILLO|FINALIZACION|VUELTA_A_LA_CALMA|OTRO>",
+      "descanso_despues_min": <number, 0 si no hay; decimales OK: 2.5>,
+      "gps_activo": <true|false>,
       "notas": "<detalles o cadena vacía>"
     }
   ]
 }
+
+🛰  IMPORTANTÍSIMO — GPS:
+El usuario suele decir cuándo SE ENCIENDE el GPS (a veces tras movilidad
+o calentamiento). Frases típicas: "activamos GPS", "encendemos GPS",
+"GPS encendido", "ponemos pulsómetros", "ahora con GPS".
+
+Reglas:
+- Si el usuario menciona explícitamente que el GPS se activa en algún
+  punto, todos los ejercicios ANTERIORES tienen `gps_activo: false` y
+  todos los POSTERIORES `gps_activo: true`.
+- Si NO se menciona el GPS en absoluto, asume `gps_activo: true` para
+  todos los ejercicios.
+- La movilidad/calentamiento inicial NO se asume sin GPS por defecto;
+  solo si el usuario lo dice.
+
+🧘  DESCANSOS:
+El usuario suele decir "X minutos + Y de descanso", "después N min de
+descanso", etc. Captúralos como `descanso_despues_min` del ejercicio
+que ACABA DE TERMINAR (no del siguiente).
+
+Si no se menciona descanso, usa 0.
 
 Reglas de tipo:
 - "movilidad" → MOVILIDAD; "calentamiento" → CALENTAMIENTO
 - "rondo", "técnica" → TECNICA; "finalización" → FINALIZACION
 - "salidas de presión", "transiciones", "defensa" → TACTICO
 - "balón parado", "corners", "bandas", "ABP" → BALON_PARADO
-- "juego real", "partidillo", "5 contra 5" → PARTIDILLO
+- "juego real", "partidillo", "5 contra 5", "5x4" → PARTIDILLO
 - En duda → OTRO
 
 Mantén el orden cronológico. Si menciona variantes (3v3 + 2v1 en otra pista),
 añade el detalle al campo notas.
+
+EJEMPLO:
+Texto: "Movilidad 17 min, después activamos GPS y 2 min y medio de
+descanso. Rondo 5x5 11 min y medio + 3 de descanso. Partidillo 16 min."
+
+JSON:
+{
+  "duracion_total_min": 49.5,
+  "hora_inicio": null,
+  "ejercicios": [
+    {"nombre": "Movilidad", "duracion_min": 17, "tipo": "MOVILIDAD",
+     "descanso_despues_min": 2.5, "gps_activo": false, "notas": ""},
+    {"nombre": "Rondo 5x5", "duracion_min": 11.5, "tipo": "TECNICA",
+     "descanso_despues_min": 3, "gps_activo": true, "notas": ""},
+    {"nombre": "Partidillo", "duracion_min": 16, "tipo": "PARTIDILLO",
+     "descanso_despues_min": 0, "gps_activo": true, "notas": ""}
+  ]
+}
 
 Texto del entrenamiento:
 __TEXTO__
@@ -106,7 +147,7 @@ Devuelve SOLO el JSON.
 JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "duracion_total_min": {"type": ["integer", "null"]},
+        "duracion_total_min": {"type": ["number", "null"]},
         "hora_inicio": {"type": ["string", "null"]},
         "ejercicios": {
             "type": "array",
@@ -114,13 +155,15 @@ JSON_SCHEMA = json.dumps({
                 "type": "object",
                 "properties": {
                     "nombre": {"type": "string"},
-                    "duracion_min": {"type": "integer"},
+                    "duracion_min": {"type": "number"},
                     "tipo": {
                         "type": "string",
                         "enum": ["CALENTAMIENTO","MOVILIDAD","TECNICA","TACTICO",
                                  "FISICO","BALON_PARADO","PARTIDILLO","FINALIZACION",
                                  "VUELTA_A_LA_CALMA","OTRO"],
                     },
+                    "descanso_despues_min": {"type": ["number", "null"]},
+                    "gps_activo": {"type": ["boolean", "null"]},
                     "notas": {"type": "string"},
                 },
                 "required": ["nombre", "duracion_min", "tipo"],
@@ -238,43 +281,121 @@ def main():
     print("🔍 Buscando sesión Oliver del día…", flush=True)
     session_id, dur_timeline, nombre_ses = identificar_session_oliver(fecha_iso)
 
-    # 3. Calcular rangos de minutos: consecutivos desde 0 (excluyendo ejercicios sin duración)
-    #    Si la duración total del audio supera la del timeline, asumimos que el primer
-    #    ejercicio (típicamente movilidad/calentamiento) NO está en GPS y lo excluimos.
-    suma_audio = sum(int(e.get("duracion_min") or 0) for e in ejs)
-    aviso_offset = ""
-    ejs_para_gps = ejs[:]
-    if dur_timeline is not None and suma_audio > dur_timeline + 3:
-        # Excluir el primer ejercicio (el GPS no estaba) si su duración acerca el match
-        candidato = int(ejs[0].get("duracion_min") or 0)
-        if candidato > 0 and abs((suma_audio - candidato) - dur_timeline) < abs(suma_audio - dur_timeline):
-            aviso_offset = (
-                f"⚠️ El audio describe {suma_audio} min pero el GPS Oliver duró {dur_timeline} min.\n"
-                f"Asumo que el GPS se encendió DESPUÉS del primer ejercicio "
-                f"('{ejs[0]['nombre']}', {candidato} min) y lo excluyo del cruce con Oliver."
-            )
-            ejs_para_gps = ejs[1:]
+    # 3. Calcular rangos de minutos.
+    #
+    # CONCEPTO CLAVE: los rangos que guardamos en _EJERCICIOS tienen que
+    # ser MINUTOS DESDE QUE SE ACTIVÓ EL GPS, porque oliver_ejercicios.py
+    # usa esos rangos para indexar el timeline GPS de Oliver (que empieza
+    # cuando los jugadores encienden los GPS, no cuando empieza el entreno).
+    #
+    # Reglas:
+    #   - Si gps_activo=False → NO incluir en _EJERCICIOS (no hay datos).
+    #     Pero sí lo mostramos al usuario en el resumen.
+    #   - Para los gps_activo=True, asignar rangos consecutivos desde 0
+    #     incluyendo los descansos entre ellos (porque el GPS sigue
+    #     corriendo durante los descansos).
+    #   - Si gps_activo no está en el JSON (compat hacia atrás): asumir
+    #     True. Si NO hay ningún ejercicio con gps_activo=False explícito
+    #     y la suma supera la duración del timeline, aplicar la heurística
+    #     antigua (excluir el primero).
 
-    # 4. Asignar minutos consecutivos desde 0
-    cur = 0
+    def _to_min(v):
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _gps_activo(e):
+        v = e.get("gps_activo")
+        if v is None:
+            return True  # default: GPS activo
+        return bool(v)
+
+    # Suma total del audio (incluyendo descansos) = suma de duracion + descansos
+    suma_audio = sum(_to_min(e.get("duracion_min"))
+                     + _to_min(e.get("descanso_despues_min"))
+                     for e in ejs)
+
+    # ¿El usuario marcó explícitamente algún gps_activo=false?
+    hay_gps_explicito = any(e.get("gps_activo") is False for e in ejs)
+
+    # Fallback compat: si no hay marca explícita y la suma supera el
+    # timeline, aplicar la heurística antigua (excluir el primer ejercicio).
+    aviso_offset = ""
+    if (not hay_gps_explicito
+            and dur_timeline is not None
+            and suma_audio > dur_timeline + 3
+            and ejs):
+        candidato_dur = _to_min(ejs[0].get("duracion_min"))
+        candidato_descanso = _to_min(ejs[0].get("descanso_despues_min"))
+        if candidato_dur > 0:
+            mejora = abs((suma_audio - candidato_dur - candidato_descanso) - dur_timeline) \
+                     < abs(suma_audio - dur_timeline)
+            if mejora:
+                aviso_offset = (
+                    f"⚠️ El audio describe {suma_audio:g} min pero el GPS Oliver duró "
+                    f"{dur_timeline} min.\n"
+                    f"Asumo que el GPS se encendió DESPUÉS del primer ejercicio "
+                    f"('{ejs[0]['nombre']}', {candidato_dur:g} min)."
+                )
+                # Marcamos el primero como no-GPS
+                ejs[0]["gps_activo"] = False
+
+    # 4. Recorrer ejercicios y construir filas + resumen
+    #    Tres contadores:
+    #      total_t  = minutos desde el inicio del entreno (para mostrar al usuario)
+    #      gps_t    = minutos desde que se activó el GPS (para _EJERCICIOS)
+    #      gps_iniciado = booleano para saber si ya empezó el GPS
+    total_t = 0.0
+    gps_t = 0.0
+    gps_iniciado = False
     filas = []
-    for ej in ejs_para_gps:
-        dur = int(ej.get("duracion_min") or 0)
+    timeline_user = []  # cómo mostrar al usuario (incluye no-GPS)
+
+    for ej in ejs:
+        dur = _to_min(ej.get("duracion_min"))
+        descanso = _to_min(ej.get("descanso_despues_min"))
+        en_gps = _gps_activo(ej)
+
         if dur <= 0:
             continue
-        ini, fin = cur, cur + dur
-        cur = fin
-        filas.append([
-            session_id or "",
-            fecha_iso,
-            turno,
-            (ej.get("nombre") or "").strip(),
-            (ej.get("tipo") or "OTRO").strip(),
-            ini, fin,
-            "todos",
-            (ej.get("notas") or "").strip(),
-            f"voz-{fecha_iso}-{ini}",
-        ])
+
+        ini_total = total_t
+        fin_total = total_t + dur
+
+        if en_gps:
+            if not gps_iniciado:
+                gps_iniciado = True
+            ini_gps = gps_t
+            fin_gps = gps_t + dur
+            filas.append([
+                session_id or "",
+                fecha_iso,
+                turno,
+                (ej.get("nombre") or "").strip(),
+                (ej.get("tipo") or "OTRO").strip(),
+                ini_gps, fin_gps,
+                "todos",
+                (ej.get("notas") or "").strip(),
+                f"voz-{fecha_iso}-{ini_gps:g}",
+            ])
+            gps_t = fin_gps + descanso  # el GPS sigue corriendo en el descanso
+        # Si NO está en GPS, no añadimos a filas (oliver_ejercicios.py no
+        # tendría timeline para esos minutos).
+
+        timeline_user.append({
+            "nombre": ej.get("nombre", "?"),
+            "tipo": ej.get("tipo", "OTRO"),
+            "ini_total": ini_total,
+            "fin_total": fin_total,
+            "descanso": descanso,
+            "en_gps": en_gps,
+            "ini_gps": (filas[-1][5] if en_gps and filas else None),
+            "fin_gps": (filas[-1][6] if en_gps and filas else None),
+        })
+        total_t = fin_total + descanso
+
+    suma_gps = gps_t  # minutos totales con GPS activo
 
     # 5. Escribir en _EJERCICIOS (append)
     ss = gs_client()
@@ -287,23 +408,55 @@ def main():
         return 4
 
     # 6. Resumen previo a sincronizar
+    def _fmt(x: float) -> str:
+        return f"{x:g}"  # quita decimales innecesarios (17.0 → "17", 11.5 → "11.5")
+
     print(MSG_SEP)
     resumen = [
         f"✅ *Audio procesado · {fecha_iso} {turno}*",
-        f"Ejercicios extraídos: {len(ejs)}",
-        f"Total audio: {suma_audio} min" + (f" · GPS Oliver: {dur_timeline} min" if dur_timeline else ""),
+        f"Ejercicios extraídos: {len(ejs)} · Total entreno: {_fmt(suma_audio)} min "
+        f"· Con GPS: {_fmt(suma_gps)} min"
+        + (f" · GPS Oliver: {dur_timeline} min" if dur_timeline else ""),
         "",
-        "*Ejercicios añadidos a `_EJERCICIOS`:*",
+        "*Cronología completa del entreno:*",
     ]
+    for item in timeline_user:
+        prefix_total = f"{_fmt(item['ini_total'])}-{_fmt(item['fin_total'])}'"
+        if item["en_gps"]:
+            rango_gps = f"📡 GPS {_fmt(item['ini_gps'])}-{_fmt(item['fin_gps'])}'"
+        else:
+            rango_gps = "⚪ sin GPS"
+        resumen.append(
+            f"• {prefix_total}  {item['nombre']}  _{item['tipo']}_  ·  {rango_gps}"
+        )
+        if item["descanso"] > 0:
+            resumen.append(f"     └─ ⏸  descanso {_fmt(item['descanso'])} min")
+
     if filas:
-        for f in filas:
-            resumen.append(f"• {f[5]:>2}-{f[6]:>2}'  {f[3]}  _{f[4]}_")
-    if ejs_para_gps != ejs:
         resumen.append("")
-        resumen.append("(El primer ejercicio se omite del cruce con Oliver porque no tenía GPS)")
+        resumen.append(
+            f"📝 {len(filas)} ejercicio(s) añadido(s) a `_EJERCICIOS` con "
+            f"rangos GPS (0 = momento que se activó el GPS)."
+        )
+    else:
+        resumen.append("")
+        resumen.append("⚠️ Ningún ejercicio con GPS activo. No hay nada que cruzar con Oliver.")
+
     if aviso_offset:
         resumen.append("")
         resumen.append(aviso_offset)
+
+    if dur_timeline is not None and suma_gps > 0:
+        diff = dur_timeline - suma_gps
+        if abs(diff) > 3:
+            resumen.append("")
+            resumen.append(
+                f"ℹ️ Diferencia entre la duración GPS calculada del audio "
+                f"({_fmt(suma_gps)} min) y la del timeline Oliver "
+                f"({dur_timeline} min): {diff:+.1f} min. "
+                f"Si no cuadra, revisa la duración de algún ejercicio o descanso."
+            )
+
     if not session_id:
         resumen.append("")
         resumen.append("⚠️ No encontré la sesión de Oliver para este día (puede que aún no esté procesada).")

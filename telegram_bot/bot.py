@@ -1373,7 +1373,32 @@ async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: Co
             f"{(err or out).decode('utf-8', 'replace')[-1500:]}"
         )
         return
-    await _enviar_bloques(update, out.decode("utf-8", "replace"))
+    salida_decoded = out.decode("utf-8", "replace")
+    await _enviar_bloques(update, salida_decoded)
+
+    # ── Inyectar en el historial conversacional de Gemini ──
+    # Así, si después Arkaitz dice "revísalo" o "corrige el GPS de la
+    # movilidad", Alfred tiene el contexto de qué se acaba de procesar.
+    try:
+        history = _conv_history.get(chat_id, [])
+        # Limpiar el separador MSG_SEP de la salida para que sea legible
+        salida_limpia = salida_decoded.replace("---MSG---", "").strip()
+        # Turno usuario (lo que dijo el usuario, transcrito)
+        history.append({
+            "role": "user",
+            "parts": [{"text": f"[modo /ejercicios] {transcripcion}"}],
+        })
+        # Turno modelo (lo que devolvió el script, para que recuerde)
+        history.append({
+            "role": "model",
+            "parts": [{"text": (
+                "He procesado los ejercicios del entreno. Resultado:\n\n"
+                + salida_limpia[:3000]
+            )}],
+        })
+        _conv_history[chat_id] = _truncate_history(history)
+    except Exception as _e:
+        log.warning("No pude inyectar /ejercicios en historial: %s", _e)
 
 
 async def cmd_golespartido(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1454,6 +1479,23 @@ async def _procesar_audio_goles(transcripcion: str, update: Update,
         "guardadas en EST_EVENTOS columna descripcion. NO le preguntes al "
         "usuario si lo quiere apuntar, ya está hecho."
     )
+    # Inyectar al historial para que recuerde lo procesado.
+    try:
+        history = _conv_history.get(chat_id, [])
+        salida_limpia = out_txt.replace("---MSG---", "").strip()
+        history.append({
+            "role": "user",
+            "parts": [{"text": f"[modo /golespartido] {transcripcion}"}],
+        })
+        history.append({
+            "role": "model",
+            "parts": [{"text": (
+                "He procesado los goles. Resumen:\n\n" + salida_limpia[:2500]
+            )}],
+        })
+        _conv_history[chat_id] = _truncate_history(history)
+    except Exception as _e:
+        log.warning("No pude inyectar /goles en historial: %s", _e)
 
 
 async def cmd_sesion_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1566,6 +1608,24 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
         f"/sesion ejecutado: nueva sesión de entreno volcada a la hoja SESIONES. "
         f"Mensaje resumen mandado al usuario: {msg[:200].replace(chr(10), ' ')}"
     )
+
+    # Inyectar al historial conversacional para que Alfred pueda
+    # razonar sobre lo procesado si el usuario dice "revísalo".
+    try:
+        history = _conv_history.get(chat_id, [])
+        history.append({
+            "role": "user",
+            "parts": [{"text": f"[modo /sesion] {transcripcion}"}],
+        })
+        history.append({
+            "role": "model",
+            "parts": [{"text": (
+                "He procesado la sesión. Resumen:\n\n" + msg[:2000]
+            )}],
+        })
+        _conv_history[chat_id] = _truncate_history(history)
+    except Exception as _e:
+        log.warning("No pude inyectar /sesion en historial: %s", _e)
 
 
 async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
