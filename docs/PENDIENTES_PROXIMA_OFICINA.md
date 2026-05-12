@@ -7,21 +7,29 @@
 
 ## 🔥 MAÑANA NADA MÁS ABRIR (12 mayo, según conectes al server)
 
-### 1) PRIMERO: investigar fallo audios Telegram (11/5 tarde-noche)
-Mandó 2 audios (uno a Alfred, otro a bot_datos) preguntando por Raya y
-sus últimas 10 sesiones. **NINGUNO de los dos respondió**. Acciones:
-1. `ps aux | grep -E "telegram_bot.*bot\.py|bot_datos" | grep -v grep`
-   para ver si los bots siguen vivos.
-2. `tail -60 ~/Desktop/Arkaitz/logs/bot.err.log` y
-   `tail -60 ~/Desktop/Arkaitz/logs/bot_datos.err.log` para ver
-   excepciones.
-3. Test de control: mandar el MISMO mensaje pero en texto. Si
-   responde con texto → problema en Whisper (transcripción).
-   Si no responde con texto → problema Gemini o flujo.
-4. Hipótesis principales:
-   - Whisper se atascó al cargar modelo tras un reinicio del bot.
-   - Gemini 2.5 Flash rate-limit / caída de Google AI Studio.
-   - on_voice atrapó excepción que no se envió al usuario.
+### 1) ✅ RESUELTO 12/5 mañana — audios Telegram no respondían
+**Causa raíz**: incompatibilidad de ABI entre `numpy 2.4.4` y
+`onnxruntime 1.16.3` en los venvs de los bots. faster-whisper carga
+`onnxruntime` para el filtro de voz (Silero VAD); onnxruntime 1.16.3
+fue compilado contra numpy 1.x y revienta con `_ARRAY_API not found`.
+
+**Fix permanente aplicado**: bajar numpy a `<2` en ambos venvs:
+```bash
+~/Desktop/Arkaitz/telegram_bot/venv/bin/pip install "numpy<2"
+~/Desktop/Arkaitz/telegram_bot_datos/venv/bin/pip install "numpy<2"
+launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot
+launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot_datos
+```
+
+**Nota**: onnxruntime no se puede subir a 1.20+ en este server porque
+el macOS es viejo (solo da 1.16.3 como máximo en pip). Si en el futuro
+se actualiza macOS, mejor subir onnxruntime a la última y dejar numpy 2.
+
+**Secundario detectado al probar el audio**: tras transcribir bien,
+Alfred contestó "falta algo para poder leer la hoja" y se atascó.
+Es un problema DISTINTO del de los audios (consulta al Sheet falla,
+posiblemente credenciales Google, quota Gemini o algún tool roto del
+11/5). Pendiente diagnosticar con `tail bot.err.log` + test de texto.
 
 ### 2) DESPUÉS: seguir puliendo crono PWA del iPad
 Estado actual (rama actual, commits del 11/5):
