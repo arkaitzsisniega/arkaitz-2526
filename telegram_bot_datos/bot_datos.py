@@ -1431,19 +1431,34 @@ def _detectar_intent_estado(prompt: str) -> Optional[Tuple[str, int]]:
 
 
 def _run_estado_jugador(canonico: str, n: int) -> str:
-    """Ejecuta src/estado_jugador.py y devuelve su stdout."""
+    """Ejecuta src/estado_jugador.py y devuelve su stdout.
+
+    Usa `sys.executable` para garantizar que se ejecuta con el Python del
+    venv del bot (3.11 con gspread/pandas/numpy<2 ya verificados), no con
+    el /usr/bin/python3 del sistema (que es 3.8 y tiene paquetes viejos).
+    """
     script = PROJECT_DIR / "src" / "estado_jugador.py"
     if not script.is_file():
         return f"⚠️ No encuentro el script de análisis ({script.name})."
     try:
         res = subprocess.run(
-            ["/usr/bin/python3", str(script), canonico, str(n)],
+            [sys.executable, str(script), canonico, str(n)],
             capture_output=True, text=True, timeout=60,
             cwd=str(PROJECT_DIR),
+            env={**os.environ, "PYTHONWARNINGS": "ignore"},
         )
         if res.returncode != 0:
-            err = (res.stderr or res.stdout or "").strip()
-            return f"⚠️ Error al consultar {canonico}: {err[:300]}"
+            # Filtramos warnings ruidosos del stderr
+            err_lines = [
+                ln for ln in (res.stderr or "").splitlines()
+                if "FutureWarning" not in ln
+                and "warnings.warn" not in ln
+                and "ABSL" not in ln
+                and "NotOpenSSLWarning" not in ln
+                and "urllib3" not in ln
+            ]
+            err = "\n".join(err_lines).strip() or (res.stdout or "").strip()
+            return f"⚠️ Error al consultar {canonico}: {err[:600]}"
         return (res.stdout or "").strip() or "(sin datos)"
     except subprocess.TimeoutExpired:
         return f"⚠️ La consulta de {canonico} ha tardado demasiado, reintenta."
