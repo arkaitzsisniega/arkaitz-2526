@@ -185,6 +185,14 @@ export interface EstadoCronometro {
   segundosParte: number;
   /** Si el reloj está corriendo, ms desde el último start (Date.now()). null si pausado. */
   ultimoStart: number | null;
+  /**
+   * Snapshot del reloj para cada parte al cambiar de parte.
+   * Se rellena al avanzar/retroceder: guarda los segundos transcurridos
+   * de la parte que SE ABANDONA en ese momento. Cuando se VUELVE a esa
+   * parte (por retroceder o por re-avanzar), `segundosParte` se restaura
+   * desde aquí en vez de empezar en 0.
+   */
+  segundosGuardadosPorParte?: Record<ParteId, number>;
 }
 
 /** Contadores por jugador. Todos opcionales con default 0 al leer. */

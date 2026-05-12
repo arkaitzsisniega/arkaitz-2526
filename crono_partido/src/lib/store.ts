@@ -215,6 +215,11 @@ export function usePartido() {
           ...p,
           config: cfgMigrado,
           tiempos: tiemposMig,
+          cronometro: {
+            ...p.cronometro,
+            segundosGuardadosPorParte: p.cronometro?.segundosGuardadosPorParte
+              ?? { "1T": 0, "2T": 0, PR1: 0, PR2: 0 } as Record<ParteId, number>,
+          },
           disparosRival: p.disparosRival ?? { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
           tanda: p.tanda ?? { activa: false, tiros: [], marcador: { inter: 0, rival: 0 } },
           acciones: {
@@ -495,9 +500,21 @@ export function usePartido() {
       }
       const idx = orden.indexOf(p.cronometro.parteActual);
       const sig = orden[Math.min(idx + 1, orden.length - 1)];
+      // Guardar el reloj de la parte que ABANDONAMOS, y restaurar el
+      // de la parte SIGUIENTE si ya tenía valor (caso: ya estuvimos en
+      // esa parte antes y retrocedimos; ahora volvemos al punto donde
+      // estaba). Si nunca se entró a `sig`, empieza en 0 como siempre.
+      const guardados = { ...(p.cronometro.segundosGuardadosPorParte ?? {} as Record<ParteId, number>) };
+      guardados[p.cronometro.parteActual] = p.cronometro.segundosParte;
+      const segRestaurado = guardados[sig] ?? 0;
       return {
         ...p,
-        cronometro: { parteActual: sig, segundosParte: 0, ultimoStart: null },
+        cronometro: {
+          parteActual: sig,
+          segundosParte: segRestaurado,
+          ultimoStart: null,
+          segundosGuardadosPorParte: guardados,
+        },
         tiempos,
       };
     });
@@ -931,9 +948,21 @@ export function usePartido() {
         const t = tiempos[nombre];
         if (t) tiempos[nombre] = { ...t, segTurnoActual: 0, turnoStart: null };
       }
+      // Guardar el reloj de la parte que ABANDONAMOS (la "actual"),
+      // y restaurar el de la parte ANTERIOR si lo teníamos guardado
+      // (sí lo tenemos: necesariamente estuvimos en ella antes para
+      // poder avanzar hasta la actual).
+      const guardados = { ...(p.cronometro.segundosGuardadosPorParte ?? {} as Record<ParteId, number>) };
+      guardados[p.cronometro.parteActual] = p.cronometro.segundosParte;
+      const segRestaurado = guardados[partePrev] ?? 0;
       return {
         ...p,
-        cronometro: { parteActual: partePrev, segundosParte: 0, ultimoStart: null },
+        cronometro: {
+          parteActual: partePrev,
+          segundosParte: segRestaurado,
+          ultimoStart: null,
+          segundosGuardadosPorParte: guardados,
+        },
         tiempos,
       };
     });

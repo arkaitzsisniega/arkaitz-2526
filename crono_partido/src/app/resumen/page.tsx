@@ -287,7 +287,7 @@ export default function ResumenPage() {
                   <div className="flex justify-between"><span>Puerta</span><strong>{totalesEquipo.dpp}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{totalesEquipo.dpa}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{totalesEquipo.dpf}</strong></div>
-                  <div className="flex justify-between"><span>Bloq.</span><strong>{totalesEquipo.dpb}</strong></div>
+                  <div className="flex justify-between"><span>Bloqueados</span><strong>{totalesEquipo.dpb}</strong></div>
                 </div>
                 <div className="border-t border-blue-700/50 mt-2 pt-2 flex justify-between text-blue-200 text-sm">
                   <span>Total</span>
@@ -301,7 +301,7 @@ export default function ResumenPage() {
                   <div className="flex justify-between"><span>Puerta</span><strong>{partido.disparosRival.puerta}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{partido.disparosRival.palo}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{partido.disparosRival.fuera}</strong></div>
-                  <div className="flex justify-between"><span>Bloq.</span><strong>{partido.disparosRival.bloqueado}</strong></div>
+                  <div className="flex justify-between"><span>Bloqueados</span><strong>{partido.disparosRival.bloqueado}</strong></div>
                 </div>
                 <div className="border-t border-red-700/50 mt-2 pt-2 flex justify-between text-red-200 text-sm">
                   <span>Total</span>
@@ -375,14 +375,15 @@ export default function ResumenPage() {
                     const cuarteto: string[] = Array.isArray(ev.cuarteto) ? ev.cuarteto : [];
                     return (
                       <li key={ev.id}
-                        className={`p-3 rounded-lg ${
-                          esInter ? "bg-blue-900/25" : "bg-red-900/25"
+                        className={`p-4 rounded-lg ${
+                          esInter ? "bg-green-900/25 border border-green-700/30"
+                                  : "bg-red-900/25 border border-red-700/30"
                         }`}>
-                        <div className="flex items-baseline gap-2 mb-1">
+                        <div className="flex items-baseline gap-2 mb-2">
                           <span className="text-zinc-400 text-xs font-mono w-16 shrink-0">
                             {ev.parte} {formatMMSS(ev.segundosParte || 0)}
                           </span>
-                          <span className={`text-sm font-bold ${esInter ? "text-blue-300" : "text-red-300"}`}>
+                          <span className={`text-sm font-bold ${esInter ? "text-green-300" : "text-red-300"}`}>
                             {esInter ? "INTER" : cfg.rival}
                           </span>
                           {marcadorPostGol && (
@@ -391,28 +392,39 @@ export default function ResumenPage() {
                             </span>
                           )}
                           {accion && (
-                            <span className="text-xs text-zinc-400 ml-auto">{accion}</span>
+                            <span className="text-base font-semibold text-yellow-300 ml-auto">
+                              {accion}
+                            </span>
                           )}
                         </div>
                         {esInter && (
-                          <div className="text-sm">
+                          <div className="text-lg">
                             <strong className="text-white">⚽ {ev.goleador}</strong>
                             {ev.asistente && (
-                              <span className="text-zinc-400"> · asist. <strong>{ev.asistente}</strong></span>
+                              <span className="text-zinc-300"> · asist. <strong>{ev.asistente}</strong></span>
                             )}
-                            {ev.zonaCampo && <span className="text-zinc-500 text-xs"> · desde {ev.zonaCampo}</span>}
-                            {ev.zonaPorteria && <span className="text-zinc-500 text-xs"> → {ev.zonaPorteria}</span>}
+                            {(ev.zonaCampo || ev.zonaPorteria) && (
+                              <div className="text-sm text-zinc-400 mt-1">
+                                {ev.zonaCampo && <span>desde {ev.zonaCampo}</span>}
+                                {ev.zonaCampo && ev.zonaPorteria && " → "}
+                                {ev.zonaPorteria && <span>a {ev.zonaPorteria}</span>}
+                              </div>
+                            )}
                           </div>
                         )}
                         {!esInter && (
-                          <div className="text-sm text-zinc-300">
+                          <div className="text-lg text-zinc-300">
                             ⚽ Gol del rival
-                            {ev.zonaPorteria && <span className="text-zinc-500 text-xs"> · a {ev.zonaPorteria}</span>}
+                            {ev.zonaPorteria && (
+                              <span className="text-sm text-zinc-400"> · a {ev.zonaPorteria}</span>
+                            )}
                           </div>
                         )}
                         {cuarteto.length > 0 && (
-                          <div className="text-[11px] text-zinc-500 mt-1">
-                            En pista: {cuarteto.join(", ")}
+                          <div className="text-sm text-zinc-300 mt-2 pt-2 border-t border-white/10">
+                            <span className="text-xs text-zinc-500 uppercase tracking-wide">En pista:</span>
+                            {" "}
+                            {cuarteto.join(", ")}
                           </div>
                         )}
                       </li>
