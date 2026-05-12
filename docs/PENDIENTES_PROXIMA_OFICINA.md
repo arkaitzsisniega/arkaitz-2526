@@ -25,11 +25,42 @@ launchctl kickstart -k gui/$(id -u)/com.arkaitz.bot_datos
 el macOS es viejo (solo da 1.16.3 como máximo en pip). Si en el futuro
 se actualiza macOS, mejor subir onnxruntime a la última y dejar numpy 2.
 
-**Secundario detectado al probar el audio**: tras transcribir bien,
-Alfred contestó "falta algo para poder leer la hoja" y se atascó.
-Es un problema DISTINTO del de los audios (consulta al Sheet falla,
-posiblemente credenciales Google, quota Gemini o algún tool roto del
-11/5). Pendiente diagnosticar con `tail bot.err.log` + test de texto.
+**Secundario detectado y RESUELTO el mismo 12/5 (sesión maratoniana ~2h)**:
+
+Tras arreglar el audio aparecieron 5 bugs en cadena. Resumen rápido:
+
+| # | Síntoma | Causa | Fix | Commit |
+|---|---|---|---|---|
+| 2 | `NameError: gspread` en sandbox | Subprocess Python sin imports preimportados | Auto-prelude condicional | 1fcfd19 |
+| 3 | `KeyError: 'FECHA'` en _VISTA_SEMANAL | System prompt con `…` ocultando columnas | Schema completo en prompt | 9ab41f4 |
+| 4 | Respuestas como "4.90" sin contexto | Gemini Lite incapaz de razonar deportivo | Subir a Flash + script curado | 38ad522, 9aa85a3 |
+| 5 | `finish_reason=10` PROHIBITED_CONTENT | Falso positivo safety filter Google (apodos como "Pirata") | Detector intent + atajo SIN LLM | 119f3f6, 4529c5e |
+| 6 | "Error al consultar BARONA: FutureWarning..." | Subprocess usaba `/usr/bin/python3` (3.8 del sistema) | `sys.executable` (venv del bot) | 6afe20d |
+
+**Lección operativa importante**: dejé 16 commits sin pushear durante
+una hora pensando que el server estaba con código nuevo. **Siempre**
+`git push` al final de cada tanda de commits, no solo `git commit`.
+
+**Infraestructura nueva añadida** (a documentar también en
+`docs/estado_proyecto.md` y `CLAUDE.md`):
+- `src/estado_jugador.py` — script CURADO que devuelve análisis
+  profesional de un jugador (carga + comparativa histórica + comparativa
+  equipo + ACWR + monotonía + wellness + recomendación). NO depende del
+  LLM para el análisis.
+- Detector de intent `_detectar_intent_estado(prompt)` en ambos bots
+  (`telegram_bot/bot.py` y `telegram_bot_datos/bot_datos.py`) que ANTES
+  de pasar el prompt al LLM detecta frases tipo "cómo está X" /
+  "carga últimas N de X" / "estado/fatiga/wellness/resumen de X" y
+  ejecuta directamente el script. Zero LLM, zero safety filters,
+  output determinista.
+- Modelo subido en `.env` de ambos bots: `gemini-2.5-flash-lite`
+  → `gemini-2.5-flash` (más capaz, sigue siendo casi gratis).
+- `safety_settings=BLOCK_NONE` en ambos modelos (uso interno club,
+  datos deportivos neutros, evita falsos positivos).
+
+**Estado al cierre del bloque Telegram (12/5 ~mediodía)**: bot_datos
+listo para la presentación al club. Responde a consultas tipo "qué tal
+[jugador]" con análisis profesional, determinista, reproducible.
 
 ### 2) DESPUÉS: seguir puliendo crono PWA del iPad
 Estado actual (rama actual, commits del 11/5):
