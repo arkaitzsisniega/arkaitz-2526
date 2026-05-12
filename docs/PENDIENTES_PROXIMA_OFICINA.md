@@ -100,11 +100,16 @@ Estado actual (rama actual, commits del 11/5):
       - Campo HORIZONTAL con arcos del área centrados en el poste.
 
 - [ ] **Pendientes de MVP que NO ha tocado aún**:
-      - Pantalla resumen del partido (lista de eventos + tiempos +
-        export Sheet).
       - PWA real (manifest + service worker para instalar en iPad).
-      - Sync a Google Sheet al final (hoja EST_PARTIDOS / EST_EVENTOS).
+      - Sync a Google Sheet al final (hoja EST_PARTIDOS / EST_EVENTOS) —
+        de momento exportable a JSON desde /resumen.
       - /acciones standalone (sin partido en curso).
+      - **Cronograma horizontal por jugador** (idea Arkaitz 13/5):
+        gráfico estilo timeline (eje X = minutos del partido, eje Y =
+        jugador) que muestre franjas de cuándo cada jugador estaba en
+        pista. Útil para el PDF post-partido. Aprovechar el estado de
+        pista reconstruido (ya implementado en calcularResumenIndividual
+        del /resumen) y dibujarlo como barras horizontales SVG.
 
 ---
 

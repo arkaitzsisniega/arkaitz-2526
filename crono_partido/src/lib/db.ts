@@ -187,6 +187,7 @@ export interface ContadoresJugador {
   dpb: number;       // Disparos bloqueados
   // Solo porteros
   golesEncajados: number;
+  paradas: number;          // disparos a puerta del rival que el portero detuvo
 }
 
 export interface AccionesIndividuales {
@@ -259,7 +260,8 @@ export const db = new CronoDB();
 export function contadoresVacios(): ContadoresJugador {
   return {
     pf: 0, pnf: 0, robos: 0, cortes: 0, bdg: 0, bdp: 0,
-    dpp: 0, dpf: 0, dpa: 0, dpb: 0, golesEncajados: 0,
+    dpp: 0, dpf: 0, dpa: 0, dpb: 0,
+    golesEncajados: 0, paradas: 0,
   };
 }
 

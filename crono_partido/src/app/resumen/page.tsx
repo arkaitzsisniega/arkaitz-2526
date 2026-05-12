@@ -139,7 +139,7 @@ function colorSemaforoMin(seg: number, max: number): string {
 export default function ResumenPage() {
   const router = useRouter();
   const { partido, cargado } = usePartido();
-  const [tab, setTab] = useState<"general" | "tiempos" | "eventos" | "individual">("general");
+  const [tab, setTab] = useState<"general" | "tiempos" | "individual">("general");
 
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
@@ -263,7 +263,6 @@ export default function ResumenPage() {
         {[
           { id: "general",    lbl: "📊 General" },
           { id: "tiempos",    lbl: "⏱ Tiempos" },
-          { id: "eventos",    lbl: "📜 Eventos" },
           { id: "individual", lbl: "👤 Individual" },
         ].map((t) => (
           <button key={t.id}
@@ -277,23 +276,45 @@ export default function ResumenPage() {
       {/* TAB: GENERAL */}
       {tab === "general" && (
         <div className="space-y-4">
-          {/* BLOQUE PRINCIPAL — Disparos, pérdidas, robos/cortes, divididos del equipo */}
+          {/* CABECERA: Disparos NUESTROS vs RIVAL */}
           <div className="bg-zinc-900 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-zinc-300 mb-3">📊 Stats del equipo (totales)</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {/* Disparos */}
+            <h3 className="text-sm font-bold text-zinc-300 mb-3">🎯 Disparos</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {/* INTER */}
               <div className="bg-blue-900/30 rounded-lg p-3">
-                <div className="text-xs text-blue-300 font-bold mb-2">🎯 Disparos</div>
-                <div className="text-xs space-y-0.5">
+                <div className="text-xs text-blue-300 font-bold mb-2">INTER</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
                   <div className="flex justify-between"><span>Puerta</span><strong>{totalesEquipo.dpp}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{totalesEquipo.dpa}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{totalesEquipo.dpf}</strong></div>
-                  <div className="flex justify-between"><span>Bloqueados</span><strong>{totalesEquipo.dpb}</strong></div>
-                  <div className="border-t border-blue-700/50 mt-1 pt-1 flex justify-between text-blue-200">
-                    <span>Total</span><strong>{totalesEquipo.dpp+totalesEquipo.dpa+totalesEquipo.dpf+totalesEquipo.dpb}</strong>
-                  </div>
+                  <div className="flex justify-between"><span>Bloq.</span><strong>{totalesEquipo.dpb}</strong></div>
+                </div>
+                <div className="border-t border-blue-700/50 mt-2 pt-2 flex justify-between text-blue-200 text-sm">
+                  <span>Total</span>
+                  <strong>{totalesEquipo.dpp+totalesEquipo.dpa+totalesEquipo.dpf+totalesEquipo.dpb}</strong>
                 </div>
               </div>
+              {/* RIVAL */}
+              <div className="bg-red-900/30 rounded-lg p-3">
+                <div className="text-xs text-red-300 font-bold mb-2">{cfg.rival}</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                  <div className="flex justify-between"><span>Puerta</span><strong>{partido.disparosRival.puerta}</strong></div>
+                  <div className="flex justify-between"><span>Palo</span><strong>{partido.disparosRival.palo}</strong></div>
+                  <div className="flex justify-between"><span>Fuera</span><strong>{partido.disparosRival.fuera}</strong></div>
+                  <div className="flex justify-between"><span>Bloq.</span><strong>{partido.disparosRival.bloqueado}</strong></div>
+                </div>
+                <div className="border-t border-red-700/50 mt-2 pt-2 flex justify-between text-red-200 text-sm">
+                  <span>Total</span>
+                  <strong>{partido.disparosRival.puerta+partido.disparosRival.palo+partido.disparosRival.fuera+partido.disparosRival.bloqueado}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SEGUNDA FILA — Pérdidas, Recuperaciones, Divididos del INTER */}
+          <div className="bg-zinc-900 rounded-xl p-4">
+            <h3 className="text-sm font-bold text-zinc-300 mb-3">📊 Stats INTER</h3>
+            <div className="grid grid-cols-3 gap-3">
               {/* Pérdidas */}
               <div className="bg-red-900/30 rounded-lg p-3">
                 <div className="text-xs text-red-300 font-bold mb-2">❌ Pérdidas</div>
@@ -331,18 +352,75 @@ export default function ResumenPage() {
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Comparativa Inter vs Rival en disparos (porque sí guardamos disparos rivales) */}
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="bg-zinc-800/60 rounded-lg p-2 text-xs">
-                <div className="text-blue-400 font-bold mb-1">INTER (resumen disparos)</div>
-                <div>Total: <strong>{totalesEquipo.dpp+totalesEquipo.dpa+totalesEquipo.dpf+totalesEquipo.dpb}</strong> · A puerta: <strong>{totalesEquipo.dpp}</strong></div>
-              </div>
-              <div className="bg-zinc-800/60 rounded-lg p-2 text-xs">
-                <div className="text-red-400 font-bold mb-1">{cfg.rival} (resumen disparos)</div>
-                <div>Total: <strong>{partido.disparosRival.puerta+partido.disparosRival.palo+partido.disparosRival.fuera+partido.disparosRival.bloqueado}</strong> · A puerta: <strong>{partido.disparosRival.puerta}</strong></div>
-              </div>
-            </div>
+          {/* CRONOLOGÍA DE GOLES */}
+          <div className="bg-zinc-900 rounded-xl p-4">
+            <h3 className="text-sm font-bold text-zinc-300 mb-3">⚽ Goles del partido</h3>
+            {(() => {
+              const goles = eventosOrdenados.filter((ev) => ev.tipo === "gol");
+              if (goles.length === 0) {
+                return <p className="text-sm text-zinc-500">Aún no hay goles registrados.</p>;
+              }
+              return (
+                <ol className="space-y-2">
+                  {goles.map((ev: any) => {
+                    const esInter = ev.equipo === "INTER";
+                    const accion = ev.accion || "";
+                    const m = ev.marcador;
+                    const marcadorPostGol = m && typeof m.inter === "number"
+                      ? `${m.inter + (esInter ? 1 : 0)}-${m.rival + (esInter ? 0 : 1)}`
+                      : "";
+                    // Cuarteto en pista (4 jugadores con el goleador): solo si INTER y se grabó
+                    const cuarteto: string[] = Array.isArray(ev.cuarteto) ? ev.cuarteto : [];
+                    return (
+                      <li key={ev.id}
+                        className={`p-3 rounded-lg ${
+                          esInter ? "bg-blue-900/25" : "bg-red-900/25"
+                        }`}>
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-zinc-400 text-xs font-mono w-16 shrink-0">
+                            {ev.parte} {formatMMSS(ev.segundosParte || 0)}
+                          </span>
+                          <span className={`text-sm font-bold ${esInter ? "text-blue-300" : "text-red-300"}`}>
+                            {esInter ? "INTER" : cfg.rival}
+                          </span>
+                          {marcadorPostGol && (
+                            <span className="text-sm text-zinc-300 tabular-nums">
+                              ({marcadorPostGol})
+                            </span>
+                          )}
+                          {accion && (
+                            <span className="text-xs text-zinc-400 ml-auto">{accion}</span>
+                          )}
+                        </div>
+                        {esInter && (
+                          <div className="text-sm">
+                            <strong className="text-white">⚽ {ev.goleador}</strong>
+                            {ev.asistente && (
+                              <span className="text-zinc-400"> · asist. <strong>{ev.asistente}</strong></span>
+                            )}
+                            {ev.zonaCampo && <span className="text-zinc-500 text-xs"> · desde {ev.zonaCampo}</span>}
+                            {ev.zonaPorteria && <span className="text-zinc-500 text-xs"> → {ev.zonaPorteria}</span>}
+                          </div>
+                        )}
+                        {!esInter && (
+                          <div className="text-sm text-zinc-300">
+                            ⚽ Gol del rival
+                            {ev.zonaPorteria && <span className="text-zinc-500 text-xs"> · a {ev.zonaPorteria}</span>}
+                          </div>
+                        )}
+                        {cuarteto.length > 0 && (
+                          <div className="text-[11px] text-zinc-500 mt-1">
+                            En pista: {cuarteto.join(", ")}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              );
+            })()}
           </div>
 
           {/* Tanda (si hubo) */}
@@ -366,52 +444,6 @@ export default function ResumenPage() {
               </div>
             </div>
           )}
-
-          {/* SECUNDARIO — Faltas, amarillas, tiempos muertos (más pequeño) */}
-          <div className="bg-zinc-900/60 rounded-xl p-3">
-            <h3 className="text-xs font-semibold text-zinc-400 mb-2">Disciplina (faltas / amarillas / tiempos muertos)</h3>
-            <table className="w-full text-xs">
-              <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
-                <tr>
-                  <th className="text-left py-1">Métrica</th>
-                  {partesJugadas.map((p) => (
-                    <th key={p} className="text-center px-1" colSpan={2}>{p}</th>
-                  ))}
-                  <th className="text-center px-1" colSpan={2}>TOTAL</th>
-                </tr>
-                <tr className="text-[9px]">
-                  <th></th>
-                  {partesJugadas.flatMap((p) => [
-                    <th key={`${p}-i`} className="text-blue-400 px-1">I</th>,
-                    <th key={`${p}-r`} className="text-red-400 px-1">R</th>,
-                  ])}
-                  <th className="text-blue-400 px-1">I</th>
-                  <th className="text-red-400 px-1">R</th>
-                </tr>
-              </thead>
-              <tbody>
-                {([
-                  ["Faltas",     "faltas"],
-                  ["Amarillas",  "amarillas"],
-                  ["T. muertos", "tiemposMuerto"],
-                ] as const).map(([label, k]) => {
-                  const totI = partesJugadas.reduce((s, p) => s + stats[k][p].inter, 0);
-                  const totR = partesJugadas.reduce((s, p) => s + stats[k][p].rival, 0);
-                  return (
-                    <tr key={k} className="border-b border-zinc-900">
-                      <td className="py-1">{label}</td>
-                      {partesJugadas.flatMap((p) => [
-                        <td key={`${k}-${p}-i`} className="text-center px-1 font-mono">{stats[k][p].inter}</td>,
-                        <td key={`${k}-${p}-r`} className="text-center px-1 font-mono">{stats[k][p].rival}</td>,
-                      ])}
-                      <td className="text-center px-1 font-mono font-bold">{totI}</td>
-                      <td className="text-center px-1 font-mono font-bold">{totR}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
@@ -473,42 +505,6 @@ export default function ResumenPage() {
               </tr>
             </tfoot>
           </table>
-        </div>
-      )}
-
-      {/* TAB: EVENTOS */}
-      {tab === "eventos" && (
-        <div className="bg-zinc-900 rounded-xl p-4">
-          <h3 className="text-sm font-bold text-zinc-300 mb-3">
-            📜 Cronología ({eventosOrdenados.length} eventos)
-          </h3>
-          {eventosOrdenados.length === 0 ? (
-            <p className="text-sm text-zinc-500">No hay eventos registrados todavía.</p>
-          ) : (
-            <ul className="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
-              {eventosOrdenados.map((ev) => {
-                // Manejo defensivo: eventos antiguos pueden no tener marcador.
-                const m = (ev as any).marcador;
-                const marcadorTxt = m && typeof m.inter === "number"
-                  ? `${m.inter}-${m.rival}`
-                  : "";
-                return (
-                  <li key={ev.id} className="flex items-start gap-2 text-sm border-b border-zinc-900 pb-1.5">
-                    <span className="text-zinc-500 text-xs font-mono w-20 shrink-0">
-                      {ev.parte} {formatMMSS(ev.segundosParte || 0)}
-                    </span>
-                    <span className="text-base shrink-0">{emojiEvento(ev)}</span>
-                    <span className="flex-1 break-words">{descripcionEvento(ev, cfg.rival)}</span>
-                    {marcadorTxt && (
-                      <span className="text-[10px] text-zinc-600 tabular-nums shrink-0">
-                        {marcadorTxt}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
         </div>
       )}
 

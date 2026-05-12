@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePartido } from "@/lib/store";
 import { ROSTER } from "@/lib/roster";
@@ -32,6 +32,7 @@ export default function PartidoPage() {
   const [modalPen, setModalPen] = useState(false);
   const [modalTanda, setModalTanda] = useState(false);
   const [modalTiempos, setModalTiempos] = useState(false);
+  const [modalDisparoRival, setModalDisparoRival] = useState(false);
 
   // Jugadores nuestros que tienen al menos una amarilla.
   // OJO: useMemo debe ir ANTES de los early returns (reglas de hooks).
@@ -212,8 +213,9 @@ export default function PartidoPage() {
       </div>
 
       {/* BOTONES ACCIÓN COLECTIVA */}
-      <div className="grid grid-cols-6 gap-2">
+      <div className="grid grid-cols-7 gap-2">
         <BotonAccion label="⚽ GOL" color="bg-blue-700" onClick={() => setModalGol(true)} />
+        <BotonAccion label="🎯 DISP. RIVAL" color="bg-red-700" onClick={() => setModalDisparoRival(true)} />
         <BotonAccion label="⚠️ FALTA" color="bg-orange-700" onClick={() => setModalFalta(true)} />
         <BotonAccion label="🟨 AMARILLA" color="bg-yellow-700" onClick={() => setModalAmarilla(true)} />
         <BotonAccion label="🔄 CAMBIO" color="bg-zinc-700" onClick={() => setModalCambio({ sale: "" })} />
@@ -354,6 +356,20 @@ export default function PartidoPage() {
           rivalNombre={cfg.rival}
           onCerrar={() => setModalPen(false)}
           onConfirmar={(ev) => { registrarEvento(ev as any); setModalPen(false); }}
+        />
+      )}
+
+      {modalDisparoRival && (
+        <ModalDisparoRival
+          enPista={enPista}
+          rivalNombre={cfg.rival}
+          cfg={cfg}
+          parteActual={p}
+          onCerrar={() => setModalDisparoRival(false)}
+          onConfirmar={(ev) => {
+            registrarEvento(ev as any);
+            setModalDisparoRival(false);
+          }}
         />
       )}
 
@@ -779,6 +795,130 @@ function ModalGol(props: {
               className="px-3 py-1 bg-zinc-700 rounded text-xs">Saltar zona portería y guardar</button>
           </div>
         </Paso>
+      )}
+    </ModalShell>
+  );
+}
+
+// ──────────────── MODAL DISPARO DEL RIVAL ────────────────
+// Flujo: resultado (PUERTA/PALO/FUERA/BLOQUEADO) → zona del campo (desde
+// donde tiró, perspectiva del rival que ataca al revés que Inter) →
+// si fue a puerta, zona de portería + portero nuestro que recibió.
+// Si fue gol, mejor usar el botón GOL (no este modal). Aquí solo
+// disparos que NO son gol.
+
+function ModalDisparoRival(props: {
+  enPista: string[];
+  rivalNombre: string;
+  cfg: ConfigPartido; parteActual: ParteId;
+  onCerrar: () => void;
+  onConfirmar: (ev: any) => void;
+}) {
+  const [resultado, setResultado] = useState<ResultadoDisparo | null>(null);
+  const [zonaCampo, setZonaCampo] = useState("");
+  const [zonaPorteria, setZonaPorteria] = useState("");
+  const [porteroNuestro, setPorteroNuestro] = useState("");
+  const [tirador, setTirador] = useState("");
+
+  const aplicar = () => {
+    const ev: any = {
+      tipo: "disparo",
+      equipo: "RIVAL",
+      resultado,
+    };
+    if (tirador) ev.jugador = tirador;
+    if (porteroNuestro) ev.portero = porteroNuestro;
+    if (zonaCampo) ev.zonaCampo = zonaCampo;
+    if (zonaPorteria) ev.zonaPorteria = zonaPorteria;
+    props.onConfirmar(ev);
+  };
+
+  // Portero nuestro EN PISTA por defecto.
+  const porterosPista = props.enPista.filter((n) =>
+    ROSTER.find((j) => j.nombre === n)?.posicion === "PORTERO"
+  );
+  // Si solo hay 1 portero en pista, lo pre-seleccionamos (una sola vez al abrir).
+  useEffect(() => {
+    if (porterosPista[0] && !porteroNuestro) {
+      setPorteroNuestro(porterosPista[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <ModalShell titulo={`🎯 Disparo del ${props.rivalNombre}`} onCerrar={props.onCerrar}>
+      <p className="text-xs text-zinc-500 mb-2">
+        Para apuntar un disparo del rival que NO fue gol. Si fue gol del rival,
+        usa el botón ⚽ GOL.
+      </p>
+
+      <Paso n={1} titulo="¿Cómo acabó el disparo?" activo={!resultado}>
+        <div className="grid grid-cols-4 gap-2">
+          {(["PUERTA", "PALO", "FUERA", "BLOQUEADO"] as ResultadoDisparo[]).map((r) => (
+            <button key={r}
+              onClick={() => setResultado(r)}
+              className={`py-3 rounded font-bold ${
+                resultado === r ? "bg-red-700" : "bg-zinc-800"
+              }`}>{r}</button>
+          ))}
+        </div>
+        <p className="text-[11px] text-zinc-500 mt-2">
+          PUERTA = a puerta pero parado por nuestro portero.
+        </p>
+      </Paso>
+
+      {resultado && (
+        <Paso n={2} titulo="Tirador rival (opcional)" activo>
+          <input className="w-full bg-zinc-800 rounded px-3 py-2 text-sm"
+            placeholder="Nombre del tirador del rival, número o vacío"
+            value={tirador}
+            onChange={(e) => setTirador(e.target.value.toUpperCase())} />
+        </Paso>
+      )}
+
+      {resultado && (
+        <Paso n={3} titulo="Zona del campo (desde donde tira el rival)" activo={!zonaCampo}>
+          <Campo
+            seleccionada={zonaCampo}
+            onSelect={setZonaCampo}
+            direccion={direccionAtaque(props.parteActual, "RIVAL", props.cfg)}
+            nombreAtacante={props.rivalNombre} />
+          <div className="mt-2 flex justify-end">
+            <button onClick={() => setZonaCampo("__skip__")}
+              className="px-3 py-1 bg-zinc-700 rounded text-xs">
+              Saltar zona del campo
+            </button>
+          </div>
+        </Paso>
+      )}
+
+      {resultado === "PUERTA" && zonaCampo && (
+        <Paso n={4} titulo="Zona de portería (a dónde tiró) + portero nuestro" activo>
+          <Porteria seleccionada={zonaPorteria} onSelect={setZonaPorteria} />
+          <div className="mt-3">
+            <h4 className="text-xs text-zinc-400 mb-1">Portero nuestro (el que paró)</h4>
+            <ChipsJugador
+              opciones={porterosPista}
+              seleccionado={porteroNuestro}
+              onSelect={setPorteroNuestro} />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={aplicar}
+              className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
+              ✅ Guardar parada
+            </button>
+          </div>
+        </Paso>
+      )}
+
+      {/* Para PALO / FUERA / BLOQUEADO, no hace falta zona portería; botón directo */}
+      {resultado && resultado !== "PUERTA" && zonaCampo && (
+        <div className="mt-3 flex justify-end">
+          <button onClick={aplicar}
+            className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
+            ✅ Guardar {resultado.toLowerCase()}
+          </button>
+        </div>
       )}
     </ModalShell>
   );

@@ -662,9 +662,13 @@ export function usePartido() {
         } else if (evento.equipo === "RIVAL") {
           const campo = campoDisparoRival(evento.resultado);
           next.disparosRival = { ...next.disparosRival, [campo]: next.disparosRival[campo] + 1 };
+          // Si va a puerta y NO es gol (este es un evento "disparo", no "gol"),
+          // entonces es una parada del portero → +1 paradas al portero.
           if (evento.resultado === "PUERTA") {
-            // Si fue a puerta pero no es gol (parada), portero +1 parada... no
-            // tenemos campo "paradas"; lo dejamos solo en disparosRival.puerta.
+            const portero = evento.portero || porteroEnPista(next.enPista);
+            if (portero) {
+              next.acciones = bumpContador(next.acciones, portero, "paradas", 1);
+            }
           }
         }
       } else if (evento.tipo === "penalti" || evento.tipo === "diezm") {
@@ -695,6 +699,13 @@ export function usePartido() {
           } else if (evento.equipo === "RIVAL") {
             const campo = campoDisparoRival(res);
             next.disparosRival = { ...next.disparosRival, [campo]: next.disparosRival[campo] + 1 };
+            // PARADA del rival = nuestro portero paró el penalti.
+            if (evento.resultado === "PARADA") {
+              const portero = evento.portero || porteroEnPista(next.enPista);
+              if (portero) {
+                next.acciones = bumpContador(next.acciones, portero, "paradas", 1);
+              }
+            }
           }
         }
       }
@@ -752,6 +763,13 @@ export function usePartido() {
           const campo = campoDisparoRival(ev.resultado);
           next.disparosRival = { ...next.disparosRival,
             [campo]: Math.max(0, next.disparosRival[campo] - 1) };
+          // Revertir parada al portero (si la había)
+          if (ev.resultado === "PUERTA") {
+            const portero = ev.portero || porteroEnPista(next.enPista);
+            if (portero) {
+              next.acciones = bumpContador(next.acciones, portero, "paradas", -1);
+            }
+          }
         }
       } else if (ev.tipo === "penalti" || ev.tipo === "diezm") {
         if (ev.resultado === "GOL") {
