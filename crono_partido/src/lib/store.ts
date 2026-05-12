@@ -807,6 +807,44 @@ export function usePartido() {
     setPartido((prev) => ({ ...prev, acciones: bumpContador(prev.acciones, nombre, campo, delta) }));
   }
 
+  /**
+   * Registra una acción individual (PF/PNF/Robo/Corte/BDG/BDP) con zona
+   * del campo opcional. Hace dos cosas atómicas:
+   *   1. Sube el contador del jugador (igual que incAccion).
+   *   2. Guarda un evento "accion_individual" con el detalle (jugador,
+   *      tipo, zona, parte, segundos), para análisis posterior.
+   */
+  function registrarAccionIndividual(
+    jugador: string,
+    accion: "pf" | "pnf" | "robos" | "cortes" | "bdg" | "bdp",
+    zonaCampo?: string,
+  ) {
+    setPartido((prev) => {
+      const ahora = Date.now();
+      const parte = prev.cronometro.parteActual;
+      const segP = (() => {
+        const c = prev.cronometro;
+        return c.ultimoStart == null
+          ? c.segundosParte
+          : c.segundosParte + (ahora - c.ultimoStart) / 1000;
+      })();
+      const evento: Evento = {
+        id: uid(),
+        tipo: "accion_individual",
+        parte,
+        segundosParte: segP,
+        segundosPartido: segP,
+        timestampReal: ahora,
+        marcador: { ...prev.marcador },
+        jugador,
+        accion,
+        zonaCampo,
+      };
+      const acciones = bumpContador(prev.acciones, jugador, accion, 1);
+      return { ...prev, acciones, eventos: [...prev.eventos, evento] };
+    });
+  }
+
   function reset() {
     setPartido(partidoVacio(ID_PARTIDO));
   }
@@ -886,7 +924,7 @@ export function usePartido() {
     segundosTurnoActual, segundosBanquillo, segundosParte, segundosPartidoTotal,
     segundosEnParte, segundosRestantesParte, duracionParteActual,
     iniciarPartido, play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
-    registrarEvento, deshacerUltimoEvento, incAccion, reset,
+    registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual, reset,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
   };
 }

@@ -140,6 +140,11 @@ export type Evento =
   | (EventoBase & { tipo: "roja"; equipo: "INTER" | "RIVAL"; jugador?: string })
   | (EventoBase & { tipo: "tiempo_muerto"; equipo: "INTER" | "RIVAL" })
   | (EventoBase & { tipo: "cambio"; sale: string; entra: string })
+  | (EventoBase & { tipo: "accion_individual";
+      jugador: string;
+      /** Subtipo: pf, pnf, robos, cortes, bdg, bdp. */
+      accion: "pf" | "pnf" | "robos" | "cortes" | "bdg" | "bdp";
+      zonaCampo?: string })
   | (EventoBase & { tipo: "disparo"; equipo: "INTER" | "RIVAL";
       jugador?: string;            // tirador (si INTER); si RIVAL puede no estar
       portero?: string;            // portero nuestro (si RIVAL) o rival (si INTER)

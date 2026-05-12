@@ -20,12 +20,16 @@ export function formatMSS(segundos: number): string {
 
 /**
  * Color de fondo según minutos en pista del turno actual.
- * <1' verde (fresco), 1-2' amarillo (atento), 2-3' naranja (mira), >3' rojo (cambia ya).
+ *   <1' azul (recién entrado), 1-2' verde (OK), 2-3' amarillo (atento),
+ *   ≥3' rojo (cambia ya). Definido por Arkaitz.
+ *
+ * NOTA: el portero NO usa esta función (su tiempo no es crítico). En el
+ * componente que lo dibuja se le pone un estilo neutro distinto.
  */
 export function colorTiempoPista(segundos: number): string {
-  if (segundos < 60) return "bg-green-600";
-  if (segundos < 120) return "bg-yellow-500";
-  if (segundos < 180) return "bg-orange-500";
+  if (segundos < 60) return "bg-blue-600";
+  if (segundos < 120) return "bg-green-600";
+  if (segundos < 180) return "bg-yellow-500";
   return "bg-red-600";
 }
 

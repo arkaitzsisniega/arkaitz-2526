@@ -100,6 +100,28 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
     Z
   `.trim();
 
+  // A4 = TODO el espacio central SUPERIOR de los primeros 10m que NO sea
+  // área ni banda. Encierra desde la línea de 10m (x=X_10) por arriba,
+  // bordea la curva del área del rival, y vuelve por la mitad horizontal.
+  // Diferencia respecto a antes (rectángulo simple): ahora incluye lo que
+  // estaba "vacío" entre A1/A3 y A4. A5 simétrico abajo.
+  const pathA4 = `
+    M ${X_10} ${BANDA_SUP_Y}
+    L ${W} ${BANDA_SUP_Y}
+    A ${R_AREA} ${R_AREA} 0 0 0 ${AREA_BORDE_X} ${POSTE_SUP_Y}
+    L ${AREA_BORDE_X} ${Y_CENTRO}
+    L ${X_10} ${Y_CENTRO}
+    Z
+  `.trim();
+  const pathA5 = `
+    M ${X_10} ${Y_CENTRO}
+    L ${AREA_BORDE_X} ${Y_CENTRO}
+    L ${AREA_BORDE_X} ${POSTE_INF_Y}
+    A ${R_AREA} ${R_AREA} 0 0 0 ${W} ${BANDA_INF_Y}
+    L ${X_10} ${BANDA_INF_Y}
+    Z
+  `.trim();
+
   // Si el atacante va hacia la izquierda, rotamos GEOMETRICAMENTE el SVG
   // 180° (con <g transform> SVG, no CSS) y contra-rotamos cada texto para
   // que siga legible. Así A3 queda físicamente en la banda inferior (que
@@ -173,25 +195,26 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
           style={{ pointerEvents: "none" }}>A6</text>
       </g>
 
-      {/* A4 = central SUP entre área y 10m (4m horizontal × 7.5m vertical) */}
+      {/* A4 = TODO el espacio central SUPERIOR (primeros 10m) sin área ni banda.
+          Incluye la zona que antes quedaba "vacía" entre A1/A3 y A4. */}
       <g onClick={() => onSelect("A4")} className="cursor-pointer">
-        <rect x={X_10} y={BANDA_SUP_Y} width={AREA_BORDE_X - X_10} height={Y_CENTRO - BANDA_SUP_Y}
+        <path d={pathA4}
           fill={colorZona("A4")} fillOpacity={opZona("A4")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_10 + AREA_BORDE_X) / 2} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 6}
-          transform={tT((X_10 + AREA_BORDE_X) / 2, (BANDA_SUP_Y + Y_CENTRO) / 2 + 6)}
+        <text x={(X_10 + AREA_BORDE_X) / 2 - 10} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 6}
+          transform={tT((X_10 + AREA_BORDE_X) / 2 - 10, (BANDA_SUP_Y + Y_CENTRO) / 2 + 6)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A4") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A4</text>
       </g>
 
-      {/* A5 = central INF entre área y 10m */}
+      {/* A5 = TODO el espacio central INFERIOR (primeros 10m) sin área ni banda. */}
       <g onClick={() => onSelect("A5")} className="cursor-pointer">
-        <rect x={X_10} y={Y_CENTRO} width={AREA_BORDE_X - X_10} height={BANDA_INF_Y - Y_CENTRO}
+        <path d={pathA5}
           fill={colorZona("A5")} fillOpacity={opZona("A5")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_10 + AREA_BORDE_X) / 2} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 6}
-          transform={tT((X_10 + AREA_BORDE_X) / 2, (Y_CENTRO + BANDA_INF_Y) / 2 + 6)}
+        <text x={(X_10 + AREA_BORDE_X) / 2 - 10} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 6}
+          transform={tT((X_10 + AREA_BORDE_X) / 2 - 10, (Y_CENTRO + BANDA_INF_Y) / 2 + 6)}
           textAnchor="middle" fontSize="16" fontWeight="bold"
           fill={sel("A5") ? "#ffffff" : "#d4d4d8"}
           style={{ pointerEvents: "none" }}>A5</text>

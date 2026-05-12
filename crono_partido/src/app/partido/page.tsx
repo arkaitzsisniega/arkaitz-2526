@@ -18,7 +18,7 @@ export default function PartidoPage() {
     segundosPartidoTotal, segundosEnParte,
     segundosRestantesParte, duracionParteActual,
     play, pausa, ajustarReloj, avanzarParte, cambiarJugador,
-    registrarEvento, deshacerUltimoEvento, incAccion,
+    registrarEvento, deshacerUltimoEvento, incAccion, registrarAccionIndividual,
     iniciarTanda, apuntarTiroTanda, deshacerUltimoTiroTanda, cerrarTanda,
   } = usePartido();
 
@@ -134,11 +134,15 @@ export default function PartidoPage() {
                 <button key={nombre}
                   onClick={() => setModalAccionInd({ jugador: nombre })}
                   className={`relative p-3 rounded-lg text-center ${
-                    esPortero ? "bg-yellow-700/40 border-2 border-yellow-500"
-                              : colorTiempoPista(seg)
+                    esPortero
+                      ? "bg-zinc-800 border-2 border-zinc-600"  // portero neutro, sin código de color de minutos
+                      : colorTiempoPista(seg)
                   } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
                   {tieneAmarilla && (
                     <span className="absolute top-1 right-1 text-base leading-none" title="Amarilla">🟨</span>
+                  )}
+                  {esPortero && (
+                    <span className="absolute top-1 left-1 text-xs">🥅</span>
                   )}
                   <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
                   <div className="text-base font-bold">{nombre}</div>
@@ -191,8 +195,9 @@ export default function PartidoPage() {
             return (
               <div key={nombre}
                 className={`relative p-2 rounded-lg text-center ${
-                  esPortero ? "bg-yellow-700/40 border border-yellow-500"
-                            : colorTiempoBanquillo(seg)
+                  esPortero
+                    ? "bg-zinc-800 border border-zinc-600"   // portero neutro
+                    : colorTiempoBanquillo(seg)
                 } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
                 {tieneAmarilla && (
                   <span className="absolute top-0.5 right-0.5 text-sm leading-none">🟨</span>
@@ -270,6 +275,10 @@ export default function PartidoPage() {
             incAccion(modalAccionInd.jugador, tipo, 1);
             setModalAccionInd(null);
           }}
+          onAccionConZona={(tipo, zona) => {
+            registrarAccionIndividual(modalAccionInd.jugador, tipo, zona);
+            setModalAccionInd(null);
+          }}
           onDisparo={(detalles) => {
             // Registrar como evento "disparo" (no es gol, si fuera gol se usaría GOL).
             registrarEvento({
@@ -288,6 +297,7 @@ export default function PartidoPage() {
       {modalFalta && (
         <ModalFalta
           enPista={enPista}
+          banquillo={banquillo}
           rivalNombre={cfg.rival}
           cfg={cfg}
           parteActual={p}
@@ -316,6 +326,7 @@ export default function PartidoPage() {
       {modalAmarilla && (
         <ModalAmarilla
           enPista={enPista}
+          banquillo={banquillo}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalAmarilla(false)}
           onConfirmar={(ev) => { registrarEvento(ev as any); setModalAmarilla(false); }}
@@ -456,7 +467,9 @@ function ModalCambio(props: {
 // Flujo: equipo → jugador (o SIN ASIGNAR / RIVAL-MANO) → zona campo → cierra.
 
 function ModalFalta(props: {
-  enPista: string[]; rivalNombre: string;
+  enPista: string[];
+  banquillo: string[];     // se admiten también jugadores del banquillo
+  rivalNombre: string;
   cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
@@ -465,6 +478,10 @@ function ModalFalta(props: {
   const [jugador, setJugador] = useState<string>("");
   const [sinAsignar, setSinAsignar] = useState(false);
   const [rivalMano, setRivalMano] = useState(false);
+  // Lista de candidatos: primero los que están en pista, después los del
+  // banquillo (puede haber falta a un jugador del banquillo si protesta
+  // o si entra a discusión por ejemplo).
+  const candidatos = [...props.enPista, ...props.banquillo];
 
   const aplicar = (zonaCampo?: string) => {
     const ev: any = { tipo: "falta", equipo };
@@ -499,13 +516,20 @@ function ModalFalta(props: {
           }
           activo={!jugador && !sinAsignar && !rivalMano}>
           <div className="flex flex-wrap gap-2">
-            {props.enPista.map((n) => (
-              <button key={n}
-                onClick={() => { setJugador(n); setSinAsignar(false); setRivalMano(false); }}
-                className={`px-3 py-2 rounded text-base ${
-                  jugador === n ? "bg-blue-700" : "bg-zinc-800"
-                }`}>{n}</button>
-            ))}
+            {candidatos.map((n) => {
+              const enBanquillo = props.banquillo.includes(n);
+              return (
+                <button key={n}
+                  onClick={() => { setJugador(n); setSinAsignar(false); setRivalMano(false); }}
+                  className={`px-3 py-2 rounded text-base ${
+                    jugador === n ? "bg-blue-700"
+                                  : enBanquillo ? "bg-zinc-700 opacity-70" : "bg-zinc-800"
+                  }`}
+                  title={enBanquillo ? "Jugador en banquillo" : undefined}>
+                  {n}{enBanquillo ? " 🪑" : ""}
+                </button>
+              );
+            })}
             <button onClick={() => { setJugador(""); setSinAsignar(true); setRivalMano(false); }}
               className={`px-3 py-2 rounded text-base ${
                 sinAsignar ? "bg-zinc-500" : "bg-zinc-800"
@@ -540,7 +564,9 @@ function ModalFalta(props: {
 // ──────────────── MODAL AMARILLA ────────────────
 
 function ModalAmarilla(props: {
-  enPista: string[]; rivalNombre: string;
+  enPista: string[];
+  banquillo: string[];     // tambien admitidos
+  rivalNombre: string;
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
@@ -551,6 +577,8 @@ function ModalAmarilla(props: {
     if (jugador) ev.jugador = jugador;
     props.onConfirmar(ev);
   };
+
+  const candidatos = [...props.enPista, ...props.banquillo];
 
   return (
     <ModalShell titulo="🟨 Tarjeta amarilla" onCerrar={props.onCerrar} maxW="max-w-2xl">
@@ -569,10 +597,19 @@ function ModalAmarilla(props: {
       {equipo === "INTER" && (
         <Paso n={2} titulo="Jugador (tap = aplicar) o saltar" activo>
           <div className="flex flex-wrap gap-2">
-            {props.enPista.map((n) => (
-              <button key={n} onClick={() => aplicar(n)}
-                className="px-3 py-2 rounded bg-blue-700 hover:bg-blue-600">{n}</button>
-            ))}
+            {candidatos.map((n) => {
+              const enBanquillo = props.banquillo.includes(n);
+              return (
+                <button key={n} onClick={() => aplicar(n)}
+                  className={`px-3 py-2 rounded ${
+                    enBanquillo ? "bg-zinc-700 hover:bg-zinc-600 opacity-80"
+                                : "bg-blue-700 hover:bg-blue-600"
+                  }`}
+                  title={enBanquillo ? "Jugador en banquillo" : undefined}>
+                  {n}{enBanquillo ? " 🪑" : ""}
+                </button>
+              );
+            })}
             <button onClick={() => aplicar(undefined)}
               className="px-3 py-2 rounded bg-zinc-700">SIN ASIGNAR</button>
           </div>
@@ -861,22 +898,47 @@ function ModalAccionIndividual(props: {
   cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
+  /** PF/PNF/Robo/Corte: con zona del campo (registrarAccionIndividual).
+   *  BDG/BDP: sin zona, solo contador (incAccion). */
+  onAccionConZona: (
+    tipo: "pf" | "pnf" | "robos" | "cortes",
+    zonaCampo?: string,
+  ) => void;
   onContador: (tipo: keyof ContadoresJugador) => void;
   onDisparo: (detalles: { resultado: ResultadoDisparo; zonaCampo: string; zonaPorteria: string }) => void;
 }) {
-  const [paso, setPaso] = useState<"menu" | "disparoTipo" | "disparoCampo" | "disparoPorteria" | "cambio">("menu");
+  const [paso, setPaso] = useState<"menu" | "accionZona" | "disparoTipo" | "disparoCampo" | "disparoPorteria" | "cambio">("menu");
   const [disparoRes, setDisparoRes] = useState<ResultadoDisparo>("PUERTA");
   const [zonaCampo, setZonaCampo] = useState("");
+  const [accionPendiente, setAccionPendiente] = useState<"pf" | "pnf" | "robos" | "cortes" | null>(null);
+
+  // Mapeo amigable acción → etiqueta + emoji
+  const LBL_ACCION: Record<"pf" | "pnf" | "robos" | "cortes", string> = {
+    pf:     "❌ Pérdida forzada",
+    pnf:    "❌ Pérdida NO forzada",
+    robos:  "🔁 Robo",
+    cortes: "✂️ Corte",
+  };
+
+  // Atajo: pulsar PF/PNF/Robo/Corte → ir a la pantalla del mapa para
+  // elegir zona. Después se aplica la acción + zona.
+  const irAAccionZona = (a: "pf" | "pnf" | "robos" | "cortes") => {
+    setAccionPendiente(a);
+    setPaso("accionZona");
+  };
 
   if (paso === "menu") {
     return (
       <ModalShell titulo={`📊 ${props.jugador}`} onCerrar={props.onCerrar}>
-        <p className="text-sm text-zinc-400 mb-3">Toca la acción (1 tap = +1 y cerrar):</p>
+        <p className="text-sm text-zinc-400 mb-3">
+          Robo / Corte / PF / PNF abren mapa para situar la zona.
+          BDG / BDP son 1 tap = +1.
+        </p>
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <BotonGrande label="🔁 Robo" onClick={() => props.onContador("robos")} />
-          <BotonGrande label="✂️ Corte" onClick={() => props.onContador("cortes")} />
-          <BotonGrande label="❌ PF" subtitle="forzada" onClick={() => props.onContador("pf")} />
-          <BotonGrande label="❌ PNF" subtitle="no forzada" onClick={() => props.onContador("pnf")} />
+          <BotonGrande label="🔁 Robo" subtitle="con zona" onClick={() => irAAccionZona("robos")} />
+          <BotonGrande label="✂️ Corte" subtitle="con zona" onClick={() => irAAccionZona("cortes")} />
+          <BotonGrande label="❌ PF" subtitle="forzada (zona)" onClick={() => irAAccionZona("pf")} />
+          <BotonGrande label="❌ PNF" subtitle="no forzada (zona)" onClick={() => irAAccionZona("pnf")} />
           <BotonGrande label="🥇 BDG" subtitle="dividido ganado" onClick={() => props.onContador("bdg")} />
           <BotonGrande label="🥈 BDP" subtitle="dividido perdido" onClick={() => props.onContador("bdp")} />
         </div>
@@ -884,6 +946,28 @@ function ModalAccionIndividual(props: {
           <BotonGrande label="🎯 DISPARO" color="bg-pink-700" onClick={() => setPaso("disparoTipo")} />
           <BotonGrande label="🔄 CAMBIO" subtitle={`sale ${props.jugador}`} color="bg-zinc-700" onClick={() => setPaso("cambio")} />
         </div>
+      </ModalShell>
+    );
+  }
+
+  if (paso === "accionZona" && accionPendiente) {
+    return (
+      <ModalShell titulo={`${LBL_ACCION[accionPendiente]} · ${props.jugador}`}
+        onCerrar={props.onCerrar}>
+        <Paso n={1} titulo="¿En qué zona del campo? (tap = guardar)" activo>
+          <Campo
+            onSelect={(z) => props.onAccionConZona(accionPendiente, z)}
+            direccion={direccionAtaque(props.parteActual, "INTER", props.cfg)}
+            nombreAtacante="Inter" />
+          <div className="mt-2 flex justify-between">
+            <button onClick={() => { setAccionPendiente(null); setPaso("menu"); }}
+              className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
+            <button onClick={() => props.onAccionConZona(accionPendiente, undefined)}
+              className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-xs">
+              Saltar zona y guardar
+            </button>
+          </div>
+        </Paso>
       </ModalShell>
     );
   }
