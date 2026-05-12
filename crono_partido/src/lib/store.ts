@@ -30,6 +30,7 @@ import {
   partidoVacio,
   contadoresVacios,
   PRESETS_COMPETICION,
+  UMBRAL_RETOMAR_TURNO_SEG,
   type Partido,
   type ParteId,
   type ConfigPartido,
@@ -207,6 +208,7 @@ export function usePartido() {
               ? tt.segDescansoActual
               : (tt.segTurnoActual != null ? null : 0),
             descansoStart: tt.descansoStart !== undefined ? tt.descansoStart : null,
+            segTurnoUltimo: tt.segTurnoUltimo !== undefined ? tt.segTurnoUltimo : null,
           };
         }
         const migrado: Partido = {
@@ -320,6 +322,7 @@ export function usePartido() {
           // (reloj no corre). Cuando se le dé PLAY arrancará.
           segDescansoActual: enPista ? null : 0,
           descansoStart: null,
+          segTurnoUltimo: null,
         };
       }
       const acciones: typeof prev.acciones = { porJugador: {} };
@@ -515,6 +518,9 @@ export function usePartido() {
           ...cong,
           segTurnoActual: null,
           ultimaSalida: ahora,
+          // Guardar último valor por si vuelve en <30s (regla "fatiga
+          // acumulada"). Se usa cuando vuelva a entrar.
+          segTurnoUltimo: cong.segTurnoActual ?? 0,
           // Empieza a descansar (en vivo si reloj corre, congelado si no).
           segDescansoActual: 0,
           descansoStart: corriendo ? ahora : null,
@@ -522,17 +528,25 @@ export function usePartido() {
       }
       const tEntra = tiempos[entra];
       if (tEntra) {
-        // Si estaba descansando, congelamos el tramo para no "perder" segundos
-        // si en algún momento queremos histórico. Después limpiamos.
+        // Congelar descanso antes de leerlo (para tener segDescansoActual real).
         const congDesc = congelaDescanso(tEntra);
+        const segBanquillo = congDesc.segDescansoActual ?? 0;
+        const ultimoTurno = congDesc.segTurnoUltimo ?? 0;
+        // Regla "fatiga acumulada": si lleva MENOS de UMBRAL en banquillo
+        // y tiene un valor de turno previo (> 0), retomar desde ahí.
+        // Si no, empezar de 0 (descanso suficiente o nunca había jugado).
+        const retomar = segBanquillo < UMBRAL_RETOMAR_TURNO_SEG && ultimoTurno > 0;
+        const segInicial = retomar ? ultimoTurno : 0;
         tiempos[entra] = {
           ...congDesc,
-          segTurnoActual: 0,
+          segTurnoActual: segInicial,
           turnoStart: corriendo ? ahora : null,
           ultimaSalida: null,
           // Deja de estar en banquillo
           segDescansoActual: null,
           descansoStart: null,
+          // Limpiar para próxima vez
+          segTurnoUltimo: null,
         };
       }
       const enPista = prev.enPista.map((n) => (n === sale ? entra : n));

@@ -1035,6 +1035,9 @@ function ModalPenalti(props: {
 
 // ──────────────── MODAL ACCIÓN INDIVIDUAL (tap en jugador) ────────────────
 
+// Tipos de accion que requieren zona del campo
+type AccionConZonaTipo = "pf" | "pnf" | "robos" | "cortes" | "bdg" | "bdp";
+
 function ModalAccionIndividual(props: {
   jugador: string;
   enPista: string[];
@@ -1042,31 +1045,29 @@ function ModalAccionIndividual(props: {
   cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
-  /** PF/PNF/Robo/Corte: con zona del campo (registrarAccionIndividual).
-   *  BDG/BDP: sin zona, solo contador (incAccion). */
-  onAccionConZona: (
-    tipo: "pf" | "pnf" | "robos" | "cortes",
-    zonaCampo?: string,
-  ) => void;
+  /** TODAS las acciones individuales con mapa: PF/PNF/Robo/Corte/BDG/BDP. */
+  onAccionConZona: (tipo: AccionConZonaTipo, zonaCampo?: string) => void;
   onContador: (tipo: keyof ContadoresJugador) => void;
   onDisparo: (detalles: { resultado: ResultadoDisparo; zonaCampo: string; zonaPorteria: string }) => void;
 }) {
-  const [paso, setPaso] = useState<"menu" | "accionZona" | "disparoTipo" | "disparoCampo" | "disparoPorteria" | "cambio">("menu");
+  const [paso, setPaso] = useState<"menu" | "accionZona" | "disparoTipo" | "disparoCampo" | "disparoPorteria">("menu");
   const [disparoRes, setDisparoRes] = useState<ResultadoDisparo>("PUERTA");
   const [zonaCampo, setZonaCampo] = useState("");
-  const [accionPendiente, setAccionPendiente] = useState<"pf" | "pnf" | "robos" | "cortes" | null>(null);
+  const [accionPendiente, setAccionPendiente] = useState<AccionConZonaTipo | null>(null);
 
   // Mapeo amigable acción → etiqueta + emoji
-  const LBL_ACCION: Record<"pf" | "pnf" | "robos" | "cortes", string> = {
+  const LBL_ACCION: Record<AccionConZonaTipo, string> = {
     pf:     "❌ Pérdida forzada",
     pnf:    "❌ Pérdida NO forzada",
     robos:  "🔁 Robo",
     cortes: "✂️ Corte",
+    bdg:    "🥇 Bal. dividido ganado",
+    bdp:    "🥈 Bal. dividido perdido",
   };
 
-  // Atajo: pulsar PF/PNF/Robo/Corte → ir a la pantalla del mapa para
-  // elegir zona. Después se aplica la acción + zona.
-  const irAAccionZona = (a: "pf" | "pnf" | "robos" | "cortes") => {
+  // Pulsar una acción → ir a la pantalla del mapa para elegir zona.
+  // Después se aplica la acción + zona.
+  const irAAccionZona = (a: AccionConZonaTipo) => {
     setAccionPendiente(a);
     setPaso("accionZona");
   };
@@ -1075,20 +1076,42 @@ function ModalAccionIndividual(props: {
     return (
       <ModalShell titulo={`📊 ${props.jugador}`} onCerrar={props.onCerrar}>
         <p className="text-sm text-zinc-400 mb-3">
-          Robo / Corte / PF / PNF abren mapa para situar la zona.
-          BDG / BDP son 1 tap = +1.
+          Todas las acciones abren el mapa para situar la zona del campo.
         </p>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <BotonGrande label="🔁 Robo" subtitle="con zona" onClick={() => irAAccionZona("robos")} />
-          <BotonGrande label="✂️ Corte" subtitle="con zona" onClick={() => irAAccionZona("cortes")} />
-          <BotonGrande label="❌ PF" subtitle="forzada (zona)" onClick={() => irAAccionZona("pf")} />
-          <BotonGrande label="❌ PNF" subtitle="no forzada (zona)" onClick={() => irAAccionZona("pnf")} />
-          <BotonGrande label="🥇 BDG" subtitle="dividido ganado" onClick={() => props.onContador("bdg")} />
-          <BotonGrande label="🥈 BDP" subtitle="dividido perdido" onClick={() => props.onContador("bdp")} />
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <BotonGrande label="🔁 Robo"  onClick={() => irAAccionZona("robos")} />
+          <BotonGrande label="✂️ Corte" onClick={() => irAAccionZona("cortes")} />
+          <BotonGrande label="❌ PF"    subtitle="forzada" onClick={() => irAAccionZona("pf")} />
+          <BotonGrande label="❌ PNF"   subtitle="no forzada" onClick={() => irAAccionZona("pnf")} />
+          <BotonGrande label="🥇 BDG"   subtitle="dividido ganado" onClick={() => irAAccionZona("bdg")} />
+          <BotonGrande label="🥈 BDP"   subtitle="dividido perdido" onClick={() => irAAccionZona("bdp")} />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <BotonGrande label="🎯 DISPARO" color="bg-pink-700" onClick={() => setPaso("disparoTipo")} />
-          <BotonGrande label="🔄 CAMBIO" subtitle={`sale ${props.jugador}`} color="bg-zinc-700" onClick={() => setPaso("cambio")} />
+        </div>
+
+        {/* CAMBIO DIRECTO: tap en un jugador del banquillo y se hace el
+            cambio inmediatamente (sin pasar por sub-menú). */}
+        <div className="mt-4 pt-3 border-t border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-2">
+            🔄 Cambio rápido — toca al jugador de banquillo que entra:
+          </h3>
+          {props.banquillo.length === 0 ? (
+            <p className="text-xs text-zinc-500">No hay jugadores en banquillo.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {props.banquillo.map((n) => (
+                <button key={n}
+                  onClick={() => props.onCambio(props.jugador, n)}
+                  className="px-3 py-2 rounded bg-blue-800 hover:bg-blue-700 text-base font-bold">
+                  ⤴ {n}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-zinc-500 mt-2">
+            Sale <strong>{props.jugador}</strong>, entra el que pulses.
+          </p>
         </div>
       </ModalShell>
     );
@@ -1174,22 +1197,6 @@ function ModalAccionIndividual(props: {
     );
   }
 
-  if (paso === "cambio") {
-    return (
-      <ModalShell titulo={`🔄 Cambio: sale ${props.jugador}`} onCerrar={props.onCerrar} maxW="max-w-2xl">
-        <Paso n={1} titulo="Entra (tap = aplicar)" activo>
-          <div className="flex flex-wrap gap-2">
-            {props.banquillo.map((n) => (
-              <button key={n}
-                onClick={() => props.onCambio(props.jugador, n)}
-                className="px-4 py-3 bg-blue-700 hover:bg-blue-600 rounded font-bold">{n}</button>
-            ))}
-          </div>
-        </Paso>
-        <button onClick={() => setPaso("menu")} className="px-4 py-2 bg-zinc-700 rounded">← Atrás</button>
-      </ModalShell>
-    );
-  }
   return null;
 }
 

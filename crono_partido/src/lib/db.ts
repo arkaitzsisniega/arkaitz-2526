@@ -111,7 +111,22 @@ export interface TiempoJugador {
    * Live: segDescansoActual + (ahora - descansoStart).
    */
   descansoStart: number | null;
+  /**
+   * Último valor de segTurnoActual que tenía el jugador JUSTO ANTES de
+   * salir al banquillo. Se usa para la regla de "fatiga acumulada":
+   * si vuelve a entrar a pista habiendo descansado < UMBRAL_RETOMAR_SEG
+   * (30s), su contador NO se reinicia a 0 sino que retoma este valor.
+   * Solo se rellena en cambiarJugador cuando sale; se limpia cuando
+   * entra (independientemente de si se aplicó la regla o no).
+   */
+  segTurnoUltimo: number | null;
 }
+
+/** Segundos de banquillo bajo los cuales, si el jugador vuelve a entrar,
+ *  su contador de turno NO se reinicia (retoma desde el último valor).
+ *  Pensado para cambios de "comodín táctico" cortos donde la fatiga del
+ *  jugador no se ha recuperado. */
+export const UMBRAL_RETOMAR_TURNO_SEG = 30;
 
 /** Resultado posible de un disparo (a puerta = entró marco, parada portero o gol). */
 export type ResultadoDisparo = "PUERTA" | "PALO" | "FUERA" | "BLOQUEADO";
