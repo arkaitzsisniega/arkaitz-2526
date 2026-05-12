@@ -220,7 +220,7 @@ export default function PartidoPage() {
         <BotonAccion label="🛑 T.M." color="bg-purple-700" onClick={() => setModalTM(true)} />
         <BotonAccion label="🎯 PEN/10M" color="bg-pink-700" onClick={() => setModalPen(true)} />
       </div>
-      <div className={`grid ${cfg.permiteTanda ? "grid-cols-4" : "grid-cols-3"} gap-2 mt-2`}>
+      <div className={`grid ${cfg.permiteTanda ? "grid-cols-5" : "grid-cols-4"} gap-2 mt-2`}>
         <button onClick={deshacerUltimoEvento}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
           ↶ Deshacer
@@ -240,6 +240,10 @@ export default function PartidoPage() {
             {partido.tanda?.tiros.length ? ` (${partido.tanda.marcador.inter}-${partido.tanda.marcador.rival})` : ""}
           </button>
         )}
+        <button onClick={() => router.push("/resumen")}
+          className="py-3 bg-blue-700 hover:bg-blue-600 rounded-lg text-sm font-bold">
+          🏁 RESUMEN
+        </button>
         <button onClick={() => router.push("/")}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
           🏠 Inicio
