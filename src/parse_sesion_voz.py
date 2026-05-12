@@ -24,6 +24,12 @@ import warnings
 from datetime import date
 from pathlib import Path
 
+# Silenciar warnings ANTES de importar libs que emitan FutureWarning
+# (google.generativeai, urllib3, etc.) → evita que el subprocess
+# devuelva stderr ruidoso que el bot interprete como error.
+import warnings as _w
+_w.filterwarnings("ignore")
+
 import gspread
 from google.oauth2.service_account import Credentials
 import google.generativeai as genai
@@ -144,7 +150,17 @@ def claude_extraer(transcripcion: str) -> dict:
     if not GEMINI_API_KEY:
         raise RuntimeError("Falta GEMINI_API_KEY en el entorno.")
     prompt = PROMPT_EXTRACTOR.replace("__TEXTO__", transcripcion)
-    model = genai.GenerativeModel(model_name=GEMINI_MODEL)
+    # Safety OFF: uso interno club, datos deportivos neutros (Gemini 2.5
+    # Flash bloquea por falsos positivos con apodos del roster).
+    safety_off = [
+        {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL, safety_settings=safety_off
+    )
     response = model.generate_content(
         prompt,
         generation_config={

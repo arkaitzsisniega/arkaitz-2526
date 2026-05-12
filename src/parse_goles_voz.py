@@ -116,7 +116,13 @@ def gemini_extraer(transcripcion: str) -> list[dict]:
     if not GEMINI_API_KEY:
         raise RuntimeError("Falta GEMINI_API_KEY en el entorno.")
     prompt = PROMPT_EXTRACTOR.replace("__TEXTO__", transcripcion)
-    model = genai.GenerativeModel(model_name=GEMINI_MODEL)
+    _safety_off = [
+        {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+    model = genai.GenerativeModel(model_name=GEMINI_MODEL, safety_settings=_safety_off)
     response = model.generate_content(
         prompt,
         generation_config={

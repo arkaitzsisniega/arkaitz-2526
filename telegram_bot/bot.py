@@ -1517,9 +1517,32 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
         try: await task
         except Exception: pass
     if proc.returncode != 0:
+        # Combinamos stdout + stderr filtrando warnings ruidosos para que
+        # el mensaje real del script (que puede ir por stdout tras MSG_SEP)
+        # NO quede oculto por el FutureWarning de google.generativeai.
+        salida_out = out.decode("utf-8", "replace")
+        salida_err = err.decode("utf-8", "replace")
+        err_lines = [
+            ln for ln in salida_err.splitlines()
+            if "FutureWarning" not in ln
+            and "warnings.warn" not in ln
+            and "All support for the" not in ln
+            and "google.generativeai" not in ln
+            and "google.genai" not in ln
+            and "deprecated-generative-ai" not in ln
+            and "google-gemini" not in ln
+            and "NotOpenSSLWarning" not in ln
+            and "urllib3" not in ln
+        ]
+        err_clean = "\n".join(err_lines).strip()
+        # Si el script escribió un mensaje user-friendly tras MSG_SEP, ése
+        # prevalece sobre stderr.
+        if "---MSG---" in salida_out:
+            msg_user = salida_out.split("---MSG---", 1)[1].strip()
+        else:
+            msg_user = (err_clean or salida_out.strip())[-1500:]
         await update.message.reply_text(
-            f"❌ Error procesando sesión (código {proc.returncode}):\n"
-            f"{(err or out).decode('utf-8', 'replace')[-1500:]}"
+            f"❌ Error procesando sesión (código {proc.returncode}):\n{msg_user}"
         )
         return
     # El script imprime el mensaje al usuario tras "---MSG---"
