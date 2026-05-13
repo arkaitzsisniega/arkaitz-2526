@@ -159,41 +159,21 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
         <rect x="0" y="0" width={X_MEDIA} height={H}
           fill={colorZona("A11")} fillOpacity={opZona("A11")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={X_MEDIA / 2} y={Y_CENTRO + 18}
-          transform={tT(X_MEDIA / 2, Y_CENTRO + 18)}
-          textAnchor="middle" fontSize="56" fontWeight="bold"
-          fill={sel("A11") ? "#ffffff" : "#d4d4d8"} opacity="0.85"
-          style={{ pointerEvents: "none" }}>A11</text>
-        <text x={X_MEDIA / 2} y={Y_CENTRO + 42}
-          transform={tT(X_MEDIA / 2, Y_CENTRO + 42)}
-          textAnchor="middle" fontSize="11"
-          fill={sel("A11") ? "#ffffff" : "#a1a1aa"} opacity="0.7"
-          style={{ pointerEvents: "none" }}>todo el medio campo defensivo</text>
-      </g>
+                      </g>
 
       {/* A3 = banda IZQUIERDA del atacante = banda SUPERIOR del dibujo, primeros 10m */}
       <g onClick={() => onSelect("A3")} className="cursor-pointer">
         <rect x={X_10} y="0" width={W - X_10} height={BANDA_SUP_Y}
           fill={colorZona("A3")} fillOpacity={opZona("A3")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={X_10 + (W - X_10) / 2} y={BANDA_SUP_Y / 2 + 5}
-          transform={tT(X_10 + (W - X_10) / 2, BANDA_SUP_Y / 2 + 5)}
-          textAnchor="middle" fontSize="14" fontWeight="bold"
-          fill={sel("A3") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A3</text>
-      </g>
+              </g>
 
       {/* A6 = banda derecha del atacante = banda INFERIOR del dibujo, primeros 10m */}
       <g onClick={() => onSelect("A6")} className="cursor-pointer">
         <rect x={X_10} y={BANDA_INF_Y} width={W - X_10} height={H - BANDA_INF_Y}
           fill={colorZona("A6")} fillOpacity={opZona("A6")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={X_10 + (W - X_10) / 2} y={BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5}
-          transform={tT(X_10 + (W - X_10) / 2, BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5)}
-          textAnchor="middle" fontSize="14" fontWeight="bold"
-          fill={sel("A6") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A6</text>
-      </g>
+              </g>
 
       {/* A4 = TODO el espacio central SUPERIOR (primeros 10m) sin área ni banda.
           Incluye la zona que antes quedaba "vacía" entre A1/A3 y A4. */}
@@ -201,94 +181,54 @@ export function Campo({ seleccionada, onSelect, nombreAtacante, direccion = "der
         <path d={pathA4}
           fill={colorZona("A4")} fillOpacity={opZona("A4")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_10 + AREA_BORDE_X) / 2 - 10} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 6}
-          transform={tT((X_10 + AREA_BORDE_X) / 2 - 10, (BANDA_SUP_Y + Y_CENTRO) / 2 + 6)}
-          textAnchor="middle" fontSize="16" fontWeight="bold"
-          fill={sel("A4") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A4</text>
-      </g>
+              </g>
 
       {/* A5 = TODO el espacio central INFERIOR (primeros 10m) sin área ni banda. */}
       <g onClick={() => onSelect("A5")} className="cursor-pointer">
         <path d={pathA5}
           fill={colorZona("A5")} fillOpacity={opZona("A5")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_10 + AREA_BORDE_X) / 2 - 10} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 6}
-          transform={tT((X_10 + AREA_BORDE_X) / 2 - 10, (Y_CENTRO + BANDA_INF_Y) / 2 + 6)}
-          textAnchor="middle" fontSize="16" fontWeight="bold"
-          fill={sel("A5") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A5</text>
-      </g>
+              </g>
 
       {/* A7 = banda SUP, segundos 10m (de 10m a 20m de portería rival) */}
       <g onClick={() => onSelect("A7")} className="cursor-pointer">
         <rect x={X_MEDIA} y="0" width={X_10 - X_MEDIA} height={BANDA_SUP_Y}
           fill={colorZona("A7")} fillOpacity={opZona("A7")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_MEDIA + X_10) / 2} y={BANDA_SUP_Y / 2 + 5}
-          transform={tT((X_MEDIA + X_10) / 2, BANDA_SUP_Y / 2 + 5)}
-          textAnchor="middle" fontSize="14" fontWeight="bold"
-          fill={sel("A7") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A7</text>
-      </g>
+              </g>
 
       {/* A10 = banda INF, segundos 10m */}
       <g onClick={() => onSelect("A10")} className="cursor-pointer">
         <rect x={X_MEDIA} y={BANDA_INF_Y} width={X_10 - X_MEDIA} height={H - BANDA_INF_Y}
           fill={colorZona("A10")} fillOpacity={opZona("A10")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_MEDIA + X_10) / 2} y={BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5}
-          transform={tT((X_MEDIA + X_10) / 2, BANDA_INF_Y + (H - BANDA_INF_Y) / 2 + 5)}
-          textAnchor="middle" fontSize="14" fontWeight="bold"
-          fill={sel("A10") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A10</text>
-      </g>
+              </g>
 
       {/* A8 = central SUP, segundos 10m (10m horizontal × 7.5m vertical) */}
       <g onClick={() => onSelect("A8")} className="cursor-pointer">
         <rect x={X_MEDIA} y={BANDA_SUP_Y} width={X_10 - X_MEDIA} height={Y_CENTRO - BANDA_SUP_Y}
           fill={colorZona("A8")} fillOpacity={opZona("A8")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_MEDIA + X_10) / 2} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 8}
-          transform={tT((X_MEDIA + X_10) / 2, (BANDA_SUP_Y + Y_CENTRO) / 2 + 8)}
-          textAnchor="middle" fontSize="22" fontWeight="bold"
-          fill={sel("A8") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A8</text>
-      </g>
+              </g>
 
       {/* A9 = central INF, segundos 10m */}
       <g onClick={() => onSelect("A9")} className="cursor-pointer">
         <rect x={X_MEDIA} y={Y_CENTRO} width={X_10 - X_MEDIA} height={BANDA_INF_Y - Y_CENTRO}
           fill={colorZona("A9")} fillOpacity={opZona("A9")}
           stroke="#ffffff" strokeOpacity={0.3} strokeWidth="1" />
-        <text x={(X_MEDIA + X_10) / 2} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 8}
-          transform={tT((X_MEDIA + X_10) / 2, (Y_CENTRO + BANDA_INF_Y) / 2 + 8)}
-          textAnchor="middle" fontSize="22" fontWeight="bold"
-          fill={sel("A9") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A9</text>
-      </g>
+              </g>
 
       {/* A1 = mitad SUP del área (izquierda del atacante) */}
       <g onClick={() => onSelect("A1")} className="cursor-pointer">
         <path d={pathA1}
           fill={colorZona("A1")} fillOpacity={opZona("A1")} />
-        <text x={W - 50} y={(BANDA_SUP_Y + Y_CENTRO) / 2 + 5}
-          transform={tT(W - 50, (BANDA_SUP_Y + Y_CENTRO) / 2 + 5)}
-          textAnchor="middle" fontSize="16" fontWeight="bold"
-          fill={sel("A1") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A1</text>
-      </g>
+              </g>
 
       {/* A2 = mitad INF del área (derecha del atacante) */}
       <g onClick={() => onSelect("A2")} className="cursor-pointer">
         <path d={pathA2}
           fill={colorZona("A2")} fillOpacity={opZona("A2")} />
-        <text x={W - 50} y={(Y_CENTRO + BANDA_INF_Y) / 2 + 5}
-          transform={tT(W - 50, (Y_CENTRO + BANDA_INF_Y) / 2 + 5)}
-          textAnchor="middle" fontSize="16" fontWeight="bold"
-          fill={sel("A2") ? "#ffffff" : "#d4d4d8"}
-          style={{ pointerEvents: "none" }}>A2</text>
-      </g>
+              </g>
 
       {/* ── LÍNEAS DEL CAMPO (encima, sin pointerEvents) ── */}
       <g style={{ pointerEvents: "none" }}

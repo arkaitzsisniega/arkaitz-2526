@@ -144,7 +144,7 @@ export default function NuevoPartido() {
       {/* Duraciones (minutos) por parte + tanda */}
       <section className="mb-6 bg-zinc-900 rounded-lg p-4">
         <h2 className="text-base font-semibold mb-2 text-zinc-300">
-          Duración por parte (min) — preset: <span className="text-blue-300">{PRESETS_COMPETICION[competicion]?.label ?? competicion}</span>
+          Duración por parte (min) — preset: <span className="text-emerald-300">{PRESETS_COMPETICION[competicion]?.label ?? competicion}</span>
         </h2>
         <div className="grid grid-cols-4 gap-3">
           <label className="flex flex-col">
@@ -186,12 +186,12 @@ export default function NuevoPartido() {
             <button type="button"
               onClick={() => setDireccionInter1T("izq")}
               className={`py-3 rounded text-base font-bold ${
-                direccionInter1T === "izq" ? "bg-blue-700" : "bg-zinc-800"
+                direccionInter1T === "izq" ? "bg-emerald-700" : "bg-zinc-800"
               }`}>← Izquierda</button>
             <button type="button"
               onClick={() => setDireccionInter1T("der")}
               className={`py-3 rounded text-base font-bold ${
-                direccionInter1T === "der" ? "bg-blue-700" : "bg-zinc-800"
+                direccionInter1T === "der" ? "bg-emerald-700" : "bg-zinc-800"
               }`}>Derecha →</button>
           </div>
           <p className="text-xs text-zinc-500 mt-2">
@@ -214,7 +214,7 @@ export default function NuevoPartido() {
                   on
                     ? j.posicion === "PORTERO"
                       ? "bg-yellow-600 text-white"
-                      : j.equipo === "PRIMER" ? "bg-blue-700 text-white" : "bg-zinc-700 text-white"
+                      : j.equipo === "PRIMER" ? "bg-emerald-700 text-white" : "bg-zinc-700 text-white"
                     : "bg-zinc-900 text-zinc-500"
                 }`}>
                 {j.dorsal ? `#${j.dorsal} ` : ""}{j.nombre}

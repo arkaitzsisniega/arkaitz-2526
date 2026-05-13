@@ -76,14 +76,7 @@ export function Porteria({ seleccionada, onSelect, mostrarRed = true }: Props) {
                 strokeWidth={sel ? 3 : 1.5}
                 rx="6"
               />
-              <text
-                x={x + cellW / 2} y={y + cellH / 2 + 12}
-                textAnchor="middle"
-                fontSize="36" fontWeight="bold"
-                fill={sel ? "#ffffff" : "#94a3b8"}
-                style={{ pointerEvents: "none" }}>
-                {zona}
-              </text>
+              {/* Etiqueta de zona quitada a petición del user: la zona se ve por la posición */}
             </g>
           );
         })

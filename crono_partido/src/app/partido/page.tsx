@@ -26,6 +26,7 @@ export default function PartidoPage() {
   // Estado UI
   const [modalCambio, setModalCambio] = useState<{ sale: string } | null>(null);
   const [modalAccionInd, setModalAccionInd] = useState<{ jugador: string } | null>(null);
+  const [modalAccionBanquillo, setModalAccionBanquillo] = useState<{ jugador: string } | null>(null);
   const [modalFalta, setModalFalta] = useState(false);
   const [modalGol, setModalGol] = useState(false);
   const [modalAmarilla, setModalAmarilla] = useState(false);
@@ -56,7 +57,7 @@ export default function PartidoPage() {
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center gap-4">
         <p className="text-xl">No hay partido en curso.</p>
         <button onClick={() => router.push("/nuevo")}
-          className="px-6 py-3 bg-blue-700 rounded-xl text-lg font-bold">
+          className="px-6 py-3 bg-emerald-700 rounded-xl text-lg font-bold">
           🏁 Crear partido nuevo
         </button>
       </div>
@@ -96,7 +97,7 @@ export default function PartidoPage() {
           </div>
         </div>
         <div className="text-4xl font-bold tabular-nums">
-          <span className="text-blue-400">INTER {partido.marcador.inter}</span>
+          <span className="text-emerald-400">INTER {partido.marcador.inter}</span>
           <span className="text-zinc-500 mx-2">-</span>
           <span className="text-red-400">{partido.marcador.rival} {cfg.rival}</span>
         </div>
@@ -136,73 +137,43 @@ export default function PartidoPage() {
         <span className="text-zinc-600 text-[10px] ml-2">(ajusta también tiempo de jugadores en pista)</span>
       </div>
 
-      <div className="grid grid-cols-[1fr_320px] gap-3 mb-3">
-        {/* EN PISTA — tap abre acciones individuales */}
-        <div className="bg-zinc-900 rounded-xl p-3">
-          <h2 className="text-zinc-400 text-sm mb-2">EN PISTA (toca un jugador para apuntar acciones)</h2>
-          <div className="grid grid-cols-5 gap-2">
-            {enPista.map((nombre) => {
-              const seg = segundosTurnoActual(nombre);
-              const totalParte = segundosEnParte(nombre, p);
-              const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
-              const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
-              const tieneAmarilla = jugadoresAmarilla.has(nombre);
-              return (
-                <button key={nombre}
-                  onClick={() => setModalAccionInd({ jugador: nombre })}
-                  className={`relative p-3 rounded-lg text-center ${
-                    esPortero
-                      ? "bg-zinc-800 border-2 border-zinc-600"  // portero neutro, sin código de color de minutos
-                      : colorTiempoPista(seg)
-                  } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
-                  {tieneAmarilla && (
-                    <span className="absolute top-1 right-1 text-base leading-none" title="Amarilla">🟨</span>
-                  )}
-                  {esPortero && (
-                    <span className="absolute top-1 left-1 text-xs">🥅</span>
-                  )}
-                  <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
-                  <div className="text-base font-bold">{nombre}</div>
-                  <div className="text-2xl font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
-                  <div className="text-xs opacity-70 mt-0.5">parte {formatMMSS(totalParte)}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* STATS por parte */}
-        <div className="bg-zinc-900 rounded-xl p-3">
-          <h2 className="text-zinc-400 text-sm mb-2">STATS {p}</h2>
-          <table className="w-full text-base">
-            <thead className="text-xs text-zinc-500">
-              <tr><th></th><th className="text-blue-400">INTER</th><th className="text-red-400">RIVAL</th></tr>
-            </thead>
-            <tbody>
-              <tr><td className="py-1">Faltas</td><td className="text-center text-xl font-bold">{sFalt.inter}</td><td className="text-center text-xl font-bold">{sFalt.rival}</td></tr>
-              <tr><td className="py-1">Amarillas</td><td className="text-center text-xl font-bold">{sAma.inter}</td><td className="text-center text-xl font-bold">{sAma.rival}</td></tr>
-              <tr><td className="py-1">T. muertos</td><td className="text-center text-xl font-bold">{sTM.inter}</td><td className="text-center text-xl font-bold">{sTM.rival}</td></tr>
-              <tr className="border-t border-zinc-800">
-                <td className="py-1 text-xs text-zinc-500">Dispar. rival</td>
-                <td></td>
-                <td className="text-center text-sm">
-                  {partido.disparosRival.puerta}p / {partido.disparosRival.fuera}f
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          {sFalt.inter >= 6 && (
-            <div className="mt-2 p-2 bg-red-700 rounded text-sm font-bold text-center">⚠️ Inter 6ª falta → 10m rival</div>
-          )}
-          {sFalt.rival >= 6 && (
-            <div className="mt-2 p-2 bg-green-700 rounded text-sm font-bold text-center">⚠️ Rival 6ª falta → 10m a favor</div>
-          )}
+      {/* EN PISTA — ocupa todo el ancho, los 5 jugadores en columnas iguales y bien grandes */}
+      <div className="bg-zinc-900 rounded-xl p-3 mb-3">
+        <h2 className="text-zinc-400 text-sm mb-2">EN PISTA (toca un jugador para apuntar acciones)</h2>
+        <div className="grid grid-cols-5 gap-2">
+          {enPista.map((nombre) => {
+            const seg = segundosTurnoActual(nombre);
+            const totalParte = segundosEnParte(nombre, p);
+            const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
+            const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
+            const tieneAmarilla = jugadoresAmarilla.has(nombre);
+            return (
+              <button key={nombre}
+                onClick={() => setModalAccionInd({ jugador: nombre })}
+                className={`relative p-3 rounded-lg text-center ${
+                  esPortero
+                    ? "bg-zinc-800 border-2 border-zinc-600"  // portero neutro, sin código de color de minutos
+                    : colorTiempoPista(seg)
+                } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
+                {tieneAmarilla && (
+                  <span className="absolute top-1 right-1 text-base leading-none" title="Amarilla">🟨</span>
+                )}
+                {esPortero && (
+                  <span className="absolute top-1 left-1 text-xs">🥅</span>
+                )}
+                <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
+                <div className="text-base font-bold">{nombre}</div>
+                <div className="text-2xl font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
+                <div className="text-xs opacity-70 mt-0.5">parte {formatMMSS(totalParte)}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* BANQUILLO */}
       <div className="bg-zinc-900 rounded-xl p-3 mb-3">
-        <h2 className="text-zinc-400 text-sm mb-2">BANQUILLO</h2>
+        <h2 className="text-zinc-400 text-sm mb-2">BANQUILLO (toca un jugador para amarilla / falta / cambiar)</h2>
         <div className="grid grid-cols-6 gap-2">
           {banquillo.map((nombre) => {
             const seg = segundosBanquillo(nombre);
@@ -210,7 +181,8 @@ export default function PartidoPage() {
             const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
             const tieneAmarilla = jugadoresAmarilla.has(nombre);
             return (
-              <div key={nombre}
+              <button key={nombre}
+                onClick={() => setModalAccionBanquillo({ jugador: nombre })}
                 className={`relative p-2 rounded-lg text-center ${
                   esPortero
                     ? "bg-zinc-800 border border-zinc-600"   // portero neutro
@@ -222,7 +194,7 @@ export default function PartidoPage() {
                 <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
                 <div className="text-sm font-bold">{nombre}</div>
                 <div className="text-base font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -230,7 +202,7 @@ export default function PartidoPage() {
 
       {/* BOTONES ACCIÓN COLECTIVA */}
       <div className="grid grid-cols-7 gap-2">
-        <BotonAccion label="⚽ GOL" color="bg-blue-700" onClick={() => setModalGol(true)} />
+        <BotonAccion label="⚽ GOL" color="bg-emerald-700" onClick={() => setModalGol(true)} />
         <BotonAccion label="🎯 DISP. RIVAL" color="bg-red-700" onClick={() => setModalDisparoRival(true)} />
         <BotonAccion label="⚠️ FALTA" color="bg-orange-700" onClick={() => setModalFalta(true)} />
         <BotonAccion label="🟨 AMARILLA" color="bg-yellow-700" onClick={() => setModalAmarilla(true)} />
@@ -259,13 +231,49 @@ export default function PartidoPage() {
           </button>
         )}
         <button onClick={() => router.push("/resumen")}
-          className="py-3 bg-blue-700 hover:bg-blue-600 rounded-lg text-sm font-bold">
+          className="py-3 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-sm font-bold">
           🏁 RESUMEN
         </button>
         <button onClick={() => router.push("/")}
           className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
           🏠 Inicio
         </button>
+      </div>
+
+      {/* STATS compactas al final: faltas / amarillas / tiempos muertos por parte */}
+      <div className="bg-zinc-900/60 rounded-lg p-2 mt-3 text-xs">
+        <div className="flex items-center justify-between flex-wrap gap-x-4 gap-y-1">
+          <span className="text-zinc-500 text-[10px] uppercase tracking-wide">Stats {p}</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              <span className="text-emerald-400 font-bold">I</span> Faltas{" "}
+              <strong className={sFalt.inter >= 5 ? "text-red-400" : ""}>{sFalt.inter}</strong>
+              <span className="text-zinc-600 mx-1">/</span>
+              <span className="text-red-400 font-bold">R</span> Faltas{" "}
+              <strong className={sFalt.rival >= 5 ? "text-red-400" : ""}>{sFalt.rival}</strong>
+            </span>
+            <span>
+              🟨 <strong>{sAma.inter}</strong>
+              <span className="text-zinc-600">/</span>
+              <strong>{sAma.rival}</strong>
+            </span>
+            <span>
+              🛑 TM <strong>{sTM.inter}</strong>
+              <span className="text-zinc-600">/</span>
+              <strong>{sTM.rival}</strong>
+            </span>
+          </div>
+        </div>
+        {sFalt.inter >= 6 && (
+          <div className="mt-1 bg-red-700 rounded px-2 py-0.5 text-center font-bold">
+            ⚠️ Inter 6ª falta → 10m a favor del rival
+          </div>
+        )}
+        {sFalt.rival >= 6 && (
+          <div className="mt-1 bg-emerald-700 rounded px-2 py-0.5 text-center font-bold">
+            ⚠️ Rival 6ª falta → 10m a favor del Inter
+          </div>
+        )}
       </div>
 
       {modalCambio && (
@@ -277,6 +285,34 @@ export default function PartidoPage() {
           onConfirmar={(sale, entra) => {
             cambiarJugador(sale, entra);
             setModalCambio(null);
+          }}
+        />
+      )}
+
+      {modalAccionBanquillo && (
+        <ModalAccionBanquillo
+          jugador={modalAccionBanquillo.jugador}
+          enPista={enPista}
+          onCerrar={() => setModalAccionBanquillo(null)}
+          onAmarilla={() => {
+            registrarEvento({
+              tipo: "amarilla",
+              equipo: "INTER",
+              jugador: modalAccionBanquillo.jugador,
+            } as any);
+            setModalAccionBanquillo(null);
+          }}
+          onFalta={() => {
+            registrarEvento({
+              tipo: "falta",
+              equipo: "INTER",
+              jugador: modalAccionBanquillo.jugador,
+            } as any);
+            setModalAccionBanquillo(null);
+          }}
+          onCambioPor={(saleDePista) => {
+            cambiarJugador(saleDePista, modalAccionBanquillo.jugador);
+            setModalAccionBanquillo(null);
           }}
         />
       )}
@@ -477,7 +513,7 @@ function ChipsJugador(props: {
       {props.opciones.map((n) => (
         <button key={n} onClick={() => props.onSelect(n)}
           className={`px-3 py-2 rounded text-base ${
-            props.seleccionado === n ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-200"
+            props.seleccionado === n ? "bg-emerald-700 text-white" : "bg-zinc-800 text-zinc-200"
           }`}>{n}</button>
       ))}
     </div>
@@ -493,6 +529,43 @@ function Paso(props: { n: number; titulo: string; activo: boolean; children: Rea
       </h3>
       {props.children}
     </div>
+  );
+}
+
+// ──────────────── MODAL ACCIÓN BANQUILLO ────────────────
+// Toque en jugador del banquillo: amarilla, falta o cambio rápido por uno en pista.
+
+function ModalAccionBanquillo(props: {
+  jugador: string;
+  enPista: string[];
+  onCerrar: () => void;
+  onAmarilla: () => void;
+  onFalta: () => void;
+  onCambioPor: (saleDePista: string) => void;
+}) {
+  return (
+    <ModalShell titulo={`🪑 ${props.jugador} (banquillo)`} onCerrar={props.onCerrar} maxW="max-w-2xl">
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <button onClick={props.onAmarilla}
+          className="py-4 bg-yellow-700 hover:bg-yellow-600 rounded-lg text-lg font-bold">
+          🟨 Amarilla
+        </button>
+        <button onClick={props.onFalta}
+          className="py-4 bg-orange-700 hover:bg-orange-600 rounded-lg text-lg font-bold">
+          ⚠️ Falta <span className="text-sm opacity-80">(p. ej. protesta)</span>
+        </button>
+      </div>
+      <h3 className="text-sm text-zinc-400 mb-2">🔄 …o entra por (sale de pista):</h3>
+      <div className="grid grid-cols-5 gap-2">
+        {props.enPista.map((n) => (
+          <button key={n}
+            onClick={() => props.onCambioPor(n)}
+            className="py-4 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-base font-bold">
+            {n}
+          </button>
+        ))}
+      </div>
+    </ModalShell>
   );
 }
 
@@ -515,7 +588,7 @@ function ModalCambio(props: {
             {props.banquillo.map((n) => (
               <button key={n}
                 onClick={() => props.onConfirmar(sale, n)}
-                className="px-4 py-3 bg-blue-700 hover:bg-blue-600 rounded text-base font-bold">
+                className="px-4 py-3 bg-emerald-700 hover:bg-emerald-600 rounded text-base font-bold">
                 {n}
               </button>
             ))}
@@ -561,7 +634,7 @@ function ModalFalta(props: {
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => { setEquipo("INTER"); }}
             className={`px-6 py-4 rounded text-lg font-bold ${
-              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+              equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"
             }`}>La COMETEMOS nosotros</button>
           <button onClick={() => { setEquipo("RIVAL"); }}
             className={`px-6 py-4 rounded text-lg font-bold ${
@@ -585,7 +658,7 @@ function ModalFalta(props: {
                 <button key={n}
                   onClick={() => { setJugador(n); setSinAsignar(false); setRivalMano(false); }}
                   className={`px-3 py-2 rounded text-base ${
-                    jugador === n ? "bg-blue-700"
+                    jugador === n ? "bg-emerald-700"
                                   : enBanquillo ? "bg-zinc-700 opacity-70" : "bg-zinc-800"
                   }`}
                   title={enBanquillo ? "Jugador en banquillo" : undefined}>
@@ -649,7 +722,7 @@ function ModalAmarilla(props: {
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEquipo("INTER")}
             className={`py-4 rounded text-lg font-bold ${
-              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+              equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"
             }`}>INTER</button>
           <button onClick={() => { setEquipo("RIVAL"); }}
             className={`py-4 rounded text-lg font-bold ${
@@ -666,7 +739,7 @@ function ModalAmarilla(props: {
                 <button key={n} onClick={() => aplicar(n)}
                   className={`px-3 py-2 rounded ${
                     enBanquillo ? "bg-zinc-700 hover:bg-zinc-600 opacity-80"
-                                : "bg-blue-700 hover:bg-blue-600"
+                                : "bg-emerald-700 hover:bg-emerald-600"
                   }`}
                   title={enBanquillo ? "Jugador en banquillo" : undefined}>
                   {n}{enBanquillo ? " 🪑" : ""}
@@ -699,7 +772,7 @@ function ModalTM(props: {
     <ModalShell titulo="🛑 Tiempo muerto" onCerrar={props.onCerrar} maxW="max-w-md">
       <div className="grid grid-cols-2 gap-3">
         <button onClick={() => props.onConfirmar("INTER")}
-          className="py-6 bg-blue-700 hover:bg-blue-600 rounded text-xl font-bold">INTER</button>
+          className="py-6 bg-emerald-700 hover:bg-emerald-600 rounded text-xl font-bold">INTER</button>
         <button onClick={() => props.onConfirmar("RIVAL")}
           className="py-6 bg-red-700 hover:bg-red-600 rounded text-xl font-bold">{props.rivalNombre}</button>
       </div>
@@ -758,7 +831,7 @@ function ModalGol(props: {
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEquipo("INTER")}
             className={`py-4 rounded text-lg font-bold ${
-              equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"
+              equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"
             }`}>INTER</button>
           <button onClick={() => setEquipo("RIVAL")}
             className={`py-4 rounded text-lg font-bold ${
@@ -779,7 +852,7 @@ function ModalGol(props: {
                 {props.enPista.filter((n) => n !== goleador).map((n) => (
                   <button key={n} onClick={() => setAsistente(n)}
                     className={`px-3 py-2 rounded ${
-                      asistente === n ? "bg-blue-700" : "bg-zinc-800"
+                      asistente === n ? "bg-emerald-700" : "bg-zinc-800"
                     }`}>{n}</button>
                 ))}
                 <button onClick={() => setAsistente("OMIT")}
@@ -798,7 +871,7 @@ function ModalGol(props: {
             {ACCIONES_GOL.map((a) => (
               <button key={a} onClick={() => setAccion(a)}
                 className={`px-3 py-2 rounded text-sm ${
-                  accion === a ? "bg-blue-700" : "bg-zinc-800"
+                  accion === a ? "bg-emerald-700" : "bg-zinc-800"
                 }`}>{a}</button>
             ))}
           </div>
@@ -1015,7 +1088,7 @@ function ModalPenalti(props: {
         <Paso n={2} titulo="¿A favor o en contra?" activo={!equipo}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => setEquipo("INTER")}
-              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"}`}>
+              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"}`}>
               A FAVOR (lo tira Inter)</button>
             <button onClick={() => setEquipo("RIVAL")}
               className={`py-3 rounded font-bold ${equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"}`}>
@@ -1146,7 +1219,7 @@ function ModalAccionIndividual(props: {
               {props.banquillo.map((n) => (
                 <button key={n}
                   onClick={() => props.onCambio(props.jugador, n)}
-                  className="px-3 py-2 rounded bg-blue-800 hover:bg-blue-700 text-base font-bold">
+                  className="px-3 py-2 rounded bg-emerald-800 hover:bg-emerald-700 text-base font-bold">
                   ⤴ {n}
                 </button>
               ))}
@@ -1397,7 +1470,7 @@ function ModalTanda(props: {
             <li key={t.id} className="flex justify-between items-center">
               <span>
                 <span className="text-zinc-500 text-xs">#{t.orden}</span>{" "}
-                <span className={t.equipo === "INTER" ? "text-blue-400" : "text-red-400"}>
+                <span className={t.equipo === "INTER" ? "text-emerald-400" : "text-red-400"}>
                   {t.equipo === "INTER" ? "INTER" : props.rivalNombre}
                 </span>
                 {" · "}
@@ -1424,7 +1497,7 @@ function ModalTanda(props: {
         <Paso n={1} titulo="¿Quién lanza?" activo={!equipo}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => setEquipo("INTER")}
-              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-blue-700" : "bg-zinc-800"}`}>
+              className={`py-3 rounded font-bold ${equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"}`}>
               INTER</button>
             <button onClick={() => setEquipo("RIVAL")}
               className={`py-3 rounded font-bold ${equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"}`}>
@@ -1567,7 +1640,7 @@ function ModalCambioParte(props: {
       {/* Marcador actual + estado */}
       <div className="text-center bg-zinc-950 rounded-lg p-3 mb-4">
         <div className="text-3xl font-bold tabular-nums">
-          <span className="text-blue-400">INTER {partido.marcador.inter}</span>
+          <span className="text-emerald-400">INTER {partido.marcador.inter}</span>
           <span className="text-zinc-500 mx-2">-</span>
           <span className="text-red-400">{partido.marcador.rival} {cfg.rival}</span>
         </div>
@@ -1583,16 +1656,16 @@ function ModalCambioParte(props: {
         <h3 className="text-base font-bold text-zinc-200 mb-3">🎯 Disparos</h3>
         <div className="grid grid-cols-2 gap-3">
           {/* INTER */}
-          <div className="bg-blue-900/40 rounded-lg p-3 border border-blue-700/40">
-            <div className="text-sm text-blue-300 font-bold mb-2 uppercase tracking-wide">INTER</div>
+          <div className="bg-emerald-900/40 rounded-lg p-3 border border-emerald-700/40">
+            <div className="text-sm text-emerald-300 font-bold mb-2 uppercase tracking-wide">INTER</div>
             <div className="flex items-baseline gap-2">
               <span className="text-4xl font-bold text-white tabular-nums">{totalDispINTER}</span>
-              <span className="text-xs text-blue-300">total</span>
+              <span className="text-xs text-emerald-300">total</span>
             </div>
             <div className="mt-3 grid grid-cols-4 gap-1 text-center">
-              <div className="bg-blue-800/40 rounded py-1">
+              <div className="bg-emerald-800/40 rounded py-1">
                 <div className="text-lg font-bold tabular-nums">{tot.dpp}</div>
-                <div className="text-[10px] text-blue-200 uppercase">Puerta</div>
+                <div className="text-[10px] text-emerald-200 uppercase">Puerta</div>
               </div>
               <div className="bg-zinc-800/60 rounded py-1">
                 <div className="text-lg font-bold tabular-nums">{tot.dpa}</div>
@@ -1705,7 +1778,7 @@ function ModalCambioParte(props: {
             <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
               <tr>
                 <th className="text-left py-1">Jugador</th>
-                <th className="text-right px-1 text-blue-300">Disp</th>
+                <th className="text-right px-1 text-emerald-300">Disp</th>
                 <th className="text-right px-1 text-red-300">Pérd</th>
                 <th className="text-right px-1 text-green-300">Recup</th>
                 <th className="text-right px-1 text-purple-300">Divid</th>
