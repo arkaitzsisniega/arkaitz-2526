@@ -1651,11 +1651,19 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
         # enlaces_genericos.py imprime bloques separados por ---MSG---
+        # Reintentar sin Markdown si Telegram rechaza el bloque (URLs con
+        # `_` o `-` pueden romper el parseo Markdown legacy).
         salida = out
         bloques = [b.strip() for b in salida.split("---MSG---") if b.strip()]
         for b in bloques:
-            await ctx.bot.send_message(chat_id, b, parse_mode="Markdown",
-                                         disable_web_page_preview=True)
+            if len(b) > 4000:
+                b = b[:3997] + "…"
+            try:
+                await ctx.bot.send_message(chat_id, b, parse_mode="Markdown",
+                                             disable_web_page_preview=True)
+            except Exception:
+                await ctx.bot.send_message(chat_id, b,
+                                             disable_web_page_preview=True)
         _registrar_accion_local(
             chat_id,
             "[botón inline tras /sesion] enlaces PRE+POST genéricos del día "
