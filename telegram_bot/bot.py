@@ -2410,11 +2410,14 @@ def _detectar_intent(texto: str) -> Optional[str]:
         # Más específico primero: enlaces por jugador (wa.me) tiene que
         # matchear ANTES que el genérico /enlaces.
         ("enlaces_wa", [
-            r'\benlaces?\s+(?:para\s+)?(?:los\s+)?jugadores?\b',
-            r'\benlaces?\s+(?:por\s+)?wh?a(?:tsapp)?(?:s)?\b.*\bcada\b',
-            r'\benv[ií]a(?:r|los)?\s+.*\bcada\s+jugador\b',
-            r'\bm[aá]nda(?:r|los)?\s+.*\bjugadores?\s+(?:por\s+)?wh?a',
+            r'\benlaces?\b.*\bjugadores?\b',                # "enlaces para/a/de los jugadores"
+            r'\bjugadores?\b.*\benlaces?\b',                # "a cada jugador los enlaces"
+            r'\benlaces?\b.*\bcada\s+(?:uno|jugador)\b',    # "enlaces a cada uno"
+            r'\benv[ií]a\b.*\b(?:cada\s+jugador|los\s+jugadores)\b',
+            r'\bm[aá]nda\b.*\b(?:cada\s+jugador|los\s+jugadores)\b',
             r'\bwa\.?me\b',
+            r'\benlaces?\s+wh?atsapp\s+(?:individual|personal|por\s+jugador)\b',
+            r'^/?enlaces_wa\b',
         ]),
         ("enlaces", [
             r'^enlaces?\.?$',
