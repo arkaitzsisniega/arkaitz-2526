@@ -64,10 +64,12 @@ MSG_SEP = "---MSG---"
 
 
 def _normaliza_telefono(t: str) -> str | None:
-    """Acepta formatos varios y devuelve solo dígitos con prefijo:
-    - "612345678"   → "34612345678"
-    - "+34 612 345 678" → "34612345678"
-    - "34 612345678" → "34612345678"
+    """Acepta formatos varios y devuelve solo dígitos con prefijo internacional.
+    - "612345678"        → "34612345678"
+    - "+34 612 345 678"  → "34612345678"
+    - "34 612345678"     → "34612345678"
+    - "0034 612345678"   → "34612345678"  (limpia el prefijo 00)
+    - "+351 912345678"   → "351912345678" (otros países)
     Si tiene <9 dígitos o queda vacío, devuelve None.
     """
     if not t:
@@ -75,6 +77,9 @@ def _normaliza_telefono(t: str) -> str | None:
     d = "".join(c for c in str(t) if c.isdigit())
     if not d:
         return None
+    # Limpiar prefijo internacional "00" → solo dígitos del país
+    if d.startswith("00"):
+        d = d[2:]
     # Si empieza por 6/7/8/9 y tiene 9 dígitos → móvil español sin prefijo
     if len(d) == 9 and d[0] in "6789":
         d = "34" + d
