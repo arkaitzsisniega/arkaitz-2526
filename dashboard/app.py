@@ -1356,8 +1356,42 @@ with tab_sem:
                 s_peso = ("🔴" if pd.notna(peso_desv) and float(peso_desv) < -3.0 else
                           "🟠" if pd.notna(peso_desv) and float(peso_desv) < -1.5 else "🟢")
 
+                # ── Tooltip con explicación breve de POR QUÉ está en rojo/naranja ──
+                # Se construye sumando frases por cada métrica problemática.
+                explic = []
+                if pd.notna(acwr):
+                    a = float(acwr)
+                    if a > 1.5:
+                        explic.append(f"⚠ Carga aguda muy alta (ACWR={a:.2f}): viene de una semana muy cargada respecto al mes anterior. Riesgo de lesión elevado — reducir carga.")
+                    elif a > 1.3:
+                        explic.append(f"⚠ Carga elevada (ACWR={a:.2f}): rampa de carga por encima del umbral seguro. Vigilar.")
+                    elif a < 0.8:
+                        explic.append(f"🔵 Infra-carga (ACWR={a:.2f}): pocos estímulos los últimos días, riesgo de descondicionamiento o regreso brusco.")
+                if pd.notna(well_med):
+                    w = float(well_med)
+                    if w < 10:
+                        explic.append(f"⚠ Wellness muy bajo (media {w:.1f}/20): sueño/fatiga/molestias/ánimo en rojo. Hablar con él antes de cargarle.")
+                    elif w < 13:
+                        explic.append(f"⚠ Wellness algo bajo (media {w:.1f}/20). Vigilar tendencia.")
+                if well_total > 0 and well_below > 0:
+                    explic.append(f"📉 Ha reportado {well_below}/{well_total} días con wellness <15 en el periodo seleccionado.")
+                if pd.notna(peso_desv):
+                    pd_ = float(peso_desv)
+                    if pd_ < -3.0:
+                        explic.append(f"⚠ Pérdida de peso importante ({pd_:+.1f} kg vs media 2 meses). Posible deshidratación o algo que revisar nutricionalmente.")
+                    elif pd_ < -1.5:
+                        explic.append(f"⚠ Algo bajo de peso ({pd_:+.1f} kg vs media 2 meses).")
+                if alertas:
+                    explic.append(f"🚨 {alertas} alerta(s) activa(s).")
+                if not explic:
+                    tooltip = "Todo en rango. Buen estado general."
+                else:
+                    tooltip = " · ".join(explic)
+                # El atributo HTML title se rompe con comillas dobles; las quito.
+                tooltip = tooltip.replace('"', "'")
+
                 cols_sem[i].markdown(f"""
-                <div class="player-card" style="background:{bg}; color:white;">
+                <div class="player-card" style="background:{bg}; color:white;" title="{tooltip}">
                     <div class="player-name">{emoji} {row['JUGADOR']}</div>
                     <div class="player-stats">
                         {s_acwr} ACWR: <b>{acwr_txt}</b><br>
@@ -2266,7 +2300,11 @@ with tab_antro:
                 if color:
                     return [f"background-color: {color}"] * len(row)
                 return [""] * len(row)
-            styled_ult = ult_show.style.apply(_colorear_fila, axis=1)
+            # Formato 2 decimales para columnas numéricas (peso, IMC, pliegues, etc.)
+            _fmt_2dec = {c: "{:.2f}" for c in ult_show.columns
+                         if c not in ("fecha_medicion", "jugador", "dorsal", "medicion_n")
+                         and pd.api.types.is_numeric_dtype(ult_show[c])}
+            styled_ult = ult_show.style.apply(_colorear_fila, axis=1).format(_fmt_2dec, na_rep="—")
             st.dataframe(styled_ult, use_container_width=True, hide_index=True)
 
             # ── Panel de alertas: jugadores con sumatorio FUERA de rango ──
@@ -2386,7 +2424,12 @@ with tab_antro:
                 df_full["fecha_medicion"] = df_full["fecha_medicion"].dt.strftime("%Y-%m-%d")
                 df_full = df_full.sort_values(
                     ["jugador", "fecha_medicion"]).reset_index(drop=True)
-                st.dataframe(df_full, use_container_width=True, hide_index=True)
+                # 2 decimales en columnas numéricas
+                _fmt_full = {c: "{:.2f}" for c in df_full.columns
+                             if c not in ("fecha_medicion", "jugador", "dorsal", "medicion_n")
+                             and pd.api.types.is_numeric_dtype(df_full[c])}
+                styled_full = df_full.style.format(_fmt_full, na_rep="—")
+                st.dataframe(styled_full, use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
