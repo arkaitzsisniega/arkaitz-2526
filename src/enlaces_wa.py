@@ -3,12 +3,17 @@ enlaces_wa.py — Igual que enlaces_hoy.py, pero genera enlaces wa.me
 listos para tocar y enviar por WhatsApp a cada jugador.
 
 Uso:
-  /usr/bin/python3 src/enlaces_wa.py [YYYY-MM-DD]
+  /usr/bin/python3 src/enlaces_wa.py [YYYY-MM-DD] [JUGADOR]
 
-Sin argumentos usa la fecha de hoy. Devuelve al stdout un texto con
-bloque por jugador, cada bloque con UN enlace `https://wa.me/<tel>?text=...`
-que al pulsarlo abre WhatsApp con el chat del jugador y el mensaje
-prerredactado conteniendo los Forms PRE + POST.
+Sin argumentos usa la fecha de hoy y todos los jugadores con teléfono.
+Si pasas un JUGADOR (p.ej. HERRERO), solo genera el suyo. Si pasas una
+fecha (YYYY-MM-DD), usa esa fecha en vez de hoy. Los argumentos pueden
+ir en cualquier orden.
+
+Devuelve al stdout un texto con bloque por jugador, cada bloque con UN
+enlace `https://wa.me/<tel>?text=...` que al pulsarlo abre WhatsApp con
+el chat del jugador y el mensaje prerredactado conteniendo los Forms
+PRE + POST.
 
 Lee teléfonos de la hoja `TELEFONOS_JUGADORES` (columnas: dorsal, jugador,
 telefono, usar_whatsapp, notas). Si un jugador no tiene teléfono o tiene
@@ -95,7 +100,18 @@ def _msg_para_jugador(nombre: str, fecha: str, turno: str, incluir_wellness: boo
 
 
 def main():
-    fecha_obj = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
+    # Parseo flexible: cualquier arg con guiones largo lo asumo fecha; el resto, jugador.
+    fecha_obj: str | None = None
+    filtro_jugador: str | None = None
+    for a in sys.argv[1:]:
+        if not a:
+            continue
+        if len(a) == 10 and a[4] == "-" and a[7] == "-":
+            fecha_obj = a
+        else:
+            filtro_jugador = a.strip().upper()
+    if not fecha_obj:
+        fecha_obj = date.today().isoformat()
 
     creds = Credentials.from_service_account_file(
         str(ROOT / "google_credentials.json"), scopes=SCOPES
@@ -179,6 +195,27 @@ def main():
         try: return int(d)
         except (TypeError, ValueError): return 999
     jugadores = sorted(info.keys(), key=_ord_dorsal)
+
+    # Si llega filtro_jugador, reducir a uno.
+    if filtro_jugador:
+        # Búsqueda flexible: case insensitive, contains
+        coincidencias = [j for j in jugadores if filtro_jugador in j.upper()]
+        if not coincidencias:
+            print(MSG_SEP)
+            print(
+                f"❌ No encuentro a *{filtro_jugador}* con teléfono configurado "
+                f"en TELEFONOS_JUGADORES.\n\n"
+                f"Jugadores con teléfono: {', '.join(jugadores) if jugadores else '(ninguno)'}"
+            )
+            return
+        if len(coincidencias) > 1:
+            print(MSG_SEP)
+            print(
+                f"⚠️ *{filtro_jugador}* coincide con varios: {', '.join(coincidencias)}.\n"
+                f"Sé más específico."
+            )
+            return
+        jugadores = coincidencias
 
     # ── Cabecera ──
     print(MSG_SEP)
