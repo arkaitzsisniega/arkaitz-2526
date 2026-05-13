@@ -1909,6 +1909,32 @@ async def _check_recordatorio_deep(ctx: ContextTypes.DEFAULT_TYPE):
         log.warning("Error en check de recordatorio: %s", e)
 
 
+# ─── Keep-alive de Streamlit Cloud ──────────────────────────────────────────
+# Streamlit Community Cloud (plan gratuito) duerme las apps tras varios días
+# sin tráfico. Este job hace un GET silencioso a la URL del dashboard cada
+# 12 horas para mantenerla "calentita" y que el cuerpo técnico no se
+# encuentre el botón "wake up" al entrar. CAVEAT: a veces Streamlit
+# requiere clic humano real para despertar; si pese a este ping observas
+# que sigue durmiéndose, hay que volver al plan A (avisar al equipo).
+STREAMLIT_URL = "https://arkaitz-2526-xj9bbsjmsdq84zzpaxudt6.streamlit.app/"
+
+async def _streamlit_keepalive(ctx: ContextTypes.DEFAULT_TYPE):
+    """Cada 12h, ping silencioso al dashboard de Streamlit. NO avisa a nadie:
+    si falla, queda solo en el log; si va bien, también."""
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(STREAMLIT_URL, headers={
+            "User-Agent": "Alfred-keepalive/1.0 (Movistar Inter FS)",
+        })
+        # 30s de timeout: Streamlit a veces tarda al despertar.
+        with _ur.urlopen(req, timeout=30) as resp:
+            code = resp.status
+            log.info("Streamlit keepalive OK (HTTP %s)", code)
+    except Exception as e:
+        # No molestamos al user: solo log. Si falla 1 ping no pasa nada.
+        log.warning("Streamlit keepalive falló: %s", e)
+
+
 # ─── Recordatorio semanal: revisar catálogo de ejercicios ───────────────────
 async def _check_auditoria_semanal(ctx: ContextTypes.DEFAULT_TYPE):
     """Lunes a las 8:05 (Madrid). Lanza src/auditar_sheet.py y, si hay
@@ -2796,7 +2822,14 @@ def main():
             days=(0,),
             name="auditoria_semanal",
         )
-        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas + lunes 8h ejercicios + 8:05h auditoría)")
+        # Keep-alive de Streamlit cada 12h (primer ping a los 60s de arrancar)
+        app.job_queue.run_repeating(
+            _streamlit_keepalive,
+            interval=12 * 3600,
+            first=60,
+            name="streamlit_keepalive",
+        )
+        log.info("Recordatorios automáticos: ON (quincenal Oliver + fechas + lunes 8h ejercicios + 8:05h auditoría + keepalive Streamlit 12h)")
     else:
         log.warning("job_queue no disponible (instala python-telegram-bot[job-queue]); "
                     "sin recordatorios automáticos")
