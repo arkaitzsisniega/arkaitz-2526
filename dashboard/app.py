@@ -19,13 +19,18 @@ import datetime as _dt
 from pathlib import Path
 
 # ── Config página ─────────────────────────────────────────────────────────────
-# El escudo del Inter (versión verde) se sirve vía raw.githubusercontent
-# para que iOS/Android lo recojan al "Añadir a pantalla de inicio".
+# El escudo del Inter (versión verde) — para favicon y "Añadir a pantalla de inicio".
+# page_icon prefiere ruta LOCAL (URLs externas son inestables en Streamlit).
+# Para el apple-touch-icon de iOS sí usamos raw.githubusercontent (necesita URL).
+ESCUDO_LOCAL = Path(__file__).resolve().parent.parent / "assets" / "logos" / "inter_verde.png"
 ESCUDO_URL = "https://raw.githubusercontent.com/arkaitzsisniega/arkaitz-2526/main/assets/logos/inter_verde.png"
+
+# page_icon: si el archivo existe, lo usamos; si no, fallback al emoji.
+_page_icon = str(ESCUDO_LOCAL) if ESCUDO_LOCAL.exists() else "🏆"
 
 st.set_page_config(
     page_title="Movistar Inter · Datos",
-    page_icon=ESCUDO_URL,
+    page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="expanded",
 )
