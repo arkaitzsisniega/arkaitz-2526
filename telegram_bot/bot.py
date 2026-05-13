@@ -1235,10 +1235,13 @@ async def cmd_enlaces_wa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     stop = asyncio.Event()
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
-        # Permitir pasar fecha opcional: /enlaces_wa 2026-05-13
-        args_cli = ctx.args if ctx and ctx.args else []
-        extra = [args_cli[0]] if args_cli else []
-        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_wa.py", *extra)
+        # Permitir args opcionales:
+        #   /enlaces_wa                      → hoy, todos los jugadores
+        #   /enlaces_wa 2026-05-13           → esa fecha, todos
+        #   /enlaces_wa HERRERO              → hoy, solo HERRERO
+        #   /enlaces_wa HERRERO 2026-05-13   → esa fecha, solo HERRERO
+        args_cli = list(ctx.args) if ctx and ctx.args else []
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_wa.py", *args_cli)
     finally:
         stop.set()
         try: await task
