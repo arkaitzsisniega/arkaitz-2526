@@ -1,8 +1,51 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-11`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-13`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
 qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
+
+---
+
+## 🔔 ESTADO 13/5/2026 — landing pública, icono Inter, /enlaces_wa
+
+### Cuerpo técnico puede entrar al dashboard como "app"
+- URL oficial nueva para repartir: `https://arkaitzsisniega.github.io/arkaitz-2526/`
+  (GitHub Pages, rama `gh-pages`). Es una landing con el escudo verde del
+  Inter + botón "Abrir panel" que lleva a `https://interfs-datos.streamlit.app/`
+  (URL custom de Streamlit, esa SÍ permite acceso público sin login GitHub;
+  la URL autogenerada larga sigue exigiendo login).
+- Iconos cuadrados (180/192/512) con fondo blanco para iOS/Android
+  (`apple-touch-icon-180.png`, `icon-192.png`, `icon-512.png`,
+  `icon-512-maskable.png`). Al "Añadir a pantalla de inicio" sale el
+  escudo del Inter.
+- La landing detecta `navigator.standalone` (iOS) /
+  `display-mode: standalone` (Android): si se abre desde el icono del
+  escritorio, redirige automáticamente al panel; si se abre desde el
+  navegador normal, espera a que pulses "Abrir panel" (así Safari no
+  redirige antes de capturar el icono).
+
+### Streamlit keepalive
+- Alfred hace ping cada 12h a la URL del dashboard (job en JobQueue).
+  Caveat: a veces Streamlit endurece el sleep y exige clic humano para
+  despertar; si pasa, volver a "plan A" (avisar al cuerpo técnico).
+
+### /enlaces_wa — envío de enlaces de Forms por WhatsApp
+- Comando nuevo en Alfred. Lee hoja `TELEFONOS_JUGADORES` (creada hoy con
+  los 22 jugadores activos del roster, columnas
+  `dorsal/jugador/telefono/usar_whatsapp/notas`).
+- Genera UN enlace `https://wa.me/<tel>?text=<mensaje>` por jugador con
+  los enlaces PRE+POST prefilled. Arkaitz pulsa cada uno → WhatsApp abre
+  el chat con el mensaje listo → solo pulsar Enviar.
+- Pendiente del usuario: rellenar la columna `telefono` de la hoja.
+- Detalles y opciones futuras (Business API, whatsapp-web.js):
+  `docs/whatsapp_enlaces.md`.
+
+### Otros cambios
+- Tooltip de Semáforo: ahora aparece al instante con CSS hover (antes
+  delay ~700ms con `title=`). Detalla cada motivo concreto de alerta
+  (ACWR, wellness, peso, monotonía).
+- Antropometría: floats a 2 decimales en todas las tablas (era
+  `70.100000` → ahora `70.10`).
 
 ---
 
@@ -409,7 +452,10 @@ Comandos:
 - `/start`, `/id`, `/nuevo`
 - `/oliver_sync` · `/oliver_deep` · `/oliver_token` (regenerar token)
 - `/enlaces` (genéricos para WhatsApp del equipo)
-- `/enlaces_hoy` (pares pre-rellenados por jugador)
+- `/enlaces_wa` (uno por jugador con su teléfono → wa.me deeplink, abre
+  WhatsApp con el mensaje listo. Lee `TELEFONOS_JUGADORES` del Sheet.
+  Ver `docs/whatsapp_enlaces.md`)
+- `/enlaces_hoy` (pares pre-rellenados por jugador — DEPRECATED, alias de /enlaces)
 - `/consolidar` (Forms → BORG/PESO/WELLNESS + recalcula vistas auto)
 - `/ejercicios_sync` (procesa hoja _EJERCICIOS)
 - `/ejercicios_voz` (modo: el siguiente audio se estructura como
