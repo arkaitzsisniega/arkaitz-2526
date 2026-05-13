@@ -569,7 +569,13 @@ REGLAS DE ORO:
 
 CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 - /consolidar: lee FORM_PRE/POST → BORG/PESO/WELLNESS → recalcula vistas.
-- /enlaces: genera enlaces PRE+POST genéricos del día.
+- /enlaces: genera enlaces PRE+POST genéricos del día (un solo enlace
+  para reenviar al grupo). El jugador elige su nombre.
+- /enlaces_wa: genera UN enlace wa.me POR JUGADOR (lee teléfonos de la
+  hoja TELEFONOS_JUGADORES). Cada enlace abre el chat de WhatsApp con
+  ese jugador y el mensaje (PRE+POST personalizado) ya escrito; Arkaitz
+  solo pulsa "Enviar". Si algún jugador no tiene teléfono configurado
+  en la hoja, aparece al final como aviso.
 - /prepost: lista quién ha hecho PRE/POST/BORG de la última sesión
   (o de la fecha que se pase: /prepost 2026-05-10).
 - /golespartido: tras un partido, modo voz/texto para describir los
@@ -1215,6 +1221,40 @@ async def cmd_enlaces(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _registrar_accion_local(
         update.effective_chat.id,
         "/enlaces ejecutado: enviados al usuario los enlaces PRE+POST genéricos del día (con fecha y turno pre-rellenados). El usuario ya los tiene; NO le preguntes si quiere los enlaces."
+    )
+
+
+async def cmd_enlaces_wa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Devuelve un enlace wa.me por cada jugador con teléfono, listo para
+    pulsar y enviar por WhatsApp con el mensaje (PRE+POST) prerredactado.
+    Lee teléfonos de la hoja `TELEFONOS_JUGADORES` del Sheet."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        # Permitir pasar fecha opcional: /enlaces_wa 2026-05-13
+        args_cli = ctx.args if ctx and ctx.args else []
+        extra = [args_cli[0]] if args_cli else []
+        rc, out, err = await _run_script(PROJECT_DIR / "src" / "enlaces_wa.py", *extra)
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ Error generando enlaces WhatsApp (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        chat_id,
+        "/enlaces_wa ejecutado: enviados al usuario los enlaces wa.me "
+        "personalizados por jugador (uno por jugador con teléfono "
+        "configurado). El usuario solo tiene que pulsar cada enlace y "
+        "darle a Enviar en WhatsApp. NO le preguntes si quiere los enlaces."
     )
 
 
@@ -2367,6 +2407,15 @@ def _detectar_intent(texto: str) -> Optional[str]:
             r'\bactualiza(?:r)?\s+(?:el\s+)?dashboard\b',
             r'\binteg(?:r|ra)(?:r|alo)?\s+(?:los\s+)?forms?\b',
         ]),
+        # Más específico primero: enlaces por jugador (wa.me) tiene que
+        # matchear ANTES que el genérico /enlaces.
+        ("enlaces_wa", [
+            r'\benlaces?\s+(?:para\s+)?(?:los\s+)?jugadores?\b',
+            r'\benlaces?\s+(?:por\s+)?wh?a(?:tsapp)?(?:s)?\b.*\bcada\b',
+            r'\benv[ií]a(?:r|los)?\s+.*\bcada\s+jugador\b',
+            r'\bm[aá]nda(?:r|los)?\s+.*\bjugadores?\s+(?:por\s+)?wh?a',
+            r'\bwa\.?me\b',
+        ]),
         ("enlaces", [
             r'^enlaces?\.?$',
             r'\bdame\s+(?:los\s+)?enlaces?\b',
@@ -2401,6 +2450,7 @@ def _intent_handler(cmd: str):
     return {
         "consolidar": cmd_consolidar,
         "enlaces": cmd_enlaces,
+        "enlaces_wa": cmd_enlaces_wa,
         "prepost": cmd_prepost,
         "auditar": cmd_auditar,
         "golespartido": cmd_golespartido,
@@ -2766,6 +2816,7 @@ def main():
     app.add_handler(CommandHandler("oliver_deep", cmd_oliver_deep))
     app.add_handler(CommandHandler("oliver_token", cmd_oliver_token))
     app.add_handler(CommandHandler("enlaces", cmd_enlaces))
+    app.add_handler(CommandHandler("enlaces_wa", cmd_enlaces_wa))
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
