@@ -19,12 +19,45 @@ import datetime as _dt
 from pathlib import Path
 
 # ── Config página ─────────────────────────────────────────────────────────────
+# El escudo del Inter (versión verde) se sirve vía raw.githubusercontent
+# para que iOS/Android lo recojan al "Añadir a pantalla de inicio".
+ESCUDO_URL = "https://raw.githubusercontent.com/arkaitzsisniega/arkaitz-2526/main/assets/logos/inter_verde.png"
+
 st.set_page_config(
-    page_title="Arkaitz · 25/26",
-    page_icon="🏆",
+    page_title="Movistar Inter · Datos",
+    page_icon=ESCUDO_URL,
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Inyectar apple-touch-icon en el <head> del documento padre (iframe → top).
+# iOS solo reconoce este meta cuando se hace "Añadir a pantalla de inicio".
+import streamlit.components.v1 as _components
+_components.html(f"""
+<script>
+(function() {{
+  try {{
+    const head = window.parent.document.head;
+    // apple-touch-icon (iPhone/iPad)
+    const link = window.parent.document.createElement("link");
+    link.rel = "apple-touch-icon";
+    link.href = "{ESCUDO_URL}";
+    head.appendChild(link);
+    // título por si Safari usa este al añadir a inicio
+    const linkTitle = window.parent.document.createElement("meta");
+    linkTitle.name = "apple-mobile-web-app-title";
+    linkTitle.content = "Inter Datos";
+    head.appendChild(linkTitle);
+    const cap = window.parent.document.createElement("meta");
+    cap.name = "apple-mobile-web-app-capable";
+    cap.content = "yes";
+    head.appendChild(cap);
+  }} catch (e) {{
+    // silencioso: si falla, el favicon estándar sigue siendo el escudo
+  }}
+}})();
+</script>
+""", height=0)
 
 # ── Gate de contraseña + ROLES ────────────────────────────────────────────────
 # Sistema de auth con roles. Hay 4 roles posibles:
@@ -337,6 +370,7 @@ h2, h3 { color: #1B3A6B; }
 .player-card {
     border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
     box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+    position: relative;  /* base para el tooltip absoluto */
 }
 .player-name { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
 .player-stats { font-size: 0.82rem; opacity: 0.92; line-height: 1.8; }
@@ -347,6 +381,45 @@ h2, h3 { color: #1B3A6B; }
 .acwr-bar-fill {
     height: 6px; border-radius: 4px;
     background: rgba(255,255,255,0.85);
+}
+
+/* ── Tooltip custom para la card del semáforo ────────────────────────
+   Sale al instante (sin el delay nativo de title=), texto más grande
+   y con lista clara de los motivos. */
+.player-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.08s linear;
+    position: absolute;
+    z-index: 9999;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    background: #1a1a1a;
+    color: #f5f5f5;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    text-align: left;
+    pointer-events: none;
+    white-space: normal;
+    min-width: 260px;
+    max-width: 380px;
+}
+.player-tooltip .tt-title {
+    font-weight: 700; font-size: 1.02rem; margin-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+    padding-bottom: 5px;
+}
+.player-tooltip ul { margin: 4px 0 0 0; padding-left: 18px; }
+.player-tooltip li { margin: 3px 0; font-size: 0.92rem; }
+.player-card:hover .player-tooltip {
+    visibility: visible;
+    opacity: 1;
 }
 div[data-testid="stTab"] button { font-weight: 600; }
 
@@ -1356,42 +1429,53 @@ with tab_sem:
                 s_peso = ("🔴" if pd.notna(peso_desv) and float(peso_desv) < -3.0 else
                           "🟠" if pd.notna(peso_desv) and float(peso_desv) < -1.5 else "🟢")
 
-                # ── Tooltip con explicación breve de POR QUÉ está en rojo/naranja ──
-                # Se construye sumando frases por cada métrica problemática.
-                explic = []
+                # ── Tooltip detallado con motivos concretos de cada alerta ──
+                # Lista de bullets HTML, sin emojis duplicados. Aparece al
+                # instante (CSS hover) y es más legible que un title=.
+                monotonia = row.get("MONOTONIA")
+                motivos = []
                 if pd.notna(acwr):
                     a = float(acwr)
                     if a > 1.5:
-                        explic.append(f"⚠ Carga aguda muy alta (ACWR={a:.2f}): viene de una semana muy cargada respecto al mes anterior. Riesgo de lesión elevado — reducir carga.")
+                        motivos.append(f"<b>Carga muy alta</b> (ACWR={a:.2f}): semana muy cargada vs mes. Riesgo de lesión — reducir carga.")
                     elif a > 1.3:
-                        explic.append(f"⚠ Carga elevada (ACWR={a:.2f}): rampa de carga por encima del umbral seguro. Vigilar.")
+                        motivos.append(f"<b>Carga elevada</b> (ACWR={a:.2f}): rampa por encima del umbral seguro (1.3). Vigilar.")
                     elif a < 0.8:
-                        explic.append(f"🔵 Infra-carga (ACWR={a:.2f}): pocos estímulos los últimos días, riesgo de descondicionamiento o regreso brusco.")
+                        motivos.append(f"<b>Infra-carga</b> (ACWR={a:.2f}): poco estímulo reciente. Riesgo de regreso brusco.")
                 if pd.notna(well_med):
                     w = float(well_med)
                     if w < 10:
-                        explic.append(f"⚠ Wellness muy bajo (media {w:.1f}/20): sueño/fatiga/molestias/ánimo en rojo. Hablar con él antes de cargarle.")
+                        motivos.append(f"<b>Wellness muy bajo</b> (media {w:.1f}/20): sueño/fatiga/molestias/ánimo en rojo. Hablar antes de cargarle.")
                     elif w < 13:
-                        explic.append(f"⚠ Wellness algo bajo (media {w:.1f}/20). Vigilar tendencia.")
+                        motivos.append(f"<b>Wellness algo bajo</b> (media {w:.1f}/20). Vigilar tendencia.")
                 if well_total > 0 and well_below > 0:
-                    explic.append(f"📉 Ha reportado {well_below}/{well_total} días con wellness <15 en el periodo seleccionado.")
+                    motivos.append(f"<b>{well_below}/{well_total} días</b> con wellness por debajo de 15 en el periodo.")
                 if pd.notna(peso_desv):
                     pd_ = float(peso_desv)
                     if pd_ < -3.0:
-                        explic.append(f"⚠ Pérdida de peso importante ({pd_:+.1f} kg vs media 2 meses). Posible deshidratación o algo que revisar nutricionalmente.")
+                        motivos.append(f"<b>Pérdida de peso importante</b> ({pd_:+.1f} kg vs media 2 meses). Revisar hidratación/nutrición.")
                     elif pd_ < -1.5:
-                        explic.append(f"⚠ Algo bajo de peso ({pd_:+.1f} kg vs media 2 meses).")
-                if alertas:
-                    explic.append(f"🚨 {alertas} alerta(s) activa(s).")
-                if not explic:
-                    tooltip = "Todo en rango. Buen estado general."
+                        motivos.append(f"<b>Algo bajo de peso</b> ({pd_:+.1f} kg vs media 2 meses).")
+                if pd.notna(monotonia) and float(monotonia) > 2.0:
+                    motivos.append(f"<b>Monotonía alta</b> ({float(monotonia):.2f} > 2.0): carga muy uniforme entre sesiones, riesgo de sobreentrenamiento. Introducir variabilidad.")
+
+                if not motivos:
+                    tooltip_html = (
+                        f"<div class='tt-title'>{row['JUGADOR']} · Todo en rango ✓</div>"
+                        f"<div style='font-size:0.9rem;opacity:0.85'>"
+                        f"Buen estado general. ACWR {acwr_txt}, wellness {well_txt}, "
+                        f"peso PRE {peso_txt}.</div>"
+                    )
                 else:
-                    tooltip = " · ".join(explic)
-                # El atributo HTML title se rompe con comillas dobles; las quito.
-                tooltip = tooltip.replace('"', "'")
+                    bullets = "".join(f"<li>{m}</li>" for m in motivos)
+                    tooltip_html = (
+                        f"<div class='tt-title'>{row['JUGADOR']} · "
+                        f"{len(motivos)} motivo{'s' if len(motivos) != 1 else ''} de atención</div>"
+                        f"<ul>{bullets}</ul>"
+                    )
 
                 cols_sem[i].markdown(f"""
-                <div class="player-card" style="background:{bg}; color:white;" title="{tooltip}">
+                <div class="player-card" style="background:{bg}; color:white;">
                     <div class="player-name">{emoji} {row['JUGADOR']}</div>
                     <div class="player-stats">
                         {s_acwr} ACWR: <b>{acwr_txt}</b><br>
@@ -1402,6 +1486,7 @@ with tab_sem:
                         <div class="acwr-bar-fill" style="width:{acwr_pct:.0f}%; background:{bar_color};"></div>
                     </div>
                     <div style="font-size:0.75rem; margin-top:6px; opacity:0.9;">{alert_txt}</div>
+                    <div class="player-tooltip">{tooltip_html}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
