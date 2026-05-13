@@ -1,0 +1,7 @@
+{
+  "_comentario": "IDs adicionales para @InterFS_datos_bot. Se mergean con los del .env. Tras editar y hacer git push, el server reinicia el bot solo (auto_pull cada 5 min).",
+  "ids": [
+    8653133999,
+    5783817680
+  ]
+}

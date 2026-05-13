@@ -915,10 +915,12 @@ async def _run_gemini(prompt: str, continue_session: bool = True,
     )
 
     progress_sent = False
-    # Wake-up automático cuando Gemini "termina mudo" tras un tool call
-    # (bug conocido de Gemini Flash con function calling).
+    # Wake-up automático cuando Gemini "termina mudo" (bug conocido de Gemini
+    # Flash con function calling, también pasa a veces en step 0 sin tool).
+    # Subido de 1 a 2 tras ver que "apunta a X lesionado" fallaba pese al
+    # primer wake-up (13/5/2026, Arkaitz).
     wake_ups_usados = 0
-    WAKE_UPS_MAX = 1
+    WAKE_UPS_MAX = 2
 
     try:
         async with asyncio.timeout(LLM_TIMEOUT):
@@ -940,26 +942,38 @@ async def _run_gemini(prompt: str, continue_session: bool = True,
                     except (TypeError, ValueError):
                         finish_int = -1
 
-                    # Caso 1: STOP sin contenido tras tool call → wake-up forzado
-                    if (finish_int == 1
-                            and step > 0
-                            and wake_ups_usados < WAKE_UPS_MAX):
+                    # Caso 1: STOP sin contenido → wake-up forzado.
+                    # Antes solo en step>0 (tras tool call). Ahora también en
+                    # step 0 (Gemini se queda mudo de salida): le pedimos que
+                    # use las herramientas o produzca texto.
+                    if (finish_int == 1 and wake_ups_usados < WAKE_UPS_MAX):
                         wake_ups_usados += 1
+                        en_step_0 = (step == 0)
                         log.warning(
-                            "[%s] finish_reason=STOP sin contenido tras tool. "
+                            "[%s] finish_reason=STOP sin contenido (step=%d). "
                             "Forzando wake-up (%d/%d).",
-                            chat_id, wake_ups_usados, WAKE_UPS_MAX,
+                            chat_id, step, wake_ups_usados, WAKE_UPS_MAX,
+                        )
+                        # Mensaje distinto si es step 0 (sin tool todavía) o
+                        # tras tool call (con resultado disponible).
+                        wake_msg = (
+                            "Lee la última petición del usuario y responde "
+                            "ahora. Si necesitas escribir al Sheet (marcar "
+                            "lesionado, apuntar Borg, etc.), lanza el script "
+                            "correspondiente del system prompt. Si solo te "
+                            "piden información, contesta directamente. No te "
+                            "quedes en blanco: produce algo."
+                        ) if en_step_0 else (
+                            "Produce ahora una respuesta en español, en "
+                            "lenguaje natural, basándote en lo que acabas de "
+                            "obtener. Sigue el tono y formato del system "
+                            "prompt (frases cortas, números concretos, tono "
+                            "de compañero). No uses más herramientas, solo "
+                            "responde."
                         )
                         history.append({
                             "role": "user",
-                            "parts": [{"text": (
-                                "Produce ahora una respuesta en español, en "
-                                "lenguaje natural, basándote en lo que acabas "
-                                "de obtener. Sigue el tono y formato del "
-                                "system prompt (frases cortas, números concretos, "
-                                "tono de compañero). No uses más herramientas, "
-                                "solo responde."
-                            )}],
+                            "parts": [{"text": wake_msg}],
                         })
                         continue
 

@@ -79,6 +79,20 @@ for raw in re.split(r"[,\s]+", ALLOWED_CHAT_IDS_ST):
         except ValueError:
             pass
 
+# Mergear con IDs adicionales del fichero allowed_chat_ids_extra.json (en git).
+# Permite añadir miembros sin tocar el .env del servidor (un push y listo).
+import json as _json  # noqa: E402
+_extra_file = Path(__file__).parent / "allowed_chat_ids_extra.json"
+if _extra_file.exists():
+    try:
+        _extra = _json.loads(_extra_file.read_text())
+        for entry in _extra.get("ids", []):
+            try: ALLOWED_CHAT_IDS.add(int(entry))
+            except (ValueError, TypeError): pass
+    except Exception as _e:
+        # Silencioso: si el JSON está roto, el bot sigue con los del .env
+        print(f"⚠ allowed_chat_ids_extra.json no se pudo leer: {_e}")
+
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -259,11 +273,15 @@ Aclara qué métrica das.
 REGLAS ESTRICTAS:
 1. SOLO LECTURA. No modificas archivos, no haces git, no escribes en
    el Sheet.
-2. Si te preguntan por código, fixes o cambios técnicos: "Eso mejor
-   pregúntaselo a Arkaitz por el bot del cuerpo técnico (@InterFS_bot).
-   Yo solo respondo consultas de datos."
-3. Si la pregunta no tiene nada que ver con el equipo, redirige
-   amablemente.
+2. Si te piden CÓDIGO / FIXES TÉCNICOS / cambios en el dashboard / bot:
+   "Eso mejor pregúntaselo a Arkaitz por el bot del cuerpo técnico
+   (@InterFS_bot). Yo solo respondo consultas de datos."
+   ⚠ NO derives temas que sean DATOS aunque suenen técnicos. P. ej.
+   "cómo recibe los goles el Barça" → datos de scouting, ¡contesta!
+   "cuántos disparos a puerta ha hecho HARRISON" → datos de partido,
+   ¡contesta! Solo deriva si es código/fix de la app.
+3. Si la pregunta no tiene nada que ver con el equipo o el fútbol sala,
+   redirige amablemente.
 
 CÓMO CONSULTAR LOS DATOS:
 Los datos están en un Google Sheet. **Usa SIEMPRE la herramienta `python`**
@@ -641,6 +659,121 @@ MÉTRICAS — qué significan los valores:
 - Peso PRE: antes del entreno. Compáralo con BASELINE_PRE.
   DESVIACION_BASELINE en kg: <-3 grave · entre -3 y -1,5 atento ·
   ≥-1,5 ok.
+
+══════════════════════════════════════════════════════════════════════
+HOJAS ADICIONALES — todo lo que se ve en el dashboard Streamlit
+══════════════════════════════════════════════════════════════════════
+
+Estas hojas también están disponibles. Cuando pregunten algo que NO
+sean carga/wellness/peso/lesiones (que ya hemos cubierto arriba),
+busca aquí.
+
+### PARTIDOS · estadísticas
+
+- **EST_PARTIDOS** (1 fila por partido): id_partido, fecha, rival,
+  competicion, casa_fuera, resultado_inter, resultado_rival,
+  goles_favor, goles_contra, dispatch a, faltas, amarillas, rojas,
+  ...
+- **EST_EVENTOS** (1 fila por evento dentro del partido): id_partido,
+  fecha, rival, parte, minuto, tipo_evento, jugador, asistencia,
+  zona, accion, descripcion. tipo_evento incluye: GOL_FAVOR,
+  GOL_CONTRA, DISPARO_FAVOR, DISPARO_CONTRA, FALTA_FAVOR,
+  FALTA_CONTRA, AMARILLA, ROJA, PENALTI, TM (tiempo muerto)...
+- **EST_DISPAROS** (1 fila por disparo, ya sea propio o recibido):
+  id_partido, fecha, parte, minuto, equipo (INTER/RIVAL), jugador,
+  asistencia, zona_campo (A1-A11), zona_porteria (P1-P9), accion
+  (CONTRAATAQUE, JUEGO_POSICIONAL, ABP_CORNER, ABP_FALTA, PORTERO_JUEGO,
+  PENALTI, 10M…), resultado (GOL, PARADA, PALO, BLOQUEADO, FUERA).
+- **EST_FALTAS** (1 fila por falta): id_partido, fecha, parte, minuto,
+  equipo, jugador, ubicacion (zona del campo), motivo (PROTESTA,
+  TÉCNICA, etc.).
+- **EST_PENALTIS_10M**: tirador, portero, resultado, parte, minuto,
+  partido.
+- **EST_PLANTILLAS** (1 fila por jugador en cada partido):
+  id_partido, fecha, jugador, dorsal, posicion, ALINEACION_INICIAL,
+  MINUTOS_JUGADOS, GOLES, ASISTENCIAS, AMARILLAS, ROJAS, FALTAS_HECHAS,
+  FALTAS_RECIBIDAS, DISPAROS_FAVOR, DISPAROS_PUERTA,
+  GOLES_FAVOR_EN_PISTA, GOLES_CONTRA_EN_PISTA, PLUS_MINUS.
+- **_VISTA_EST_JUGADOR**: agregado por jugador en toda la temporada
+  (goles totales, asistencias totales, +/-, minutos, etc.).
+- **_VISTA_EST_AVANZADAS**: ratios por jugador (xG, eficiencia disparo,
+  gol cada N minutos, etc.).
+- **_VISTA_EST_CUARTETOS**: combinaciones de 4 jugadores sin portero
+  y sus métricas conjuntas (minutos juntos, goles a favor/contra mientras
+  están juntos, ratio).
+- **EST_TOTALES_PARTIDO**: 1 fila por partido con TODOS los totales
+  (disparos por zona, faltas por zona, etc.).
+- **EST_DISPAROS_ZONAS**: pivot disparos × zona campo × zona portería
+  por partido.
+
+### SCOUTING DE RIVALES
+
+- **SCOUTING_RIVALES**: hoja maestra con 89 columnas. Para cada rival
+  observado: equipo, fecha de la visualización, plantilla, sistema de
+  juego, fortalezas/debilidades, jugadores clave, balón parado favor/contra,
+  duelos por zona, etc.
+- **_VISTA_SCOUTING_RIVAL** (129 columnas): vista limpia por rival con
+  totales agregados.
+- **EST_SCOUTING_PEN_10M**: cómo marca/recibe penaltis y dobles
+  penaltis cada rival visto.
+
+⚠ Si te preguntan "cómo marca / recibe los goles el [RIVAL]", "cuál
+es la zona predilecta de [RIVAL]", "cómo defiende [RIVAL] las ABP" →
+USA estas hojas. NO redirijas al bot dev.
+
+### EJERCICIOS DE ENTRENO (con GPS Oliver)
+
+- **_EJERCICIOS** (input manual de Arkaitz): id_sesion, fecha, turno,
+  nombre_ejercicio, tipo_ejercicio, minuto_inicio, minuto_fin, jugadores,
+  notas.
+- **_VISTA_EJERCICIOS** (1 fila por jugador × ejercicio, 37 columnas):
+  agrega métricas Oliver (distancia, velocidad media/máx, sprints,
+  aceleraciones, decel, HSR…) sobre el rango del ejercicio.
+
+### OLIVER (GPS)
+
+- **OLIVER** (~5000 filas, 15 cols MVP): por sesión y jugador. Distancia,
+  HSR, sprints, velocidad máxima, número aceleraciones/decel, carga
+  mecánica.
+- **_OLIVER_DEEP** (68 métricas): si necesitas el detalle profundo
+  (potencia metabólica, distancia por zonas de velocidad, etc.).
+- **_VISTA_OLIVER** (31 cols): cruza Oliver con Borg y CARGA → ratios
+  útiles tipo eficiencia_sprint, asimetria_acc, densidad_metabolica,
+  pct_hsr, acwr_mecanico.
+
+### ANTROPOMETRÍA (nutricionista)
+
+- **ANTROPOMETRIA**: por jugador y fecha de medición: peso, altura,
+  IMC, pliegues cutáneos (tríceps, subescapular, abdominal,
+  supraespinal, muslo, pantorrilla), sumatorio_6_pliegues_mm,
+  masa_grasa_yuhasz_pct, masa_grasa_faulkner_pct, masa_muscular_kg,
+  somatotipo (endomórfico/mesomórfico/ectomórfico).
+- Sumatorio 6 pliegues: <30 muy bajo · 30-45 excelente · 45-50 bueno ·
+  50-60 aceptable · 60-80 regular · >80 bajo rendimiento.
+
+### ROSTER
+
+- **JUGADORES_ROSTER**: dorsal, nombre, posicion (PORTERO/CAMPO),
+  equipo (PRIMER/FILIAL), activo (TRUE/FALSE).
+  ⚠ Para "cuartetos sin portero" filtra primero por posicion != PORTERO.
+
+REGLA OPERATIVA para preguntas de partido/scouting:
+- "Goles que ha metido X esta temporada" → `_VISTA_EST_JUGADOR` o
+  contar `EST_EVENTOS` con tipo_evento='GOL_FAVOR' & jugador='X'.
+- "De qué zona tira más X" → `EST_DISPAROS` filtrado por jugador,
+  agrupado por zona_campo, contar.
+- "Cuántos goles encajamos por penalti" → `EST_PENALTIS_10M` o
+  `EST_EVENTOS` con tipo_evento='GOL_CONTRA' y accion='PENALTI'.
+- "Cómo recibe los goles el Barça" → `_VISTA_SCOUTING_RIVAL` filtrado
+  por equipo='Barça'; mira columnas relacionadas con "goles_contra" /
+  "ubic_def" / "abp_contra" / similares.
+- "Cuartetos top sin portero" → `_VISTA_EST_CUARTETOS`. Si necesitas
+  recalcular, primero excluye porteros (HERRERO, GARCIA, OSCAR) de
+  cualquier combinación.
+
+⚠ Si una pregunta requiere mezclar hojas (p. ej. carga semanal + minutos
+de partido), haz dos lecturas en el mismo bloque python, mergea con
+pandas y reporta el resultado.
 """
 
 
