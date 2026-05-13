@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Movistar Inter · Datos</title>
+
+<!-- Favicon (escritorio, Android, Chrome iOS) -->
+<link rel="icon" type="image/png" sizes="512x512" href="inter_verde.png">
+<link rel="icon" type="image/png" sizes="192x192" href="inter_verde.png">
+<link rel="shortcut icon" href="inter_verde.png">
+
+<!-- iOS / iPad / iPhone: icono al "Añadir a pantalla de inicio" -->
+<link rel="apple-touch-icon" sizes="180x180" href="inter_verde.png">
+<link rel="apple-touch-icon" href="inter_verde.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Inter Datos">
+
+<!-- Android / PWA manifest -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1B5E20">
+
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0f0c;
+    color: #e5e5e5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  img { width: 120px; height: auto; margin-bottom: 18px; }
+  h1 { font-size: 1.2rem; font-weight: 700; margin: 0 0 8px 0; color: #ffffff; }
+  p  { font-size: 0.9rem; opacity: 0.75; margin: 0; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981; margin:0 4px; animation: blink 1.2s infinite; }
+  .dot:nth-child(2){ animation-delay: 0.2s; } .dot:nth-child(3){ animation-delay: 0.4s; }
+  @keyframes blink { 0%,100%{opacity:0.3} 50%{opacity:1} }
+</style>
+</head>
+<body>
+  <img src="inter_verde.png" alt="Movistar Inter">
+  <h1>Movistar Inter · Datos</h1>
+  <p>Abriendo panel del cuerpo técnico<span class="dot"></span><span class="dot"></span><span class="dot"></span></p>
+
+<script>
+  // Redirección al dashboard tras 600ms (suficiente para que iOS
+  // capture el icono al "Añadir a pantalla de inicio" y para ver el splash).
+  setTimeout(function() {
+    window.location.replace("https://arkaitz-2526-xj9bbsjmsdq84zzpaxudt6.streamlit.app/");
+  }, 600);
+</script>
+</body>
+</html>
