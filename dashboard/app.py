@@ -473,6 +473,170 @@ footer, .stApp > footer { display: none !important; }
 st.markdown(CSS, unsafe_allow_html=True)
 
 
+# ── Monkey-patch global de st.dataframe: tooltips en cabeceras + 2 decimales ──
+# Aplica AUTOMÁTICAMENTE a todas las tablas del dashboard sin tocarlas una a una.
+#   - Tooltips: si la columna está en COL_TOOLTIPS, su help= sale al pasar el ratón.
+#   - 2 decimales: TODA columna numérica float se formatea con "%.2f". Se respeta
+#     cualquier column_config explícito que se haya pasado a st.dataframe().
+COL_TOOLTIPS: dict = {
+    # Estados de asistencia (BORG / _VISTA_RECUENTO)
+    "EST_S":  "S = Selección. Días que jugó/fue convocado a partido.",
+    "EST_A":  "A = Ausencia. Falta del jugador sin justificar.",
+    "EST_L":  "L = Lesión. El jugador estaba lesionado ese día.",
+    "EST_N":  "N = No entrena. No participó en el entreno por decisión técnica.",
+    "EST_D":  "D = Descanso. Día de descanso pautado.",
+    "EST_NC": "NC = No calificado. Sin valoración (sin Borg ni motivo).",
+    "EST_NJ": "NJ = No juega. Convocado al partido pero sin participar.",
+    "TOTAL_SESIONES_EQUIPO": "Sesiones que ha tenido el equipo en el periodo (mide la asistencia ideal).",
+    "SESIONES_CON_DATOS":    "Sesiones donde el jugador tiene Borg numérico (entrenó de verdad).",
+    "PCT_PARTICIPACION":     "% de sesiones del equipo en las que entrenó (Sesiones con datos / Total).",
+    # Carga
+    "ACWR":           "Acute:Chronic Workload Ratio. <0,8 infra-carga · 0,8–1,3 OK · 1,3–1,5 atención · >1,5 riesgo.",
+    "CARGA":          "sRPE de la sesión (Borg × Minutos).",
+    "CARGA_SEMANAL":  "Suma de carga (sRPE) de toda la semana del jugador.",
+    "CARGA_AGUDA":    "EWMA de la carga últimos ~7 días (λ=0.1316).",
+    "CARGA_CRONICA":  "EWMA de la carga últimos ~28 días (λ=0.0339).",
+    "MONOTONIA":      "Media diaria de carga / desviación típica diaria. >2 = riesgo (carga muy uniforme).",
+    "FATIGA":         "Carga semanal × Monotonía. Indicador combinado de sobrecarga.",
+    "BORG":           "RPE percibido por el jugador, 0–10.",
+    "BORG_MEDIO":     "Media del Borg de las sesiones de la semana.",
+    # Peso
+    "PESO_PRE":            "Peso antes del entreno (kg).",
+    "PESO_POST":           "Peso tras el entreno (kg).",
+    "DIFERENCIA":          "Peso POST − Peso PRE (kg). Suele ser negativo por sudoración.",
+    "PCT_PERDIDA":         "% de peso corporal perdido en la sesión.",
+    "H2O_L":               "Agua reportada bebida durante el entreno (L).",
+    "BASELINE_PRE":        "Media de Peso PRE de los últimos 2 meses (referencia individual).",
+    "DESVIACION_BASELINE": "Diferencia entre el peso PRE actual y la baseline (kg).",
+    "PESO_PRE_DESV_KG":    "Desviación del Peso PRE vs la baseline de 2 meses (kg).",
+    # Wellness
+    "SUENO":                "Calidad del sueño 1–5 (1=fatal, 5=óptimo).",
+    "MOLESTIAS":            "Molestias musculares 1–5 (1=fuerte, 5=nada).",
+    "ANIMO":                "Estado de ánimo 1–5 (1=bajo, 5=alto).",
+    "TOTAL":                "Wellness total = SUENO + FATIGA + MOLESTIAS + ANIMO. ≤10 alerta · 11-13 flojo · ≥14 OK.",
+    "WELLNESS_7D":          "Wellness medio de los últimos 7 días del jugador.",
+    "BASELINE_WELLNESS":    "Wellness medio del histórico (referencia individual).",
+    "WELLNESS_MEDIO":       "Media del wellness total en el periodo.",
+    "WELLNESS_BELOW15":     "Días con wellness total <15 en el periodo.",
+    # Semáforo
+    "SEMAFORO_GLOBAL":   "Estado global del jugador. Suma alertas de ACWR + Wellness + Peso + Monotonía.",
+    "SEMAFORO_CARGA":    "Color del estado de la carga (basado en ACWR).",
+    "SEMAFORO_WELLNESS": "Color del estado del wellness.",
+    "SEMAFORO_PESO":     "Color del estado del peso (basado en desviación vs baseline).",
+    "ALERTAS_ACTIVAS":   "Número de métricas en rojo/naranja para el jugador.",
+    # Disparos
+    "DPP": "Disparos a puerta (incluye gol).",
+    "DPF": "Disparos fuera.",
+    "DPA": "Disparos al palo.",
+    "DPB": "Disparos bloqueados (cortados por un defensor antes del marco).",
+    # Otros acciones individuales
+    "PF":     "Pérdidas forzadas (las provocó el rival).",
+    "PNF":    "Pérdidas no forzadas (errores propios sin presión).",
+    "BDG":    "Balones divididos ganados.",
+    "BDP":    "Balones divididos perdidos.",
+    "ROBOS":  "Balones robados al rival.",
+    "CORTES": "Intercepciones del balón en jugada.",
+    # Partidos
+    "MINUTOS_JUGADOS":      "Minutos efectivos en pista del jugador en ese partido.",
+    "GOLES_FAVOR_EN_PISTA": "Goles del Inter mientras el jugador estaba en pista.",
+    "GOLES_CONTRA_EN_PISTA": "Goles encajados mientras el jugador estaba en pista.",
+    "PLUS_MINUS":           "Diferencia de goles a favor − contra estando él en pista.",
+    "DISPAROS_PUERTA":      "Disparos a puerta del jugador en el partido.",
+    "DISPAROS_FAVOR":       "Disparos totales del jugador en el partido.",
+    "ASISTENCIAS":          "Asistencias en goles del Inter.",
+    "FALTAS_HECHAS":        "Faltas cometidas por el jugador.",
+    "FALTAS_RECIBIDAS":     "Faltas recibidas por el jugador.",
+    # Oliver
+    "DISTANCIA":      "Distancia total recorrida (m).",
+    "HSR":            "High Speed Running: distancia a velocidad alta (m).",
+    "SPRINTS":        "Número de aceleraciones que superan el umbral de sprint.",
+    "VEL_MAX":        "Velocidad máxima alcanzada (km/h).",
+    "VEL_MEDIA":      "Velocidad media en la sesión (km/h).",
+    "ACELERACIONES":  "Número de aceleraciones por encima del umbral.",
+    "DECELERACIONES": "Número de deceleraciones bruscas.",
+    # Antropometría
+    "sumatorio_6_pliegues_mm": "Suma de los 6 pliegues cutáneos (mm). Indicador inverso de composición grasa.",
+    "masa_grasa_yuhasz_pct":   "% de masa grasa por método Yuhasz.",
+    "masa_grasa_faulkner_pct": "% de masa grasa por método Faulkner.",
+    "masa_muscular_kg":        "Masa muscular estimada (kg).",
+    "imc":                     "Índice de masa corporal (kg/m²).",
+    # Roster
+    "dorsal":   "Número del jugador.",
+    "posicion": "PORTERO o CAMPO.",
+    "activo":   "Si el jugador sigue activo en la plantilla.",
+}
+
+def _build_col_config(columns) -> dict:
+    """Construye un dict column_config con tooltips para columnas conocidas y
+    formato %.2f para columnas float. NO sobreescribe nada si la columna no
+    requiere ajustes."""
+    cfg = {}
+    try:
+        for c in columns:
+            name = str(c)
+            tip = COL_TOOLTIPS.get(name) or COL_TOOLTIPS.get(name.upper())
+            # Detectar float para 2 decimales (solo si parece numérico)
+            es_float_candidate = False
+            try:
+                # data está en el padre, no aquí; lo evaluamos por el nombre
+                # ⇒ aplicamos 2 decimales en columnas conocidas como float.
+                pass
+            except Exception:
+                pass
+            if tip is not None:
+                cfg[name] = st.column_config.Column(name, help=tip)
+    except Exception:
+        return {}
+    return cfg
+
+_st_dataframe_orig = st.dataframe
+
+def _st_dataframe_patched(data=None, *args, **kwargs):
+    """Wrapper que añade column_config con tooltips si no se pasó uno explícito,
+    y formatea floats a 2 decimales en numeric columns."""
+    try:
+        df_obj = data
+        # Aceptamos pd.DataFrame y Styler. Si es Styler, extraemos su .data
+        cols = None
+        if isinstance(df_obj, pd.DataFrame):
+            cols = df_obj.columns
+            df_numeric = df_obj
+        elif hasattr(df_obj, "data") and isinstance(getattr(df_obj, "data", None), pd.DataFrame):
+            cols = df_obj.data.columns
+            df_numeric = df_obj.data
+        else:
+            cols = None
+            df_numeric = None
+
+        if cols is not None:
+            extra_cfg = _build_col_config(cols)
+            # 2 decimales para columnas float que no tengan format explícito
+            if df_numeric is not None:
+                for c in cols:
+                    try:
+                        if pd.api.types.is_float_dtype(df_numeric[c]):
+                            name = str(c)
+                            existing = extra_cfg.get(name)
+                            tip = (existing.help if existing is not None and hasattr(existing, "help") else None) or COL_TOOLTIPS.get(name) or COL_TOOLTIPS.get(name.upper())
+                            extra_cfg[name] = st.column_config.NumberColumn(
+                                name, help=tip, format="%.2f"
+                            )
+                    except Exception:
+                        pass
+            if extra_cfg:
+                user_cfg = kwargs.get("column_config") or {}
+                # El config del user gana; solo añadimos lo que NO ha definido
+                for k, v in extra_cfg.items():
+                    user_cfg.setdefault(k, v)
+                kwargs["column_config"] = user_cfg
+    except Exception:
+        # Si algo falla, llamamos al original tal cual: nunca rompemos UI.
+        pass
+    return _st_dataframe_orig(data, *args, **kwargs)
+
+st.dataframe = _st_dataframe_patched
+
+
 # ── Conexión Google Sheets ────────────────────────────────────────────────────
 SHEET_NAME = "Arkaitz - Datos Temporada 2526"
 SCOPES     = ["https://www.googleapis.com/auth/spreadsheets",
@@ -4002,7 +4166,9 @@ def _aplicar_gradient_columna(df: pd.DataFrame, col: str,
     out = []
     for idx, v in base.items():
         if idx in filas_excluidas:
-            out.append("background-color: #f5f5f5; color: #666;")
+            # Blanco puro para filas excluidas (porteros en sem. minutos, etc.):
+            # quedan visualmente fuera del semáforo y se distinguen del color.
+            out.append("background-color: #ffffff; color: #999;")
             continue
         if pd.isna(v) or vmin == vmax:
             out.append("")
@@ -4376,19 +4542,43 @@ with tab_efic:
                     "Incluir portero", ["Sí", "No"], horizontal=True, key="efic_cuart_port"
                 )
 
-                # Filtro de situación de gol (acción)
+                # ─── Filtros de acción separados: ataque (🟢) y defensa (🔴) ───
                 acciones_disp_e = sorted([
                     a for a in est_eventos["accion"].dropna().astype(str).unique()
                     if a.strip()
                 ])
-                sel_acciones_e = st.multiselect(
-                    "Situación de gol",
-                    acciones_disp_e,
-                    default=acciones_disp_e,
-                    key="efic_cuart_accion",
-                    help="Filtra por tipo de jugada (Banda, Córner, 4x4, Contraataque...). "
-                         "Por defecto todas marcadas. Deselecciona las que no te interesen.",
+                # Acciones que SOLO suelen verse a favor (gol Inter) vs en contra
+                # las calculamos del propio histórico para defaults inteligentes.
+                _ev_marca_e = est_eventos.copy()
+                _ev_marca_e["accion"] = _ev_marca_e["accion"].astype(str)
+                acciones_favor_hist_e = sorted(
+                    _ev_marca_e[_ev_marca_e["equipo_marca"] == "INTER"]["accion"]
+                    .dropna().unique().tolist()
                 )
+                acciones_contra_hist_e = sorted(
+                    _ev_marca_e[_ev_marca_e["equipo_marca"] == "RIVAL"]["accion"]
+                    .dropna().unique().tolist()
+                )
+
+                fce1, fce2 = st.columns(2)
+                with fce1:
+                    st.markdown("**🟢 Goles A FAVOR** (situaciones desde las que el Inter marca)")
+                    sel_fav_e = st.multiselect(
+                        "Acciones a favor",
+                        acciones_favor_hist_e,
+                        default=acciones_favor_hist_e,
+                        key="efic_cuart_accion_fav",
+                        label_visibility="collapsed",
+                    )
+                with fce2:
+                    st.markdown("**🔴 Goles EN CONTRA** (situaciones desde las que el Inter encaja)")
+                    sel_con_e = st.multiselect(
+                        "Acciones en contra",
+                        acciones_contra_hist_e,
+                        default=acciones_contra_hist_e,
+                        key="efic_cuart_accion_con",
+                        label_visibility="collapsed",
+                    )
 
                 # Generar TODAS las combinaciones de tamaño N para cada evento.
                 # Lógica:
@@ -4401,11 +4591,11 @@ with tab_efic:
                 from itertools import combinations as _combos_e
                 _PORTEROS_CANON = {"HERRERO", "GARCIA", "OSCAR"}
                 ev_q = est_eventos.copy()
-                # Aplicar filtro de situación de gol
-                if sel_acciones_e:
-                    ev_q = ev_q[ev_q["accion"].astype(str).isin(sel_acciones_e)]
-                else:
-                    ev_q = ev_q.iloc[0:0]
+                ev_q["accion"] = ev_q["accion"].astype(str)
+                # Filtro: a favor (INTER + accion ∈ favor) OR en contra (RIVAL + accion ∈ contra)
+                _m_fav_e = (ev_q["equipo_marca"] == "INTER") & ev_q["accion"].isin(sel_fav_e or [])
+                _m_con_e = (ev_q["equipo_marca"] == "RIVAL") & ev_q["accion"].isin(sel_con_e or [])
+                ev_q = ev_q[_m_fav_e | _m_con_e]
                 ev_q["portero"] = ev_q["portero"].fillna("").astype(str)
                 ev_q["cuarteto"] = ev_q["cuarteto"].fillna("").astype(str)
                 incl = (inc_p_e == "Sí")
@@ -4422,7 +4612,11 @@ with tab_efic:
                             continue
                         pool = sorted(set(cuart + [portero_ev]))
                     else:
-                        pool = sorted(set(cuart))
+                        # ⚠ Excluir TODOS los porteros canónicos del pool,
+                        # incluso cuando estén jugando de portero-jugador.
+                        # Antes solo se excluía el portero del evento, pero
+                        # si OSCAR estaba de campo se colaba como "jugador".
+                        pool = sorted(set(cuart) - _PORTEROS_CANON)
                     em = r["equipo_marca"]
                     for n in tamanos_e or [3, 4, 5]:
                         if n <= len(pool):
@@ -6444,16 +6638,36 @@ with tab_goles:
                 key="g_cuart_min"
             )
 
-            # Filtro adicional: situación de gol (acción)
-            acciones_disp = sorted([a for a in ev["accion"].dropna().astype(str).unique() if a.strip()])
-            sel_acciones = st.multiselect(
-                "Situación de gol",
-                acciones_disp,
-                default=acciones_disp,
-                key="g_cuart_accion",
-                help="Filtra por tipo de jugada (Banda, Córner, 4x4, Contraataque...). "
-                     "Por defecto se muestran todas. Deselecciona las que no te interesen.",
+            # ─── Filtros de acción separados: 🟢 a favor / 🔴 en contra ───
+            _ev_marca = ev.copy()
+            _ev_marca["accion"] = _ev_marca["accion"].astype(str)
+            acciones_favor_hist = sorted(
+                _ev_marca[_ev_marca["equipo_marca"] == "INTER"]["accion"]
+                .dropna().unique().tolist()
             )
+            acciones_contra_hist = sorted(
+                _ev_marca[_ev_marca["equipo_marca"] == "RIVAL"]["accion"]
+                .dropna().unique().tolist()
+            )
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                st.markdown("**🟢 Goles A FAVOR** (situaciones desde las que el Inter marca)")
+                sel_fav = st.multiselect(
+                    "Acciones a favor",
+                    acciones_favor_hist,
+                    default=acciones_favor_hist,
+                    key="g_cuart_accion_fav",
+                    label_visibility="collapsed",
+                )
+            with fc2:
+                st.markdown("**🔴 Goles EN CONTRA** (situaciones desde las que el Inter encaja)")
+                sel_con = st.multiselect(
+                    "Acciones en contra",
+                    acciones_contra_hist,
+                    default=acciones_contra_hist,
+                    key="g_cuart_accion_con",
+                    label_visibility="collapsed",
+                )
 
             # Generar TODAS las combinaciones de tamaño N a partir de los
             # jugadores en pista en cada evento.
@@ -6465,11 +6679,10 @@ with tab_goles:
             _PORTEROS_CANON = {"HERRERO", "GARCIA", "OSCAR"}
 
             ev_for_q = ev.copy()
-            # Aplicar filtro de situación de gol
-            if sel_acciones:
-                ev_for_q = ev_for_q[ev_for_q["accion"].astype(str).isin(sel_acciones)]
-            else:
-                ev_for_q = ev_for_q.iloc[0:0]
+            ev_for_q["accion"] = ev_for_q["accion"].astype(str)
+            _m_fav = (ev_for_q["equipo_marca"] == "INTER") & ev_for_q["accion"].isin(sel_fav or [])
+            _m_con = (ev_for_q["equipo_marca"] == "RIVAL") & ev_for_q["accion"].isin(sel_con or [])
+            ev_for_q = ev_for_q[_m_fav | _m_con]
             ev_for_q["portero"] = ev_for_q["portero"].fillna("").astype(str)
             ev_for_q["cuarteto"] = ev_for_q["cuarteto"].fillna("").astype(str)
             incl = (incluir_portero == "Sí")
@@ -6485,7 +6698,11 @@ with tab_goles:
                         continue
                     pool = sorted(set(cuart + [portero_ev]))
                 else:
-                    pool = sorted(set(cuart))
+                    # ⚠ Excluir TODOS los porteros canónicos del pool. Si OSCAR
+                    # / HERRERO / GARCIA están en `cuart` por jugar de
+                    # portero-jugador, no deben aparecer en combinaciones "sin
+                    # portero" — siguen siendo porteros.
+                    pool = sorted(set(cuart) - _PORTEROS_CANON)
                 em = r["equipo_marca"]
                 for n in tamanos or [3, 4, 5]:
                     if n <= len(pool):
