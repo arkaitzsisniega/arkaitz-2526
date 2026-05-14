@@ -2,25 +2,46 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Movistar Inter · Datos</title>
 
-<!-- Favicon (escritorio + Android Chrome) -->
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<link rel="shortcut icon" href="favicon-32.png">
+<!-- ═══ FAVICON (escritorio + Android Chrome) ═══ -->
+<link rel="icon" type="image/x-icon" href="favicon.ico?v=3">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=3">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=3">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=3">
+<link rel="shortcut icon" href="favicon.ico?v=3">
 
-<!-- iOS / iPad / iPhone: icono al "Añadir a pantalla de inicio" -->
-<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-180.png">
-<link rel="apple-touch-icon" href="apple-touch-icon-180.png">
+<!-- ═══ iOS / iPad / iPhone: TODOS los tamaños que Safari pide ═══ -->
+<!-- Versión 3: cache-bust por si Safari guardaba un icono viejo -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
+<link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png?v=3">
+<link rel="apple-touch-icon" sizes="57x57"   href="apple-touch-icon-57.png?v=3">
+<link rel="apple-touch-icon" sizes="60x60"   href="apple-touch-icon-60.png?v=3">
+<link rel="apple-touch-icon" sizes="72x72"   href="apple-touch-icon-72.png?v=3">
+<link rel="apple-touch-icon" sizes="76x76"   href="apple-touch-icon-76.png?v=3">
+<link rel="apple-touch-icon" sizes="114x114" href="apple-touch-icon-114.png?v=3">
+<link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png?v=3">
+<link rel="apple-touch-icon" sizes="144x144" href="apple-touch-icon-144.png?v=3">
+<link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png?v=3">
+<link rel="apple-touch-icon" sizes="167x167" href="apple-touch-icon-167.png?v=3">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-180.png?v=3">
+
+<!-- Web app capable (iOS y Android) -->
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Inter Datos">
+<meta name="application-name" content="Inter Datos">
 
 <!-- Android / PWA manifest -->
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json?v=3">
 <meta name="theme-color" content="#1B5E20">
+<meta name="msapplication-TileColor" content="#1B5E20">
+<meta name="msapplication-TileImage" content="icon-144.png?v=3">
+
+<!-- Descripción para previews -->
+<meta name="description" content="Panel de datos del cuerpo técnico de Movistar Inter FS">
 
 <style>
   html, body {
@@ -31,30 +52,39 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     text-align: center; padding: 20px;
     box-sizing: border-box;
+    -webkit-touch-callout: none;
   }
-  img.escudo { width: 160px; height: auto; margin-bottom: 24px; }
-  h1 { font-size: 1.3rem; font-weight: 700; margin: 0 0 12px 0; color: #ffffff; }
-  p  { font-size: 0.95rem; opacity: 0.75; margin: 0 0 24px 0; max-width: 340px; line-height: 1.45; }
+  img.escudo { width: 180px; height: auto; margin-bottom: 24px; }
+  h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 12px 0; color: #ffffff; }
+  p  { font-size: 0.95rem; opacity: 0.78; margin: 0 0 24px 0; max-width: 360px; line-height: 1.5; }
   a.btn {
-    display: inline-block; padding: 14px 28px; border-radius: 999px;
-    background: #10b981; color: #ffffff; font-weight: 700; font-size: 1rem;
-    text-decoration: none; box-shadow: 0 4px 14px rgba(16,185,129,0.35);
-    cursor: pointer;
+    display: inline-block; padding: 14px 32px; border-radius: 999px;
+    background: #10b981; color: #ffffff; font-weight: 700; font-size: 1.05rem;
+    text-decoration: none; box-shadow: 0 4px 16px rgba(16,185,129,0.35);
+    cursor: pointer; border: none;
+    -webkit-tap-highlight-color: transparent;
   }
-  a.btn:active { background: #059669; }
+  a.btn:active { background: #059669; transform: scale(0.97); }
   .hint {
-    margin-top: 28px; font-size: 0.8rem; opacity: 0.55; max-width: 320px;
-    line-height: 1.5;
+    margin-top: 32px; font-size: 0.82rem; opacity: 0.55; max-width: 320px;
+    line-height: 1.6;
   }
   .hint b { color: #fde68a; }
-  .loading { font-size: 0.9rem; opacity: 0.7; margin-top: 10px; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981; margin:0 4px; animation: blink 1.2s infinite; }
-  .dot:nth-child(2){ animation-delay: 0.2s; } .dot:nth-child(3){ animation-delay: 0.4s; }
-  @keyframes blink { 0%,100%{opacity:0.3} 50%{opacity:1} }
+  .loading { font-size: 0.95rem; opacity: 0.7; margin-top: 10px; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #10b981; margin: 0 4px; animation: blink 1.2s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink {
+    0%, 100% { opacity: 0.3; }
+    50%      { opacity: 1; }
+  }
 </style>
 </head>
 <body>
-  <img class="escudo" src="inter_verde.png" alt="Movistar Inter">
+  <img class="escudo" src="inter_verde.png" alt="Movistar Inter FS">
   <h1>Movistar Inter · Datos</h1>
 
   <div id="standalone-mode" class="loading" style="display:none;">
@@ -65,17 +95,18 @@
     <p>Panel del cuerpo técnico.<br>Pulsa el botón para entrar.</p>
     <a class="btn" id="abrir">Abrir panel ▶</a>
     <div class="hint">
-      💡 Para tenerlo como app:<br>
-      Pulsa <b>Compartir</b> (cuadrado con flecha) → <b>Añadir a pantalla de inicio</b>.
-      Aparecerá el escudo del Inter como un icono más.
+      💡 Para tenerlo como app con el escudo:<br>
+      <b>1.</b> Pulsa el botón <b>Compartir</b> (cuadrado con flecha hacia arriba)<br>
+      <b>2.</b> Baja a <b>"Añadir a pantalla de inicio"</b><br>
+      <b>3.</b> Confirma con el escudo del Inter.
     </div>
   </div>
 
 <script>
   const URL_PANEL = "https://interfs-datos.streamlit.app/";
 
-  // Modo standalone: la página se abrió desde el icono del escritorio.
-  //   iOS:    window.navigator.standalone === true
+  // Detectar modo standalone (la página se abrió desde el icono):
+  //   iOS:     window.navigator.standalone === true
   //   Android: matchMedia("(display-mode: standalone)").matches
   const esApp =
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
@@ -84,11 +115,18 @@
   if (esApp) {
     document.getElementById("browser-mode").style.display = "none";
     document.getElementById("standalone-mode").style.display = "block";
-    setTimeout(function() { window.location.replace(URL_PANEL); }, 400);
+    setTimeout(function () { window.location.replace(URL_PANEL); }, 400);
   } else {
-    document.getElementById("abrir").addEventListener("click", function(e) {
+    document.getElementById("abrir").addEventListener("click", function (e) {
       e.preventDefault();
       window.location.href = URL_PANEL;
+    });
+  }
+
+  // Service Worker (cache de iconos para que iOS los recoja la primera vez)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js?v=3').catch(function () { /* silencioso */ });
     });
   }
 </script>
