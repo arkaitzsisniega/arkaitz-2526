@@ -272,31 +272,18 @@ Ejemplo:
   Tú: envías el output tal cual.
 
 ⚠️ REGLA #0a-bis — CARGA POR JUGADOR DE LA ÚLTIMA SESIÓN ⚠️
-Si Arkaitz pregunta:
-  "carga jugador por jugador de la última sesión"
-  "borg del último entreno"
-  "carga del entreno de hoy"
-  "qué tal la sesión de hoy"
-  "borg del 13/05" (cualquier fecha)
+Si Arkaitz pregunta por "carga del último entreno", "borg del 13/05"
+(cualquier fecha), "qué tal la sesión de hoy" o variantes:
 
-USA OBLIGATORIAMENTE este script:
 ```bash
 /usr/bin/python3 {PROJECT_DIR}/src/carga_ultima_sesion.py [YYYY-MM-DD]
 ```
-- Sin argumento → última sesión registrada.
-- Con fecha YYYY-MM-DD → la de esa fecha.
+Sin argumento = última sesión registrada. Con fecha = la de esa fecha.
+Ya cruza Borg con minutos REALES por jugador y añade métricas Oliver.
 
-Cruza Borg con minutos REALES de cada jugador (no los minutos generales
-de SESIONES), aplica multiplicadores GYM/MIXTA, e incluye métricas Oliver
-(carga mecánica, ACWR mecánico, ratio Borg/Oliver) si las hay.
-
-NO escribas Python a mano con `BORG × SESIONES.MINUTOS` — eso da carga
-idéntica a todos los que tienen mismo Borg porque ignora minutos reales
-en partido. Usa el script.
-
-Mandas el output LITERAL a Arkaitz. Si pregunta algo extra ("por qué
-PIRATA tiene tan poca carga"), respondes con un análisis pero
-manteniendo los datos del script como base.
+Mandas el output LITERAL. NO uses Python a mano con `BORG × SESIONES.MINUTOS`
+(da carga idéntica a todos los del mismo Borg, ignora minutos reales en
+partido).
 
 ⚠️ REGLA #0b — RESPUESTAS CON DATOS NUMÉRICOS LIBRES: SIEMPRE CON CONTEXTO ⚠️
 Arkaitz es director técnico. Un número aislado NO le sirve para tomar
@@ -383,37 +370,13 @@ HERRAMIENTAS:
 - `edit_file`: sustituye un fragmento exacto en un archivo (más quirúrgico).
 
 DATOS DEL EQUIPO (Google Sheets):
-El Sheet "Arkaitz - Datos Temporada 2526" tiene las hojas crudas
-(SESIONES, BORG, PESO, WELLNESS, LESIONES, FISIO) y vistas pre-calculadas
-(_VISTA_CARGA, _VISTA_SEMANAL, _VISTA_PESO, _VISTA_WELLNESS,
-_VISTA_SEMAFORO, _VISTA_RECUENTO). Cuando le respondas a Arkaitz sobre
-datos del equipo, **prefiere las _VISTA_*** (ya tienen los cálculos
-hechos: ACWR, monotonía, sRPE, semáforo, desviaciones de baseline).
+El Sheet "Arkaitz - Datos Temporada 2526" tiene hojas crudas (SESIONES,
+BORG, PESO, WELLNESS, LESIONES, FISIO) y vistas pre-calculadas (_VISTA_*).
+**Prefiere las _VISTA_*** para responder a Arkaitz: ya tienen ACWR,
+monotonía, sRPE, semáforo y desviaciones de baseline calculadas.
 
-Esquema COMPLETO (verificado 12 mayo 2026, columnas exactas):
-- BORG: FECHA, TURNO, JUGADOR, BORG (número 0-10 o letra S/A/L/N/D/NC)
-- PESO: FECHA, TURNO, JUGADOR, PESO_PRE, PESO_POST, H2O_L (decimales con coma)
-- WELLNESS: FECHA, JUGADOR, SUENO, FATIGA, MOLESTIAS, ANIMO, TOTAL
-- SESIONES: FECHA, SEMANA, TURNO, TIPO_SESION, MINUTOS, COMPETICION (sin JUGADOR)
-- _VISTA_CARGA: FECHA, FECHA_STR, SEMANA, DIA_SEMANA, TURNO, JUGADOR,
-  TIPO_SESION, COMPETICION, MINUTOS, BORG, CARGA (sRPE).
-  ★ USA ESTA VISTA para preguntas POR SESIÓN ("últimas N sesiones").
-- _VISTA_SEMANAL: FECHA_LUNES, SEMANA_ISO, AÑO, JUGADOR, CARGA_SEMANAL,
-  SESIONES, BORG_MEDIO, ACWR, CARGA_AGUDA, CARGA_CRONICA, MONOTONIA,
-  FATIGA, SEMAFORO.
-  ★ USA ESTA VISTA para preguntas POR SEMANA. ⚠️ NO TIENE columna 'FECHA',
-  la columna fecha se llama FECHA_LUNES.
-- _VISTA_PESO: FECHA, SEMANA, DIA_SEMANA, TURNO, JUGADOR, TIPO_SESION,
-  COMPETICION, PESO_PRE, PESO_POST, DIFERENCIA, PCT_PERDIDA, H2O_L,
-  ALERTA_PESO, BASELINE_PRE, DESVIACION_BASELINE.
-- _VISTA_WELLNESS: FECHA, SEMANA, DIA_SEMANA, JUGADOR, SUENO, FATIGA,
-  MOLESTIAS, ANIMO, TOTAL, WELLNESS_7D, BASELINE_WELLNESS,
-  DESVIACION_BASELINE, SEMAFORO_WELLNESS.
-- _VISTA_SEMAFORO: JUGADOR, SEMANA, ACWR, MONOTONIA, SEMAFORO_CARGA,
-  WELLNESS_MEDIO, WELLNESS_BELOW15, SEMAFORO_WELLNESS, PESO_PRE_DESV_KG,
-  SEMAFORO_PESO, ALERTAS_ACTIVAS, SEMAFORO_GLOBAL.
-- _VISTA_RECUENTO: JUGADOR, TOTAL_SESIONES_EQUIPO, EST_S, EST_A, EST_L,
-  EST_N, EST_D, EST_NC, EST_NJ, SESIONES_CON_DATOS, PCT_PARTICIPACION.
+📋 El esquema COMPLETO con columnas exactas de cada hoja está más abajo
+en la sección "ESQUEMA COMPLETO DEL SHEET". Consúltalo si tienes dudas.
 
 ⚡ MUY IMPORTANTE — SANDBOX PYTHON PARA EL SHEET ⚡
 El sandbox Python YA TIENE PREIMPORTADOS y listos para usar:
@@ -1900,7 +1863,7 @@ async def _procesar_audio_sesion(transcripcion: str, update: Update,
                                    ctx: ContextTypes.DEFAULT_TYPE):
     """Llama al script parse_sesion_voz.py con la transcripción."""
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🧠 Estructurando la sesión con Claude…")
+    await update.message.reply_text("🧠 Estructurando la sesión con Gemini…")
     stop = asyncio.Event()
     task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
     try:
@@ -2734,6 +2697,77 @@ def _detectar_intent_ranking(prompt: str):
     return (cat_found, comp)
 
 
+def _detectar_intent_prepost(prompt: str):
+    """'lista de pre y post de [fecha]' / 'quien rellenó el pre hoy' /
+    'cuantos pre y post han hecho del 29 de abril' / similar.
+
+    Devuelve fecha ISO (YYYY-MM-DD) o "" para "hoy/última sesión", o
+    None si no matchea. El script `src/prepost_estado.py` acepta tanto
+    sin args (= última sesión) como fecha como argumento.
+
+    Patrón observado en `telegram_logs/` (12 ocurrencias entre abril-mayo):
+    es la pregunta NO-LLM más frecuente que aún cae a Gemini.
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+
+    # Triggers: tiene que mencionar pre Y post juntos, o "quien hizo el pre/post",
+    # o "respuestas pre/post" (es la jerga del usuario).
+    triggers_combinados = (
+        "pre y post", "pre/post", "pre-post", "post y pre",
+        "respuestas pre", "respuestas post",
+        "lista del pre", "lista del post",
+        "lista de pre", "lista de post",
+        "quien hizo el pre", "quien hizo el post",
+        "quien ha hecho el pre", "quien ha hecho el post",
+        "quien rellen", "quienes rellen",
+        "cuantas respuestas pre", "cuantas respuestas post",
+        "cuantos pre", "cuantos post",
+    )
+    if not any(t in p for t in triggers_combinados):
+        return None
+
+    # Extraer fecha (mismo parser que carga_ultima)
+    import re as _re
+    import datetime as _dt
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        hoy = _dt.datetime.now(tz=_ZI("Europe/Madrid")).date()
+    except Exception:
+        hoy = _dt.date.today()
+    if "anteayer" in p:
+        return (hoy - _dt.timedelta(days=2)).isoformat()
+    if "ayer" in p:
+        return (hoy - _dt.timedelta(days=1)).isoformat()
+    if "hoy" in p:
+        return hoy.isoformat()
+    m = _re.search(r"\b(20\d{2})-(\d{2})-(\d{2})\b", p)
+    if m:
+        return m.group(0)
+    m = _re.search(r"\b(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?\b", p)
+    if m:
+        d, mo, y = m.groups()
+        if not y: y = str(hoy.year)
+        elif len(y) == 2: y = "20" + y
+        try: return _dt.date(int(y), int(mo), int(d)).isoformat()
+        except ValueError: pass
+    MESES = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+             "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,
+             "noviembre":11,"diciembre":12}
+    pat = _re.compile(r"\b(\d{1,2})\s+(?:de\s+)?(" + "|".join(MESES.keys()) + r")(?:\s+(?:de\s+)?(\d{4}))?\b")
+    m = pat.search(p)
+    if m:
+        d, mes_n, y = m.groups()
+        if not y: y = str(hoy.year)
+        try: return _dt.date(int(y), int(MESES[mes_n]), int(d)).isoformat()
+        except ValueError: pass
+    # Sin fecha explícita → devolver "" (= última sesión, sin args)
+    return ""
+
+
 def _detectar_intent_goles_jugador(prompt: str):
     """'goles de Pirata' / 'cuántos goles ha metido Raya' / 'Javi goles liga'.
 
@@ -2831,6 +2865,22 @@ def _run_carga_ultima(fecha: str = "") -> str:
     return (f"⚠️ Error al consultar carga: {res.salida}" if not res.ok else res.salida)
 
 
+def _run_prepost(fecha: str = "") -> str:
+    """Ejecuta src/prepost_estado.py. Devuelve la salida lista para Telegram.
+    `fecha` vacío = última sesión (sin args)."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [fecha] if fecha else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "prepost_estado.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar PRE/POST: {res.salida}" if not res.ok else res.salida)
+
+
 def _run_goles_jugador(nombre: str, competicion: str = "TODAS") -> str:
     """Ejecuta src/goles_jugador.py. Devuelve la salida lista para Telegram."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -2915,6 +2965,18 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         # Alfred = admin: nombres reales (sin --por-dorsal)
         salida = await asyncio.to_thread(_run_lesiones_activas, False)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
+    # PRE/POST listado (intent muy frecuente en logs: 12 ocurrencias)
+    intent_pp = _detectar_intent_prepost(prompt)
+    if intent_pp is not None:
+        log.info("ATAJO intent=prepost fecha=%r (prompt='%s')",
+                 intent_pp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_prepost, intent_pp)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try: await update.message.reply_text(trozo, parse_mode="Markdown")
             except Exception: await update.message.reply_text(trozo)

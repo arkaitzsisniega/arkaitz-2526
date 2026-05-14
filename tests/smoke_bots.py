@@ -169,6 +169,9 @@ def test_scripts_curados_ejecutan():
         ("lesiones_activas.py", ["--por-dorsal"]),
         ("carga_ultima_sesion.py", []),
         ("carga_ultima_sesion.py", ["2026-05-09"]),
+        ("goles_jugador.py", ["PIRATA"]),
+        ("goles_jugador.py", ["JAVI", "LIGA"]),
+        ("apuntar_sesion.py", ["2099-12-31", "M", "TEC-TAC", "75", "--hora", "10:00", "--dry-run"]),
     ]
     rate_limit_hits = 0
     for i, (nombre, args) in enumerate(scripts):
@@ -193,6 +196,9 @@ def test_scripts_args_invalidos_no_crashean():
         ("ranking_temporada.py", ["xyz"]),         # categoría inválida
         ("ranking_temporada.py", ["goles", "XYZ_LIGA"]),  # competición inválida
         ("carga_ultima_sesion.py", ["1999-01-01"]),  # fecha sin datos
+        ("goles_jugador.py", ["NOEXISTE"]),        # jugador inexistente
+        ("apuntar_sesion.py", ["2099-12-31", "M", "TEC-TAC", "75",
+                                  "--hora", "abc", "--dry-run"]),  # hora inválida
     ]
     for nombre, args in casos:
         path = ROOT / "src" / nombre
@@ -223,10 +229,14 @@ tests = [
     ('goles de Pirata',          'goles_jugador'),
     ('cuantos goles ha metido Raya',  'goles_jugador'),
     ('Javi goles en liga',       'goles_jugador'),
+    ('dame la lista del pre y post del 29 de abril',  'prepost'),
+    ('quien ha hecho el pre hoy',  'prepost'),
+    ('cuantas respuestas post hubo ayer',  'prepost'),
 ]
 results = []
 for prompt, expected in tests:
     if mod._detectar_intent_lesiones(prompt): m = 'lesiones'
+    elif mod._detectar_intent_prepost(prompt) is not None: m = 'prepost'
     elif mod._detectar_intent_goles_jugador(prompt) is not None: m = 'goles_jugador'
     elif mod._detectar_intent_ranking(prompt) is not None: m = 'ranking'
     elif mod._detectar_intent_carga_ultima(prompt) is not None: m = 'carga'
@@ -268,6 +278,60 @@ def test_system_prompt_no_fstring_roto():
         assert not invalid, f"{ruta.name}: f-string con placeholders desconocidos: {invalid[:5]}"
 
 
+def test_comandos_clave_registrados():
+    """Verifica que los comandos críticos están registrados en el bot.py
+    de Alfred (handlers + BotCommands + intent dispatcher)."""
+    import ast
+    src = BOT_DEV.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    # 1. Funciones cmd_X presentes
+    funcs = {n.name for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    must_have_funcs = [
+        "cmd_status",          # health check on-demand
+        "cmd_consolidar",      # async pattern aplicado hoy
+        "_consolidar_worker",  # worker async de /consolidar
+        "_run_goles_jugador",  # atajo goles_jugador
+        "_detectar_intent_goles_jugador",
+        "_enviar_resumen_post_apunte",  # gastos resumen post-apunte (no aquí pero seguro)
+    ]
+    faltan_funcs = [f for f in must_have_funcs
+                     if f not in funcs and f != "_enviar_resumen_post_apunte"]
+    assert not faltan_funcs, f"Funciones faltantes en bot.py: {faltan_funcs}"
+
+    # 2. Handlers registrados (búsqueda textual — más robusta que AST aquí)
+    must_have_handlers = [
+        'CommandHandler("status"',
+        'CommandHandler("consolidar"',
+        'CommandHandler("ejercicios_voz"',
+    ]
+    for h in must_have_handlers:
+        assert h in src, f"Handler no registrado en bot.py: {h}"
+
+    # 3. BotCommands visible en menú "/"
+    assert 'BotCommand("status"' in src, "Comando /status no aparece en BOT_COMMANDS_ALFRED"
+
+
+def test_consolidar_es_async_background():
+    """cmd_consolidar debe responder inmediatamente y delegar el trabajo
+    pesado a un worker (asyncio.create_task). Si revierte al patrón viejo
+    síncrono, queremos cazarlo."""
+    import re
+    src = BOT_DEV.read_text(encoding="utf-8")
+    # Encontrar la función cmd_consolidar
+    m = re.search(r"async def cmd_consolidar\(.+?\):(.+?)(?=\nasync def |\ndef )",
+                   src, re.DOTALL)
+    assert m is not None, "No encuentro cmd_consolidar"
+    cuerpo = m.group(1)
+    # Debe lanzar la tarea en background (no esperarla)
+    assert "asyncio.create_task" in cuerpo, \
+        "cmd_consolidar no usa asyncio.create_task — perdimos el patrón async"
+    # No debe hacer await del subprocess del consolidar_forms directamente
+    # (ese debería estar dentro del worker)
+    assert "await _run_script(PROJECT_DIR / \"src\" / \"consolidar_forms.py\"" not in cuerpo, \
+        "cmd_consolidar llama subprocess directamente — debería estar en el worker"
+
+
 # ─── Runner ────────────────────────────────────────────────────────────────────
 TESTS = [
     ("Sintaxis bot.py (Alfred)",        test_sintaxis_bot_dev),
@@ -280,6 +344,8 @@ TESTS = [
     ("Scripts curados manejan args inválidos",     test_scripts_args_invalidos_no_crashean),
     ("Intent detectors matchean correctamente",    test_intent_detectors),
     ("SYSTEM_PROMPT sin f-string roto",            test_system_prompt_no_fstring_roto),
+    ("Comandos clave registrados (status, consolidar...)", test_comandos_clave_registrados),
+    ("cmd_consolidar mantiene patrón async background", test_consolidar_es_async_background),
 ]
 
 

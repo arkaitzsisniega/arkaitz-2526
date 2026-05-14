@@ -1875,6 +1875,63 @@ def _detectar_intent_ranking(prompt: str) -> Optional[Tuple[str, str]]:
     return (cat_found, comp)
 
 
+def _detectar_intent_prepost(prompt: str):
+    """'lista de pre y post de [fecha]'. Reutilizable en bot_datos por si
+    los fisios/CT preguntan por quién ha rellenado el formulario."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    triggers_combinados = (
+        "pre y post", "pre/post", "pre-post", "post y pre",
+        "respuestas pre", "respuestas post",
+        "lista del pre", "lista del post",
+        "lista de pre", "lista de post",
+        "quien hizo el pre", "quien hizo el post",
+        "quien ha hecho el pre", "quien ha hecho el post",
+        "quien rellen", "quienes rellen",
+        "cuantas respuestas pre", "cuantas respuestas post",
+        "cuantos pre", "cuantos post",
+    )
+    if not any(t in p for t in triggers_combinados):
+        return None
+    import re as _re
+    import datetime as _dt
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        hoy = _dt.datetime.now(tz=_ZI("Europe/Madrid")).date()
+    except Exception:
+        hoy = _dt.date.today()
+    if "anteayer" in p:
+        return (hoy - _dt.timedelta(days=2)).isoformat()
+    if "ayer" in p:
+        return (hoy - _dt.timedelta(days=1)).isoformat()
+    if "hoy" in p:
+        return hoy.isoformat()
+    m = _re.search(r"\b(20\d{2})-(\d{2})-(\d{2})\b", p)
+    if m:
+        return m.group(0)
+    m = _re.search(r"\b(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?\b", p)
+    if m:
+        d, mo, y = m.groups()
+        if not y: y = str(hoy.year)
+        elif len(y) == 2: y = "20" + y
+        try: return _dt.date(int(y), int(mo), int(d)).isoformat()
+        except ValueError: pass
+    MESES = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+             "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,
+             "noviembre":11,"diciembre":12}
+    pat = _re.compile(r"\b(\d{1,2})\s+(?:de\s+)?(" + "|".join(MESES.keys()) + r")(?:\s+(?:de\s+)?(\d{4}))?\b")
+    m = pat.search(p)
+    if m:
+        d, mes_n, y = m.groups()
+        if not y: y = str(hoy.year)
+        try: return _dt.date(int(y), int(MESES[mes_n]), int(d)).isoformat()
+        except ValueError: pass
+    return ""
+
+
 def _detectar_intent_goles_jugador(prompt: str):
     """'goles de Pirata', 'cuántos goles Raya', 'Javi goles liga'.
 
@@ -1967,6 +2024,21 @@ def _run_lesiones_activas(por_dorsal: bool = True) -> str:
     return res.salida
 
 
+def _run_prepost(fecha: str = "") -> str:
+    """Ejecuta src/prepost_estado.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [fecha] if fecha else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "prepost_estado.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar PRE/POST: {res.salida}" if not res.ok else res.salida)
+
+
 def _run_goles_jugador(nombre: str, competicion: str = "TODAS") -> str:
     """Ejecuta src/goles_jugador.py — goles de UN jugador."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -2054,6 +2126,21 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
                  chat_id, prompt[:80])
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         salida = await asyncio.to_thread(_run_lesiones_activas, True)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
+
+    # ── ATAJO sin LLM: PRE/POST listado (intent muy frecuente en logs) ──
+    # "lista de pre y post del 29 de abril", "cuantas respuestas pre hoy".
+    intent_pp = _detectar_intent_prepost(prompt)
+    if intent_pp is not None:
+        log.info("[%s] ATAJO intent=prepost fecha=%r (prompt='%s')",
+                 chat_id, intent_pp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_prepost, intent_pp)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try:
                 await update.message.reply_text(trozo, parse_mode="Markdown")
