@@ -1728,6 +1728,100 @@ def _detectar_intent_carga_ultima(prompt: str) -> Optional[str]:
     return ""
 
 
+def _detectar_intent_ranking(prompt: str) -> Optional[Tuple[str, str]]:
+    """Detecta preguntas tipo:
+      - 'lista de asistencias del equipo en liga'
+      - 'ranking goleadores temporada'
+      - 'quién mete más disparos a puerta'
+      - 'top robos copa del rey'
+
+    Devuelve (categoria, competicion) o None.
+
+    Estos rankings agregados a veces hacen saltar el safety filter de
+    Gemini (finish_reason=10) con prompts que mezclan 'asistencias del
+    equipo' + nombres propios. Atajo SIN LLM para evitarlo."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+
+    # Categorías y sus triggers
+    CAT_TRIGGERS = {
+        "asistencias": ("asistencias", "asistencia", "asistente", "asistentes"),
+        "goles":       ("goles", "goleadores", "goleador", "maximo goleador",
+                          "ranking de goles", "quien mete", "quien marca"),
+        "disparos":    ("disparos", "tiros totales", "ranking disparos"),
+        "puerta":      ("a puerta", "disparos a puerta", "tiros a puerta"),
+        "faltas":      ("faltas",),
+        "amarillas":   ("amarillas", "tarjetas amarillas"),
+        "rojas":       ("rojas", "tarjetas rojas", "expulsiones"),
+        "perdidas":    ("perdidas", "pérdidas"),
+        "robos":       ("robos", "robo", "recuperaciones"),
+        "cortes":      ("cortes", "intercepciones"),
+        "bdg":         ("balones ganados", "bdg"),
+        "bdp":         ("balones perdidos", "bdp"),
+        "minutos":     ("minutos jugados", "ranking minutos"),
+        "plus_minus":  ("plus minus", "plus/minus", "+/-",
+                          "diferencia goles en pista"),
+    }
+    # Triggers genéricos que indican que es una pregunta de ranking
+    triggers_ranking = (
+        "lista de", "ranking", "top ", "quien ", "quién ",
+        "mas ", "más ", "mayor", "mejor", "del equipo",
+        "de la temporada", "en liga", "en la liga", "en copa",
+        "por jugador", "por jugadores",
+    )
+    if not any(t in p for t in triggers_ranking):
+        return None
+
+    # Cuál categoría
+    cat_found = None
+    for cat, kws in CAT_TRIGGERS.items():
+        if any(kw in p for kw in kws):
+            cat_found = cat
+            break
+    if cat_found is None:
+        return None
+
+    # Competición
+    comp = "TODAS"
+    for kw, val in (
+        ("liga", "LIGA"),
+        ("copa del rey", "COPA_REY"), ("copa rey", "COPA_REY"),
+        ("copa de espana", "COPA_ESPANA"), ("copa espana", "COPA_ESPANA"),
+        ("copa del mundo", "COPA_MUNDO"), ("mundial", "COPA_MUNDO"),
+        ("amistoso", "AMISTOSO"),
+        ("playoff", "PLAYOFF"), ("play off", "PLAYOFF"),
+        ("supercopa", "SUPERCOPA"),
+        ("temporada", "TODAS"),
+    ):
+        if kw in p:
+            comp = val
+            break
+
+    return (cat_found, comp)
+
+
+def _run_ranking_temporada(categoria: str, competicion: str = "TODAS") -> str:
+    """Ejecuta src/ranking_temporada.py vía script_runner curado."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [categoria]
+    if competicion and competicion != "TODAS":
+        args.append(competicion)
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "ranking_temporada.py"),
+        args, timeout=60,
+    )
+    if not res.ok:
+        return f"⚠️ Error al consultar ranking: {res.salida}"
+    return res.salida
+
+
 def _run_carga_ultima(fecha: str = "") -> str:
     """Ejecuta src/carga_ultima_sesion.py vía script_runner curado."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -1770,6 +1864,24 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
+
+    # ── ATAJO sin LLM: rankings de la temporada ──
+    # "lista de asistencias en liga", "ranking goleadores", "top robos copa".
+    # Ejecuta src/ranking_temporada.py SIN PASAR POR Gemini (evita falsos
+    # positivos del safety filter con frases tipo "asistencias del equipo").
+    intent_r = _detectar_intent_ranking(prompt)
+    if intent_r is not None:
+        cat, comp = intent_r
+        log.info("[%s] ATAJO intent=ranking categoria=%s comp=%s (prompt='%s')",
+                 chat_id, cat, comp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_ranking_temporada, cat, comp)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
 
     # ── ATAJO sin LLM: carga de la última sesión (jugador por jugador) ──
     # Frases tipo "carga jugador por jugador de la última sesión",
