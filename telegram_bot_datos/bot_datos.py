@@ -1639,6 +1639,77 @@ def _detectar_intent_estado(prompt: str) -> Optional[Tuple[str, int]]:
     return (canonico, n)
 
 
+def _detectar_intent_carga_ultima(prompt: str) -> Optional[str]:
+    """Detecta si el prompt es del tipo 'carga jugador por jugador de la
+    última sesión' / 'borg del último entreno' / 'carga de hoy' / 'qué tal
+    la última sesión'. Devuelve fecha YYYY-MM-DD si especifica una, ""
+    si es la última, None si no matchea.
+
+    Cuando matchea, el bot ejecuta directamente `carga_ultima_sesion.py`
+    SIN PASAR POR GEMINI (más rápido y evita falsos positivos de los
+    safety filters del LLM, finish_reason=10).
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+
+    # Triggers de "última sesión / hoy / último entreno"
+    sesion_triggers = (
+        "ultima sesion", "ultimo entreno", "ultimo entrenamiento",
+        "del entreno de hoy", "sesion de hoy", "entreno de hoy",
+        "que tal el entreno", "que tal la sesion",
+        "que tal el ultimo entreno", "que tal la ultima sesion",
+        "como ha ido el entreno", "como ha ido la sesion",
+    )
+    carga_triggers = (
+        "carga jugador", "carga por jugador", "carga del equipo",
+        "carga de la sesion", "carga del entreno", "borg de hoy",
+        "borg de la sesion", "borg del entreno", "borg jugador",
+        "como fue la carga", "que carga", "que borg",
+        "borg del ", "carga del ",  # "borg del 13/05", "carga del lunes"
+    )
+
+    matches_carga = any(t in p for t in carga_triggers)
+    matches_sesion = any(t in p for t in sesion_triggers)
+    if not (matches_carga or matches_sesion):
+        return None
+
+    # Si trae fecha YYYY-MM-DD o DD/MM, extraerla
+    import re as _re
+    m = _re.search(r"\b(20\d{2})-(\d{2})-(\d{2})\b", p)
+    if m:
+        return m.group(0)
+    m = _re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", p)
+    if m:
+        d, mo, y = m.groups()
+        if not y:
+            from datetime import date as _date
+            y = str(_date.today().year)
+        elif len(y) == 2:
+            y = "20" + y
+        return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+    return ""  # última sesión
+
+
+def _run_carga_ultima(fecha: str = "") -> str:
+    """Ejecuta src/carga_ultima_sesion.py vía script_runner curado."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [fecha] if fecha else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "carga_ultima_sesion.py"),
+        args, timeout=60,
+    )
+    if not res.ok:
+        return f"⚠️ Error al consultar carga última sesión: {res.salida}"
+    return res.salida
+
+
 def _run_estado_jugador(canonico: str, n: int) -> str:
     """Ejecuta src/estado_jugador.py vía el helper común script_runner."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -1664,6 +1735,23 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
+
+    # ── ATAJO sin LLM: carga de la última sesión (jugador por jugador) ──
+    # Frases tipo "carga jugador por jugador de la última sesión",
+    # "borg del último entreno", "qué tal la sesión de hoy".
+    # Ejecuta src/carga_ultima_sesion.py directo, sin Gemini.
+    intent_cu = _detectar_intent_carga_ultima(prompt)
+    if intent_cu is not None:
+        log.info("[%s] ATAJO intent=carga_ultima_sesion fecha=%r (prompt='%s')",
+                 chat_id, intent_cu, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_carga_ultima, intent_cu)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
 
     # ── ATAJO sin LLM: estado de jugador ──
     # Si el prompt es claramente "cómo está X / carga últimas N de X / qué tal X",
