@@ -162,6 +162,22 @@ La plantilla `gastos_fijos_PLANTILLA.json` SÍ se sube al repo como referencia.
 
 ---
 
+## 🧪 Smoke tests
+
+Para verificar que el bot no se ha roto tras un cambio de código:
+```bash
+/usr/bin/python3 tests/smoke_gastos_bot.py
+```
+
+Comprueba sintaxis, import end-to-end, gastos_fijos (incluido filtro por
+`meses`), plantilla válida, funciones nuevas presentes, gastos_fijos.json
+del usuario (si existe), y disponibilidad de `ZoneInfo('Europe/Madrid')`.
+10/10 verdes = listo para pushear.
+
+Es independiente del smoke de los bots del Inter (`tests/smoke_bots.py`).
+
+---
+
 ## 🗂 Estructura
 
 ```
