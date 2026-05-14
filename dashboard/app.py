@@ -1053,6 +1053,23 @@ def cargar_fisios(hoja: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+# Cache corto (60s) específico para lecturas en bucle del editor de partido.
+# Distinto del cache global de 1800s — aquí queremos que reflejar cambios sea
+# rápido pero sin re-leer en CADA keystroke del editor.
+@st.cache_data(ttl=60, show_spinner=False)
+def _cargar_hoja_editor(hoja: str) -> pd.DataFrame:
+    """Lee una hoja del Sheet principal con cache de 60s. La pestaña
+    'Editar partido' la usa para precargar EST_PLANTILLAS, EST_FALTAS,
+    EST_PENALTIS_10M, EST_DISPAROS_ZONAS sin que cada keystroke
+    dispare un fetch a Google."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet(hoja)
+        return pd.DataFrame(ws.get_all_records())
+    except Exception:
+        return pd.DataFrame()
+
+
 def _to_date(x):
     """Convierte serial de Google Sheets o string a Timestamp con validación de rango."""
     if x is None or x == "":
@@ -8323,13 +8340,9 @@ with tab_editar:
             })
 
         def _df_faltas_desde_sheet(partido_id):
-            """Carga las faltas del partido_id desde EST_FALTAS si existe."""
-            try:
-                sh = _conexion_sheet()
-                ws = sh.worksheet("EST_FALTAS")
-                df_all = pd.DataFrame(ws.get_all_records())
-            except Exception:
-                return _df_faltas_inicial()
+            """Carga las faltas del partido_id desde EST_FALTAS si existe.
+            Usa cache de 60s para no re-leer en cada keystroke del editor."""
+            df_all = _cargar_hoja_editor("EST_FALTAS")
             if df_all.empty or "partido_id" not in df_all.columns:
                 return _df_faltas_inicial()
             df = df_all[df_all["partido_id"].astype(str) == str(partido_id)].copy()
@@ -8576,11 +8589,9 @@ with tab_editar:
             return out
 
         def _df_penaltis_desde_sheet(partido_id):
-            try:
-                sh = _conexion_sheet()
-                ws = sh.worksheet("EST_PENALTIS_10M")
-                df_all = pd.DataFrame(ws.get_all_records())
-            except Exception:
+            """Carga penaltis del partido. Cache 60s para velocidad del editor."""
+            df_all = _cargar_hoja_editor("EST_PENALTIS_10M")
+            if df_all.empty:
                 return _df_penaltis_inicial()
             if df_all.empty or "partido_id" not in df_all.columns:
                 return _df_penaltis_inicial()
@@ -8888,12 +8899,8 @@ with tab_editar:
             usa. Si no (datos viejos), inicializa _1T con el total y _2T
             con 0 — así no se pierde el dato antiguo al editar."""
             assert parte in ("1T", "2T"), f"parte debe ser 1T o 2T (got {parte})"
-            try:
-                sh = _conexion_sheet()
-                ws = sh.worksheet("EST_DISPAROS_ZONAS")
-                df_all = pd.DataFrame(ws.get_all_records())
-            except Exception:
-                df_all = pd.DataFrame()
+            # Cache 60s: evita re-leer EST_DISPAROS_ZONAS en cada keystroke
+            df_all = _cargar_hoja_editor("EST_DISPAROS_ZONAS")
             fila_pre = _localizar_fila_zonas(df_all, partido_id, rival, fecha)
             tiene_partes = (
                 not fila_pre.empty and any(
@@ -9465,20 +9472,17 @@ with tab_editar:
                     st.form_submit_button("⏭ Aplicar cambios de cabecera",
                                            use_container_width=False)
 
-                # Plantilla precargada (de EST_PLANTILLAS si existe)
+                # Plantilla precargada (de EST_PLANTILLAS si existe).
+                # Cache 60s para que cambiar el selector de partido no
+                # provoque re-fetch a Google en cada selección.
                 st.markdown("---")
                 convocados_def = []
-                try:
-                    sh_pl = _conexion_sheet()
-                    ws_pl = sh_pl.worksheet("EST_PLANTILLAS")
-                    df_pl = pd.DataFrame(ws_pl.get_all_records())
-                    if not df_pl.empty:
-                        convocados_def = (
-                            df_pl[df_pl["partido_id"].astype(str) == pid_sel]
-                            ["jugador"].astype(str).str.upper().tolist()
-                        )
-                except Exception:
-                    pass
+                df_pl = _cargar_hoja_editor("EST_PLANTILLAS")
+                if not df_pl.empty and "partido_id" in df_pl.columns:
+                    convocados_def = (
+                        df_pl[df_pl["partido_id"].astype(str) == pid_sel]
+                        ["jugador"].astype(str).str.upper().tolist()
+                    )
                 # Si no hay plantilla guardada, usar los jugadores con minutos
                 # del partido (convocados implícitamente)
                 if not convocados_def and not est_partidos.empty:
