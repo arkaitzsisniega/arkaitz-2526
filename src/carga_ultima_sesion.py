@@ -99,12 +99,27 @@ def main():
     ses["FECHA_ISO"] = ses["FECHA"].apply(_iso)
     ses = ses[ses["FECHA_ISO"] != ""]
 
+    # Helper: encuentra la última fecha de SESIONES con BORG numérico
+    # registrado (al menos 1 jugador). Útil para sugerir como fallback.
+    def _ultima_fecha_con_datos():
+        if borg.empty or "FECHA" not in borg.columns:
+            return None
+        b = borg.copy()
+        b["FECHA_ISO"] = b["FECHA"].apply(_iso)
+        b["BORG_NUM"] = pd.to_numeric(b["BORG"], errors="coerce")
+        con_datos = b[b["BORG_NUM"].notna()]["FECHA_ISO"].dropna()
+        return con_datos.max() if not con_datos.empty else None
+
     # ── Determinar la sesión objetivo ──
     if fecha_arg:
         fecha_obj = fecha_arg
         ses_f = ses[ses["FECHA_ISO"] == fecha_obj]
         if ses_f.empty:
-            print(f"⚠️ No hay sesión registrada para {fecha_obj}.")
+            ult = _ultima_fecha_con_datos()
+            print(f"⚠️ No hay sesión registrada para *{fecha_obj}*.")
+            if ult:
+                print(f"\nÚltima sesión con datos completos: *{ult}*.")
+                print(f"Si quieres esos datos: _'carga jugador por jugador del {ult}'_")
             return
     else:
         fecha_obj = ses["FECHA_ISO"].max()
@@ -181,22 +196,62 @@ def main():
         print(f"_Total: {len(vc_f)} jugadores · Borg medio: {media_b:.1f} · "
               f"Carga media: {int(round(media_c))}_")
     else:
-        # Fallback: leer BORG crudo (sin minutos reales)
-        if not borg.empty and "FECHA" in borg.columns:
+        # _VISTA_CARGA NO tiene datos para esta fecha. Tres posibles causas:
+        # 1) BORG sí tiene datos pero _VISTA_CARGA no se ha recalculado (falta /consolidar).
+        # 2) BORG está vacío para esa fecha → los jugadores no han rellenado el Form.
+        # 3) Solo hay estados (L/A/D/N/S/NC/NJ), nadie con Borg numérico.
+        if "FECHA_ISO" not in borg.columns:
             borg["FECHA_ISO"] = borg["FECHA"].apply(_iso)
-            b_f = borg[(borg["FECHA_ISO"] == fecha_obj) &
-                       (borg["TURNO"].astype(str).str.upper() == turno)].copy()
-            b_f["BORG_NUM"] = pd.to_numeric(b_f["BORG"], errors="coerce")
-            entrenaron = b_f[b_f["BORG_NUM"].notna()].copy()
-            if not entrenaron.empty:
-                print("_⚠️ Sin _VISTA_CARGA actualizada todavía. Mostrando Borg crudo:_")
+        b_f = borg[(borg["FECHA_ISO"] == fecha_obj) &
+                   (borg["TURNO"].astype(str).str.upper() == turno)].copy()
+        b_f["BORG_NUM"] = pd.to_numeric(b_f["BORG"], errors="coerce")
+        entrenaron = b_f[b_f["BORG_NUM"].notna()].copy()
+
+        if not entrenaron.empty:
+            # Caso 1: BORG sí, _VISTA_CARGA no → mostrar Borg crudo
+            print("*Carga por jugador (Borg crudo, sin minutos reales aún):*")
+            entrenaron = entrenaron.sort_values("BORG_NUM", ascending=False)
+            for _, r in entrenaron.iterrows():
+                jug = str(r["JUGADOR"]).strip()
+                borg_v = int(r["BORG_NUM"])
+                print(f"  · *{jug:<10}*  Borg {borg_v}")
+            print()
+            print(f"_Total: {len(entrenaron)} jugadores con Borg numérico. "
+                  f"⚠ La carga real (Borg × min reales) aún no está calculada. "
+                  f"Lanza /consolidar para actualizar las vistas._")
+        else:
+            # Caso 2 o 3: BORG vacío o solo estados.
+            n_estados = len(b_f[b_f["BORG_NUM"].isna() &
+                                 (b_f["BORG"].astype(str).str.strip() != "")])
+            if n_estados == 0:
+                # Caso 2: NADIE ha apuntado nada para esta fecha
+                ult = _ultima_fecha_con_datos()
+                print(f"❌ *No hay nadie con Borg apuntado para {fecha_obj} ({turno}).*")
                 print()
-                entrenaron = entrenaron.sort_values("BORG_NUM", ascending=False)
-                for _, r in entrenaron.iterrows():
-                    jug = str(r["JUGADOR"]).strip()
-                    borg_v = int(r["BORG_NUM"])
-                    print(f"  · *{jug:<10}*  Borg {borg_v}")
+                print("Posibles causas:")
+                print("  · El cuerpo técnico aún no ha rellenado los Google Forms PRE/POST")
+                print("    de esa sesión. Recuérdaselo al equipo.")
+                print("  · O Arkaitz aún no ha consolidado los datos: `/consolidar` en el bot dev.")
+                if ult:
+                    print()
+                    print(f"📅 Última sesión con datos completos: *{ult}*.")
+                    print(f"   Para verla: _'carga jugador por jugador del {ult}'_")
+                # Salir sin imprimir más para evitar líneas vacías raras
+                return
+            else:
+                # Caso 3: solo estados (L/A/etc.), nadie con Borg numérico.
+                # Avisamos claramente para que no parezca un fallo.
+                ult = _ultima_fecha_con_datos()
+                print(f"⚠️ *Para {fecha_obj} solo hay estados apuntados* "
+                      f"(lesiones/ausencias/etc.). Nadie ha registrado Borg "
+                      f"numérico del entreno todavía.")
                 print()
+                print("Los demás jugadores aún no han rellenado el Form de "
+                      "POST (Borg) o no se ha consolidado al Sheet.")
+                if ult and ult != fecha_obj:
+                    print()
+                    print(f"📅 Última sesión con datos completos: *{ult}*.")
+                # NO returnamos para que se vea la sección 'Estados no entrenables' abajo
                 print("_Para ver carga real con minutos cruzados, lanza /consolidar._")
 
     # ── Métricas Oliver (si las hay) ──
