@@ -938,7 +938,7 @@ _conv_history: Dict[int, List[Dict[str, Any]]] = {}
 # operación de escritura. Cualquier patrón de escritura se rechaza ANTES
 # de ejecutar.
 _PATRONES_BLOQUEADOS_PYTHON = [
-    # Métodos gspread que modifican el Sheet
+    # ─── Métodos gspread que modifican el Sheet ────────────────────────────
     (r"\.update_cell\s*\(",            "update_cell"),
     (r"\.update_acell\s*\(",           "update_acell"),
     (r"\.update_cells\s*\(",           "update_cells"),
@@ -962,28 +962,100 @@ _PATRONES_BLOQUEADOS_PYTHON = [
     (r"\.unmerge_cells\s*\(",          "unmerge_cells"),
     (r"\.add_protected_range",         "add_protected_range"),
     (r"\.delete_protected_range",      "delete_protected_range"),
-    # Escritura de archivos
-    (r"open\s*\([^)]*['\"][wax]\+?b?['\"]",         "open() en modo escritura"),
+    # ⚠ API moderna gspread 5+ — método principal de escritura. Detectamos
+    # cuando se usa sobre algo que probablemente sea un worksheet
+    # (variables tipicas: ws/worksheet/sheet/sh/hoja/wks) o sobre el
+    # resultado directo de .worksheet(...). NO bloquea df.update() ni
+    # dict.update() porque esos son legítimos.
+    (r"\b(?:ws|worksheet|sheet|sh|hoja|wks|hoja\d*)\.update\s*\(",
+                                       "worksheet.update() (escritura)"),
+    (r"\.worksheet\s*\([^)]*\)\s*\.update\s*\(",
+                                       ".worksheet(...).update() (escritura)"),
+    # Limpiar / redimensionar / formatear hoja
+    (r"\b(?:ws|worksheet|sheet|sh|hoja|wks)\.clear\s*\(",
+                                       "worksheet.clear()"),
+    (r"\.worksheet\s*\([^)]*\)\s*\.clear\s*\(",
+                                       ".worksheet(...).clear()"),
+    (r"\b(?:ws|worksheet|sheet|sh|hoja|wks)\.resize\s*\(",
+                                       "worksheet.resize()"),
+    (r"\b(?:ws|worksheet|sheet|sh|hoja|wks)\.format\s*\(",
+                                       "worksheet.format()"),
+    # Compartir el Sheet con terceros (regala permisos)
+    (r"\.share\s*\(",                  "share() (regala acceso)"),
+    (r"\.add_permission\s*\(",         "add_permission()"),
+    (r"\.remove_permission\s*\(",      "remove_permission()"),
+    # Cambio de URLs/IDs/visibilidad
+    (r"\.update_index\s*\(",           "update_index"),
+    (r"\.update_title\s*\(",           "update_title"),
+    (r"\.update_tab_color\s*\(",       "update_tab_color"),
+
+    # ─── Escritura de archivos a disco ──────────────────────────────────────
+    (r"open\s*\([^)]*['\"][wax]\+?b?['\"]",            "open() en modo escritura"),
     (r"open\s*\([^)]*mode\s*=\s*['\"][wax]\+?b?['\"]",  "open(mode='w'/'a'/'x')"),
     (r"\.write_text\s*\(",             "Path.write_text"),
     (r"\.write_bytes\s*\(",            "Path.write_bytes"),
-    # Borrado / movimiento de archivos
+    # Pandas → disco
+    (r"\.to_csv\s*\(",                 "df.to_csv (escribe disco)"),
+    (r"\.to_excel\s*\(",               "df.to_excel"),
+    (r"\.to_json\s*\(\s*[^)]+\)",      "df.to_json(path)"),
+    (r"\.to_pickle\s*\(",              "df.to_pickle"),
+    (r"\.to_parquet\s*\(",             "df.to_parquet"),
+    (r"\.to_hdf\s*\(",                 "df.to_hdf"),
+    (r"\.to_feather\s*\(",             "df.to_feather"),
+    (r"\.to_html\s*\(",                "df.to_html"),
+    (r"\.to_sql\s*\(",                 "df.to_sql"),
+    (r"\.to_clipboard\s*\(",           "df.to_clipboard"),
+    # pickle / json / yaml dump a disco
+    (r"\bpickle\.dump\s*\(",           "pickle.dump"),
+    (r"\bpickle\.dumps\s*\(",          "pickle.dumps"),
+    (r"\bjson\.dump\s*\(",             "json.dump(f)"),
+    (r"\byaml\.dump\s*\(",             "yaml.dump"),
+    (r"\byaml\.safe_dump\s*\(",        "yaml.safe_dump"),
+
+    # ─── Borrado / movimiento de archivos ───────────────────────────────────
     (r"os\.remove\s*\(",               "os.remove"),
     (r"os\.unlink\s*\(",               "os.unlink"),
     (r"os\.rmdir\s*\(",                "os.rmdir"),
     (r"os\.makedirs\s*\(",             "os.makedirs"),
+    (r"os\.mkdir\s*\(",                "os.mkdir"),
     (r"os\.rename\s*\(",               "os.rename"),
+    (r"os\.replace\s*\(",              "os.replace"),
     (r"shutil\.rmtree\s*\(",           "shutil.rmtree"),
     (r"shutil\.move\s*\(",             "shutil.move"),
     (r"shutil\.copy\w*\s*\(",          "shutil.copy*"),
-    # Subprocess / system (puede ejecutar cualquier cosa)
+    (r"\bPath\([^)]*\)\.unlink\s*\(",  "Path.unlink"),
+    (r"\bPath\([^)]*\)\.rmdir\s*\(",   "Path.rmdir"),
+
+    # ─── Subprocess / system (puede ejecutar cualquier cosa) ───────────────
     (r"os\.system\s*\(",               "os.system"),
     (r"subprocess\.\w+\s*\(",          "subprocess.*"),
     (r"\bPopen\s*\(",                  "Popen"),
-    # Eval / exec dinámico
+    (r"\bos\.popen\s*\(",              "os.popen"),
+    (r"\bos\.execv\w*\s*\(",           "os.exec*"),
+    (r"\bos\.spawn\w*\s*\(",           "os.spawn*"),
+
+    # ─── Red: peticiones que MODIFICAN remoto ───────────────────────────────
+    (r"\brequests\.post\s*\(",         "requests.post (HTTP POST)"),
+    (r"\brequests\.put\s*\(",          "requests.put"),
+    (r"\brequests\.delete\s*\(",       "requests.delete"),
+    (r"\brequests\.patch\s*\(",        "requests.patch"),
+    (r"\bhttpx\.(post|put|delete|patch)\s*\(", "httpx mutador"),
+    # urllib.request.urlopen con data= es POST por defecto
+    (r"urllib\.request\.urlopen\s*\([^)]*data\s*=",
+                                       "urllib.urlopen con data= (POST)"),
+
+    # ─── Sockets crudos (canal arbitrario) ──────────────────────────────────
+    (r"\bsocket\.socket\s*\(",         "socket.socket"),
+    (r"\bhttp\.client\.\w+\s*\(",      "http.client"),
+
+    # ─── Eval / exec / import dinámico sospechoso ──────────────────────────
     (r"\beval\s*\(",                   "eval()"),
     (r"\bexec\s*\(",                   "exec()"),
-    (r"__import__\s*\(\s*['\"]os['\"]", "__import__('os') sospechoso"),
+    (r"\bcompile\s*\(",                "compile() (puede ir a exec)"),
+    (r"__import__\s*\(\s*['\"]os['\"]",            "__import__('os') sospechoso"),
+    (r"__import__\s*\(\s*['\"]subprocess['\"]",    "__import__('subprocess') sospechoso"),
+    (r"__import__\s*\(\s*['\"]socket['\"]",        "__import__('socket') sospechoso"),
+    (r"importlib\.import_module\s*\(", "importlib.import_module"),
 ]
 
 _PATRONES_BLOQUEADOS_BASH = [
@@ -1803,6 +1875,50 @@ def _detectar_intent_ranking(prompt: str) -> Optional[Tuple[str, str]]:
     return (cat_found, comp)
 
 
+def _detectar_intent_lesiones(prompt: str) -> bool:
+    """Detecta preguntas tipo:
+      - "lesiones activas"
+      - "quién está lesionado"
+      - "bajas del equipo"
+      - "qué jugadores están lesionados"
+
+    Devuelve True si matchea. Ejecuta src/lesiones_activas.py sin LLM
+    (info médica + safety filter probabilístico → atajo determinista).
+    """
+    if not prompt:
+        return False
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    triggers = (
+        "lesiones activas", "lesiones activos", "lesion activa",
+        "quien esta lesionado", "quienes estan lesionados",
+        "que jugadores estan lesionados",
+        "bajas del equipo", "bajas actuales", "que bajas",
+        "jugadores lesionados", "lista de lesionados",
+        "lesionados actuales", "quien tiene lesion",
+    )
+    return any(t in p for t in triggers)
+
+
+def _run_lesiones_activas(por_dorsal: bool = True) -> str:
+    """Ejecuta src/lesiones_activas.py.
+    bot_datos siempre llama con por_dorsal=True (privacidad cuerpo técnico)."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = ["--por-dorsal"] if por_dorsal else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "lesiones_activas.py"),
+        args, timeout=60,
+    )
+    if not res.ok:
+        return f"⚠️ Error al consultar lesiones: {res.salida}"
+    return res.salida
+
+
 def _run_ranking_temporada(categoria: str, competicion: str = "TODAS") -> str:
     """Ejecuta src/ranking_temporada.py vía script_runner curado."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -1864,6 +1980,21 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     user_name = (update.effective_user.first_name if update.effective_user else None) or "usuario"
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
+
+    # ── ATAJO sin LLM: lesiones activas ──
+    # "quién está lesionado", "bajas del equipo", "lesiones activas".
+    # En bot_datos SIEMPRE responde con dorsales (privacidad médica).
+    if _detectar_intent_lesiones(prompt):
+        log.info("[%s] ATAJO intent=lesiones_activas (prompt='%s')",
+                 chat_id, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_lesiones_activas, True)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
 
     # ── ATAJO sin LLM: rankings de la temporada ──
     # "lista de asistencias en liga", "ranking goleadores", "top robos copa".

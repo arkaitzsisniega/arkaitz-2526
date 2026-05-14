@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePartido } from "@/lib/store";
 import { ROSTER, PORTEROS, CAMPO } from "@/lib/roster";
@@ -62,6 +62,38 @@ export default function NuevoPartido() {
   const [pista3, setPista3] = useState(campoConv[2]?.nombre || "");
   const [pista4, setPista4] = useState(campoConv[3]?.nombre || "");
 
+  // ⚠ Sincronizar selects con la lista de convocados: si un jugador se
+  // DESmarca después de haberlo puesto en pista, el select se queda con
+  // valor obsoleto. Limpiamos automáticamente. También rellenamos huecos
+  // con el siguiente disponible si quedan vacíos tras un cambio.
+  useEffect(() => {
+    const porterosNombres = porterosConv.map((j) => j.nombre);
+    const campoNombres = campoConv.map((j) => j.nombre);
+    if (portero && !porterosNombres.includes(portero)) {
+      setPortero(porterosNombres[0] || "");
+    } else if (!portero && porterosNombres[0]) {
+      setPortero(porterosNombres[0]);
+    }
+    const setters: Array<[string, (v: string) => void]> = [
+      [pista1, setPista1], [pista2, setPista2],
+      [pista3, setPista3], [pista4, setPista4],
+    ];
+    const ocupados = new Set(setters.map(([v]) => v).filter((v) => campoNombres.includes(v)));
+    for (const [v, setter] of setters) {
+      if (v && !campoNombres.includes(v)) {
+        // No es válido → buscar próximo libre
+        const libre = campoNombres.find((n) => !ocupados.has(n));
+        setter(libre || "");
+        if (libre) ocupados.add(libre);
+      } else if (!v) {
+        const libre = campoNombres.find((n) => !ocupados.has(n));
+        if (libre) { setter(libre); ocupados.add(libre); }
+      }
+    }
+    // deps: convocados (cambia → recalcula porterosConv/campoConv).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convocados]);
+
   const [empezando, setEmpezando] = useState(false);
 
   const empezar = async () => {
@@ -74,6 +106,18 @@ export default function NuevoPartido() {
     }
     const unicos = new Set([portero, pista1, pista2, pista3, pista4]);
     if (unicos.size < 5) { alert("Los 5 jugadores deben ser distintos"); return; }
+    // Verificar que los 5 EN PISTA están en convocados.
+    // Sin esto, /partido crashea al intentar acceder a tiempos[X] si X no
+    // está en convocados.
+    const fuera = [portero, pista1, pista2, pista3, pista4]
+      .filter((n) => !convocados.includes(n));
+    if (fuera.length) {
+      alert(
+        `Estos jugadores en pista NO están convocados:\n  · ${fuera.join("\n  · ")}\n\n` +
+        `Márcalos como convocados arriba o cambia el select por uno que sí esté.`
+      );
+      return;
+    }
 
     setEmpezando(true);
     try {

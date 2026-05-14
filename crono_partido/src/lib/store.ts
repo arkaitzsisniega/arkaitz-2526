@@ -309,11 +309,13 @@ export function usePartido() {
   // ────────────────── acciones ─────────────────────────────────────────
 
   async function iniciarPartido(config: ConfigPartido): Promise<void> {
-    // Construir el partido fuera del setPartido para poder persistirlo
-    // sincronamente a Dexie ANTES de que la siguiente pantalla (/partido)
-    // lo cargue. Sin esto, el debounce de 500ms del autosave puede no
-    // haber escrito todavía cuando /partido monta su propio usePartido
-    // y lee de la BD, viendo el estado viejo (estado="configurando").
+    // CRÍTICO: este flujo se llama desde /nuevo justo antes de router.push("/partido").
+    // /partido es otra ruta y monta SU PROPIO hook usePartido() que lee de Dexie.
+    // Si la escritura a Dexie no termina antes de que /partido cargue,
+    // /partido ve estado="configurando" y muestra "No hay partido en curso".
+    //
+    // Solución: persistencia SÍNCRONA primero, setState después.
+    // Si Dexie falla, no actualizamos React (consistencia).
     const ahora = Date.now();
     const pi = config.pista_inicial;
     const enPistaIni = [pi.portero, pi.pista1, pi.pista2, pi.pista3, pi.pista4];
@@ -332,10 +334,41 @@ export function usePartido() {
         segTurnoUltimo: null,
       };
     }
-    const acciones = { porJugador: {} as Record<string, ContadoresJugador> };
+    const acciones: { porJugador: Record<string, ContadoresJugador> } = {
+      porJugador: {},
+    };
     for (const j of config.convocados) {
       acciones.porJugador[j] = contadoresVacios();
     }
+
+    // Construir el partido SIN depender del state previo (es un partido NUEVO).
+    const nuevo: Partido = {
+      id: ID_PARTIDO,
+      estado: "en_curso",
+      config,
+      cronometro: {
+        parteActual: "1T",
+        segundosParte: 0,
+        ultimoStart: null,
+        segundosGuardadosPorParte: { "1T": 0, "2T": 0, PR1: 0, PR2: 0 } as Record<ParteId, number>,
+      },
+      enPista: enPistaIni,
+      tiempos,
+      marcador: { inter: 0, rival: 0 },
+      stats: {
+        faltas: { "1T": { inter: 0, rival: 0 }, "2T": { inter: 0, rival: 0 },
+                   PR1: { inter: 0, rival: 0 }, PR2: { inter: 0, rival: 0 } },
+        amarillas: { "1T": { inter: 0, rival: 0 }, "2T": { inter: 0, rival: 0 },
+                       PR1: { inter: 0, rival: 0 }, PR2: { inter: 0, rival: 0 } },
+        tiemposMuerto: { "1T": { inter: 0, rival: 0 }, "2T": { inter: 0, rival: 0 },
+                            PR1: { inter: 0, rival: 0 }, PR2: { inter: 0, rival: 0 } },
+      },
+      eventos: [],
+      acciones,
+      disparosRival: { puerta: 0, fuera: 0, palo: 0, bloqueado: 0 },
+      tanda: { activa: false, tiros: [], marcador: { inter: 0, rival: 0 } },
+      actualizado: ahora,
+    };
 
     // Cancelar timer pendiente de autosave por si tiene un valor obsoleto.
     if (saveTimer.current) {
@@ -343,29 +376,13 @@ export function usePartido() {
       saveTimer.current = null;
     }
 
-    // Construir el partido nuevo. Usamos el valor ACTUAL del state como base
-    // (vía setPartido callback) y obtenemos el resultado para persistir.
-    const nuevo: Partido = await new Promise((resolve) => {
-      setPartido((prev) => {
-        const n: Partido = {
-          ...prev,
-          estado: "en_curso",
-          config,
-          enPista: enPistaIni,
-          tiempos,
-          acciones,
-          actualizado: ahora,
-        };
-        resolve(n);
-        return n;
-      });
-    });
-
-    // Persistencia SÍNCRONA a Dexie ANTES de retornar. Esto garantiza que
-    // la próxima pantalla (/partido) puede leer el estado correcto al
-    // hacer router.push. Sin este await, /partido a veces leía el estado
-    // viejo (estado='configurando') y mostraba "No hay partido en curso".
+    // PASO 1: persistir a Dexie ANTES de actualizar React state. Si falla,
+    // no actualizamos React. Esto resuelve la race condition con /partido.
     await db.partidos.put(nuevo);
+
+    // PASO 2: actualizar React state local del hook actual. /partido al
+    // montar leerá de Dexie y verá el mismo valor.
+    setPartido(nuevo);
   }
 
   function play() {

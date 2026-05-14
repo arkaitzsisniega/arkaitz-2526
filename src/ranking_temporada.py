@@ -80,9 +80,10 @@ def conectar():
 
 def main():
     args = sys.argv[1:]
+    CAT_VALIDAS = list(CATEGORIAS.keys()) + ["plus_minus"]
     if not args:
         print("Uso: ranking_temporada.py CATEGORIA [COMPETICION]")
-        print(f"Categorías: {', '.join(CATEGORIAS.keys())}")
+        print(f"Categorías: {', '.join(CAT_VALIDAS)}")
         return
     cat_raw = args[0].lower().strip()
     cat = cat_raw
@@ -100,13 +101,23 @@ def main():
              "min": "minutos", "minuto": "minutos",
              "+/-": "plus_minus", "plusminus": "plus_minus"}
     cat = sinon.get(cat, cat)
-    if cat not in CATEGORIAS and cat != "plus_minus":
+    if cat not in CAT_VALIDAS:
         print(f"❌ Categoría desconocida: {cat_raw!r}")
-        print(f"Disponibles: {', '.join(CATEGORIAS.keys())} · plus_minus")
+        print(f"Disponibles: {', '.join(CAT_VALIDAS)}")
         return
 
     comp_raw = " ".join(args[1:]).strip().upper() if len(args) > 1 else "TODAS"
-    comp = ALIAS_COMP.get(comp_raw, comp_raw if comp_raw in set(ALIAS_COMP.values()) else "TODAS")
+    # Si pasa competición pero no la reconocemos, AVISAR claramente en vez
+    # de devolver silenciosamente TODAS (antes el user creía que tenía
+    # ranking de su competición y era de toda la temporada).
+    if comp_raw and comp_raw not in ALIAS_COMP and comp_raw not in set(ALIAS_COMP.values()):
+        comps_legibles = sorted(set(ALIAS_COMP.values()))
+        print(f"⚠️ Competición no reconocida: *{comp_raw}*. Te paso TODAS las competiciones.")
+        print(f"_Competiciones válidas: {', '.join(comps_legibles)}_")
+        print()
+        comp = "TODAS"
+    else:
+        comp = ALIAS_COMP.get(comp_raw, comp_raw if comp_raw in set(ALIAS_COMP.values()) else "TODAS")
 
     ss = conectar()
     ep = pd.DataFrame(ss.worksheet("EST_PARTIDOS").get_all_records(

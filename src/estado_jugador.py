@@ -280,7 +280,22 @@ def main():
         print("Uso: estado_jugador.py JUGADOR [N_SESIONES]", file=sys.stderr)
         sys.exit(2)
     jugador = sys.argv[1]
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+    # N_SESIONES: validar que es entero positivo. Si no lo es, usar default
+    # 10 sin crashear (antes el script reventaba con int("abc") → ValueError
+    # → traceback al usuario).
+    n = 10
+    if len(sys.argv) > 2:
+        try:
+            n_candidato = int(sys.argv[2])
+            if n_candidato < 1 or n_candidato > 200:
+                print(f"⚠️ N_SESIONES {n_candidato} fuera de rango (1-200). Uso 10 por defecto.",
+                      file=sys.stderr)
+            else:
+                n = n_candidato
+        except (ValueError, TypeError):
+            print(f"⚠️ N_SESIONES '{sys.argv[2]}' no es un número. Uso 10 por defecto.",
+                  file=sys.stderr)
+            n = 10
     try:
         out = _analizar(jugador, n)
         print(out)
