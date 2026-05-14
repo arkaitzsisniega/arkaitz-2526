@@ -47,5 +47,14 @@ export function uid(): string {
 
 /** ISO yyyy-mm-dd de la fecha actual */
 export function hoyISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Importante: usar hora LOCAL, no UTC. Si usáramos toISOString() podríamos
+  // devolver el día siguiente o anterior según la diferencia con UTC, y eso
+  // rompe la hidratación de React (el servidor SSR y el cliente calculan en
+  // momentos distintos → si cruza medianoche UTC entre uno y otro, distinta
+  // fecha → toda la página queda sin handlers de onClick).
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }

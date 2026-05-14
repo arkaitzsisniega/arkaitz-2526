@@ -5,6 +5,9 @@ google_credentials.json
 # Excepciones (no son secretos)
 !src/forms_config.json
 !package.json
+!crono_partido/public/manifest.json
+!crono_partido/package.json
+!crono_partido/tsconfig.json
 .streamlit/secrets_PLANTILLA.toml
 .streamlit/secrets.toml
 

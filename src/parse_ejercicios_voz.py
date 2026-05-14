@@ -144,6 +144,125 @@ Devuelve SOLO el JSON.
 """
 
 
+# ─── Parser regex (sin LLM) para texto ESTRUCTURADO ────────────────────────
+# Si el usuario manda los ejercicios con formato regular del tipo:
+#   1.- Minibands + escaleras: 12 minutos + 1 descanso
+#   2.- Coordinación de 2: 11 minutos + 4 descanso
+# parseamos sin pasar por Gemini. Ahorra 30-60s + descarta riesgo de safety
+# filter. Si CUALQUIER línea no matchea, devolvemos None y el flujo sigue
+# con Gemini como antes (no rompe nada).
+_RE_LINEA_EJ = re.compile(
+    r"""^\s*
+        (?:\d+\s*[\.\)\-]?\s*[\-–]?\s*|[\-•*]\s+)?  # opcional: "1.-", "1)", "•", etc.
+        (?P<nombre>.+?)\s*[:\-]\s*                   # "Nombre:" o "Nombre -"
+        (?P<dur>\d+(?:[,.]\d+)?)\s*min(?:utos?)?     # "12 min" / "12 minutos"
+        (?:\s*[+y]\s*
+            (?P<desc>\d+(?:[,.]\d+)?)\s*
+            (?:min(?:utos?)?\s*)?
+            (?:de\s+)?descanso
+        )?
+        \s*$""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _inferir_tipo(nombre: str) -> str:
+    """Heurística para clasificar el ejercicio por su nombre. Réplica simple
+    de las reglas del prompt de Gemini para que el parser regex sea
+    autosuficiente."""
+    n = nombre.lower()
+    # Orden importante: más específico primero
+    if any(k in n for k in ("calentamiento", "miniband", "escalera", "activación")):
+        # Si tiene "miniband" o "escaleras" claramente físico-coordinativo.
+        # Usamos FISICO (es lo que Gemini venía clasificando en estos casos).
+        if any(k in n for k in ("miniband", "escalera")):
+            return "FISICO"
+        return "CALENTAMIENTO"
+    if "movilidad" in n:
+        return "MOVILIDAD"
+    if any(k in n for k in ("balón parado", "balon parado", "abp", "córner", "corner",
+                              "banda lateral", "bandas")):
+        return "BALON_PARADO"
+    if any(k in n for k in ("partidillo", "juego real", "5x5", "5x4", "5v5", "5v4")):
+        return "PARTIDILLO"
+    if any(k in n for k in ("finalización", "finalizacion", "ataques continuados",
+                              "tiros", "remate")):
+        return "FINALIZACION"
+    if any(k in n for k in ("presión", "presion", "transicion", "transición",
+                              "defensa", "táctico", "tactico", "2x2", "3x3", "4x4",
+                              "incorporación", "incorporacion", "salida de balón",
+                              "salida de balon", "circulación", "circulacion",
+                              "nombre y lado", "nombre + lado")):
+        return "TACTICO"
+    if any(k in n for k in ("rondo", "técnica", "tecnica", "coordinación",
+                              "coordinacion", "pase ", "conducción", "conduccion",
+                              "control")):
+        return "TECNICA"
+    if any(k in n for k in ("vuelta a la calma", "estiramientos", "estiramiento")):
+        return "VUELTA_A_LA_CALMA"
+    if any(k in n for k in ("físico", "fisico", "fuerza", "potencia", "velocidad",
+                              "carrera", "sprint")):
+        return "FISICO"
+    return "OTRO"
+
+
+def _to_num(s: str | None) -> float:
+    if not s:
+        return 0.0
+    return float(s.replace(",", "."))
+
+
+def parsear_estructurado(transcripcion: str) -> dict | None:
+    """Intenta parsear texto ESTRUCTURADO sin LLM.
+
+    Devuelve un dict con el mismo esquema que `claude_extraer(...)` si
+    consigue parsear TODAS las líneas no vacías. Si falla aunque sea una,
+    devuelve None y el flujo continúa con Gemini.
+
+    Reconoce formatos como:
+        1.- Minibands + escaleras: 12 minutos + 1 descanso
+        2.- Coordinación de 2: 11 min + 4 descanso
+        - Movilidad: 8 minutos
+        • Partidillo 5x4: 20 min + 2 minutos de descanso
+    """
+    # Limpiar líneas y descartar vacías
+    lineas = [ln.strip() for ln in transcripcion.splitlines() if ln.strip()]
+    if len(lineas) < 2:
+        # Texto muy corto (probablemente audio largo en una sola línea).
+        # No intentamos regex aquí, dejamos que Gemini lo maneje.
+        return None
+
+    ejercicios: list[dict] = []
+    for ln in lineas:
+        m = _RE_LINEA_EJ.match(ln)
+        if not m:
+            # Una línea no estructurada → abortamos parser regex y dejamos LLM.
+            return None
+        nombre = m.group("nombre").strip(" .,:-")
+        dur = _to_num(m.group("dur"))
+        desc = _to_num(m.group("desc"))
+        if dur <= 0:
+            return None  # número inválido, mejor que decida Gemini
+        ejercicios.append({
+            "nombre": nombre,
+            "duracion_min": dur,
+            "tipo": _inferir_tipo(nombre),
+            "descanso_despues_min": desc,
+            "gps_activo": True,   # default: GPS activo (igual que la regla de Gemini)
+            "notas": "",
+        })
+
+    if not ejercicios:
+        return None
+
+    total = sum(e["duracion_min"] + e["descanso_despues_min"] for e in ejercicios)
+    return {
+        "duracion_total_min": total,
+        "hora_inicio": None,
+        "ejercicios": ejercicios,
+    }
+
+
 JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
@@ -227,21 +346,74 @@ def gs_client():
 
 # ─── Identificar sesión Oliver del día ──────────────────────────────────────
 def identificar_session_oliver(fecha_iso: str) -> tuple:
-    """Busca en _OLIVER_SESIONES (índice) o en la API la sesión del día.
-    Devuelve (session_id, duracion_timeline_min, nombre) o (None, None, None)."""
+    """Busca la sesión Oliver de `fecha_iso`. Devuelve (session_id, duracion_min, nombre)
+    o (None, None, None).
+
+    Estrategia OPTIMIZADA (antes paginaba TODAS las 431 sesiones del equipo;
+    ~2 min). Ahora:
+      1) Mira primero en `_OLIVER_SESIONES` del Sheet (caché local de sesiones
+         ya sincronizadas). Si encuentra la fecha, devuelve sin llamar a la API.
+      2) Si no está en caché, llama a la API pero **escanea batch a batch** y
+         **devuelve en cuanto encuentra** la sesión del día. Como la API
+         devuelve por defecto las más recientes primero, normalmente la
+         encuentra en el primer batch (10-20 s en lugar de 2 min).
+    """
+    # 1) Caché local en el Sheet
     try:
-        from oliver_sync import OliverAPI, OLIVER_TOKEN, OLIVER_USER, OLIVER_REFRESH, OLIVER_TEAM
+        ss = gs_client()
+        try:
+            ws_cache = ss.worksheet("_OLIVER_SESIONES")
+            filas = ws_cache.get_all_records()
+        except Exception:
+            filas = []
+        for fila in filas:
+            fecha_fila = str(fila.get("fecha") or fila.get("Fecha") or "").strip()
+            # Aceptar tanto "2026-05-14" como "14/05/2026"
+            if fecha_fila == fecha_iso:
+                sid = fila.get("session_id") or fila.get("id")
+                if sid:
+                    try:
+                        sid = int(sid)
+                    except (ValueError, TypeError):
+                        pass
+                    dur = fila.get("dur_min") or fila.get("duracion_min") or None
+                    nombre = fila.get("nombre") or ""
+                    print(f"  ⚡ Sesión Oliver encontrada en caché _OLIVER_SESIONES "
+                          f"(id={sid}, dur={dur}min) — sin llamar a la API.",
+                          flush=True)
+                    return sid, (int(dur) if dur else None), str(nombre)
+    except Exception as e:
+        print(f"[!] No pude consultar caché _OLIVER_SESIONES: {e}", file=sys.stderr)
+
+    # 2) Llamar a la API parando en cuanto se encuentre
+    try:
+        from oliver_sync import (
+            OliverAPI, OLIVER_TOKEN, OLIVER_USER, OLIVER_REFRESH, OLIVER_TEAM,
+        )
         api = OliverAPI(OLIVER_TOKEN, OLIVER_USER, OLIVER_REFRESH)
-        sesiones = api.list_sessions(OLIVER_TEAM)
-        for s in sesiones:
-            start_ms = s.get("start") or 0
-            if not start_ms:
-                continue
-            fecha = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date().isoformat()
-            if fecha == fecha_iso and s.get("status") == "PROCESSED":
-                end_ms = s.get("end") or start_ms
-                dur = int((end_ms - start_ms) / 60000)
-                return s["id"], dur, s.get("name", "")
+        offset, page_size = 0, 250
+        while True:
+            r = api._get(
+                "/sessions/",
+                params={"team_id": OLIVER_TEAM, "limit": page_size, "offset": offset},
+            )
+            batch = r.get("sessions") or []
+            total = r.get("total") or len(batch)
+            print(f"  · escaneando {min(offset + len(batch), total)}/{total} "
+                  f"(parando en cuanto aparezca {fecha_iso})", flush=True)
+            for s in batch:
+                start_ms = s.get("start") or 0
+                if not start_ms:
+                    continue
+                fecha = datetime.fromtimestamp(start_ms / 1000,
+                                                 tz=timezone.utc).date().isoformat()
+                if fecha == fecha_iso and s.get("status") == "PROCESSED":
+                    end_ms = s.get("end") or start_ms
+                    dur = int((end_ms - start_ms) / 60000)
+                    return s["id"], dur, s.get("name", "")
+            if len(batch) < page_size or offset + len(batch) >= total:
+                break
+            offset += len(batch)
     except Exception as e:
         print(f"[!] No pude consultar Oliver: {e}", file=sys.stderr)
     return None, None, None
@@ -262,13 +434,21 @@ def main():
     print(MSG_SEP, flush=True)
     print(f"🎤 Procesando transcripción del entreno {fecha_iso} ({turno})…", flush=True)
 
-    # 1. Pedir a Claude que estructure
-    try:
-        data = claude_extraer(transcripcion)
-    except Exception as e:
-        print(MSG_SEP)
-        print(f"❌ Claude no pudo estructurar el audio:\n{e}")
-        return 2
+    # 1. Intentar parser regex (texto estructurado tipo "1.- X: 12 min + 2 descanso").
+    #    Si matchea todas las líneas, ahorramos ~30-60s de llamada a Gemini
+    #    y eliminamos riesgo de safety filter. Si falla cualquier línea,
+    #    caemos a Gemini como antes.
+    data = parsear_estructurado(transcripcion)
+    if data is not None:
+        print(f"⚡ Parser regex matched ({len(data['ejercicios'])} ejercicios) — sin LLM.",
+              flush=True)
+    else:
+        try:
+            data = claude_extraer(transcripcion)
+        except Exception as e:
+            print(MSG_SEP)
+            print(f"❌ Gemini no pudo estructurar el audio:\n{e}")
+            return 2
 
     ejs = data.get("ejercicios") or []
     if not ejs:

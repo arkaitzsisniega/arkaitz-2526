@@ -1631,11 +1631,47 @@ async def cmd_ejercicios_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Llama al script parse_ejercicios_voz.py con la transcripción por stdin."""
+    """Procesa la descripción del entreno.
+
+    ⚡ ASYNC: responde al usuario **inmediatamente** con un acuse de recibo
+    y lanza el subprocess de parse_ejercicios_voz.py EN BACKGROUND. Cuando
+    termine (puede ser 30s o 2 min), envía un nuevo mensaje al chat con
+    el resultado. El usuario no se queda mirando el "escribiendo…" eterno.
+    """
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🧠 Estructurando los ejercicios con Claude…")
-    stop = asyncio.Event()
-    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+
+    # Conteo rápido de ejercicios para el mensaje inmediato (solo si es texto
+    # estructurado; si es audio narrativo, no hay forma fiable de contarlos).
+    n_pistas = sum(
+        1 for ln in transcripcion.splitlines()
+        if re.match(r"^\s*\d+\s*[\.\)\-]", ln)
+    )
+    if n_pistas >= 2:
+        msg_acuse = (
+            f"✅ Recibido. Procesando *{n_pistas}* ejercicios en segundo plano.\n"
+            "_Te aviso aquí mismo cuando termine (~30s-2min según Oliver)._"
+        )
+    else:
+        msg_acuse = (
+            "✅ Recibido. Procesando los ejercicios en segundo plano.\n"
+            "_Te aviso aquí mismo cuando termine (~30s-2min según Oliver)._"
+        )
+    await update.message.reply_text(msg_acuse, parse_mode="Markdown")
+
+    # Disparar el trabajo pesado y soltarlo. No await aquí: la handler
+    # vuelve enseguida y el bot queda libre para responder a otros mensajes.
+    asyncio.create_task(
+        _ejercicios_worker(chat_id, transcripcion, update, ctx)
+    )
+
+
+async def _ejercicios_worker(
+    chat_id: int,
+    transcripcion: str,
+    update: Update,
+    ctx: ContextTypes.DEFAULT_TYPE,
+):
+    """Tarea de fondo que hace el trabajo pesado y envía el resultado."""
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, str(PROJECT_DIR / "src" / "parse_ejercicios_voz.py"),
@@ -1650,45 +1686,68 @@ async def _procesar_audio_ejercicios(transcripcion: str, update: Update, ctx: Co
                 timeout=900,
             )
         except asyncio.TimeoutError:
-            proc.kill(); await proc.wait()
-            await update.message.reply_text("⚠️ Timeout (>15 min).")
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+            try:
+                await ctx.bot.send_message(chat_id, "⚠️ Timeout (>15 min) procesando ejercicios.")
+            except Exception:
+                pass
             return
-    finally:
-        stop.set()
-        try: await task
-        except Exception: pass
-    if proc.returncode != 0:
-        await update.message.reply_text(
-            f"❌ Error procesando audio (código {proc.returncode}):\n"
-            f"{(err or out).decode('utf-8', 'replace')[-1500:]}"
-        )
-        return
-    salida_decoded = out.decode("utf-8", "replace")
-    await _enviar_bloques(update, salida_decoded)
 
-    # ── Inyectar en el historial conversacional de Gemini ──
-    # Así, si después Arkaitz dice "revísalo" o "corrige el GPS de la
-    # movilidad", Alfred tiene el contexto de qué se acaba de procesar.
-    try:
-        history = _conv_history.get(chat_id, [])
-        # Limpiar el separador MSG_SEP de la salida para que sea legible
-        salida_limpia = salida_decoded.replace("---MSG---", "").strip()
-        # Turno usuario (lo que dijo el usuario, transcrito)
-        history.append({
-            "role": "user",
-            "parts": [{"text": f"[modo /ejercicios] {transcripcion}"}],
-        })
-        # Turno modelo (lo que devolvió el script, para que recuerde)
-        history.append({
-            "role": "model",
-            "parts": [{"text": (
-                "He procesado los ejercicios del entreno. Resultado:\n\n"
-                + salida_limpia[:3000]
-            )}],
-        })
-        _conv_history[chat_id] = _truncate_history(history)
-    except Exception as _e:
-        log.warning("No pude inyectar /ejercicios en historial: %s", _e)
+        if proc.returncode != 0:
+            try:
+                await ctx.bot.send_message(
+                    chat_id,
+                    f"❌ Error procesando ejercicios (código {proc.returncode}):\n"
+                    f"{(err or out).decode('utf-8', 'replace')[-1500:]}",
+                )
+            except Exception:
+                pass
+            return
+
+        salida_decoded = out.decode("utf-8", "replace")
+        # Reutilizamos _enviar_bloques, que parte por MSG_SEP y envía
+        # mensajes separados al chat. Le pasamos update para que use
+        # update.message.reply_text — sigue funcionando aunque vengamos
+        # de una tarea de fondo.
+        try:
+            await _enviar_bloques(update, salida_decoded)
+        except Exception:
+            # Fallback robusto: enviar todo de una si _enviar_bloques falla
+            try:
+                await ctx.bot.send_message(chat_id, salida_decoded[-3500:])
+            except Exception:
+                pass
+
+        # ── Inyectar en el historial conversacional de Gemini ──
+        # Así, si después Arkaitz dice "revísalo" o "corrige el GPS de la
+        # movilidad", Alfred tiene el contexto de qué se acaba de procesar.
+        try:
+            history = _conv_history.get(chat_id, [])
+            salida_limpia = salida_decoded.replace("---MSG---", "").strip()
+            history.append({
+                "role": "user",
+                "parts": [{"text": f"[modo /ejercicios] {transcripcion}"}],
+            })
+            history.append({
+                "role": "model",
+                "parts": [{"text": (
+                    "He procesado los ejercicios del entreno. Resultado:\n\n"
+                    + salida_limpia[:3000]
+                )}],
+            })
+            _conv_history[chat_id] = _truncate_history(history)
+        except Exception as _e:
+            log.warning("No pude inyectar /ejercicios en historial: %s", _e)
+    except Exception as e:
+        log.exception("Worker /ejercicios falló: %s", e)
+        try:
+            await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /ejercicios: {e}")
+        except Exception:
+            pass
 
 
 async def cmd_golespartido(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

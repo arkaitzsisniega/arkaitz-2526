@@ -12,7 +12,12 @@ export default function NuevoPartido() {
   const { iniciarPartido } = usePartido();
 
   const [rival, setRival] = useState("");
-  const [fecha, setFecha] = useState(hoyISO());
+  // fecha: se rellena en useEffect tras montar para evitar mismatch SSR/cliente
+  // (si server y cliente calculan en momentos distintos cruzando medianoche
+  // local, React aborta hidratación y onClick deja de funcionar en TODA la
+  // página — el típico síntoma "inputs sí, botones no").
+  const [fecha, setFecha] = useState("");
+  useEffect(() => { if (!fecha) setFecha(hoyISO()); }, [fecha]);
   const [hora, setHora] = useState("18:00");
   const [lugar, setLugar] = useState("");
   const [competicion, setCompeticion] = useState("LIGA");

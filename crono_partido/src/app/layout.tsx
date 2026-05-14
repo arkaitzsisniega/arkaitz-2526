@@ -12,10 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Cuando se hace `output: 'export'` con basePath, Next NO prefija
+// automáticamente los paths absolutos de manifest/iconos en `metadata`.
+// Hay que añadir el prefijo a mano (en dev no hay prefijo, queda igual).
+const BP = process.env.NEXT_EXPORT === "1" ? "/arkaitz-2526/crono" : "";
+
 export const metadata: Metadata = {
   title: "Inter Crono",
   description: "Crono de partido en directo para el cuerpo técnico de Movistar Inter FS",
-  manifest: "/manifest.json",
+  manifest: `${BP}/manifest.json`,
   appleWebApp: {
     capable: true,
     title: "Inter Crono",
@@ -23,14 +28,14 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: `${BP}/icons/icon-192.png`, sizes: "192x192", type: "image/png" },
+      { url: `${BP}/icons/icon-512.png`, sizes: "512x512", type: "image/png" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-      { url: "/icons/icon-152.png", sizes: "152x152", type: "image/png" },
-      { url: "/icons/icon-167.png", sizes: "167x167", type: "image/png" },
-      { url: "/icons/icon-180.png", sizes: "180x180", type: "image/png" },
+      { url: `${BP}/apple-touch-icon.png`, sizes: "180x180", type: "image/png" },
+      { url: `${BP}/icons/icon-152.png`, sizes: "152x152", type: "image/png" },
+      { url: `${BP}/icons/icon-167.png`, sizes: "167x167", type: "image/png" },
+      { url: `${BP}/icons/icon-180.png`, sizes: "180x180", type: "image/png" },
     ],
   },
 };
