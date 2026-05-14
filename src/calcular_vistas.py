@@ -138,9 +138,22 @@ def escribir_vista(ss, nombre_hoja, df):
 # Factor de corrección para sesiones que incluyen GYM. Los jugadores
 # tienden a subestimar el BORG cuando reportan una sola cifra para una
 # sesión combinada (GYM + TEC-TAC), porque mentalmente "olvidan" la parte
-# de gimnasio. Aplicamos un x1.25 a la carga total cuando TIPO_SESION
+# de gimnasio. Aplicamos un xN a la carga total cuando TIPO_SESION
 # contiene "GYM" (en cualquier combinación).
-FACTOR_GYM = 1.25
+#
+# Configurable vía variable de entorno FACTOR_GYM. Default 1.25.
+# Si tras pruebas Arkaitz/preparador decide que infraestima demasiado
+# (la carga objetiva del gym con encoder es bastante mayor que la
+# subjetiva del Borg), subir a 1.5 con:
+#   FACTOR_GYM=1.5 /usr/bin/python3 src/calcular_vistas.py
+import os as _os
+try:
+    FACTOR_GYM = float(_os.getenv("FACTOR_GYM", "1.25"))
+    if FACTOR_GYM < 0.5 or FACTOR_GYM > 3.0:
+        print(f"⚠️ FACTOR_GYM fuera de rango razonable ({FACTOR_GYM}). Uso 1.25.")
+        FACTOR_GYM = 1.25
+except (ValueError, TypeError):
+    FACTOR_GYM = 1.25
 
 
 def vista_carga(ses, borg, est_partidos=None):

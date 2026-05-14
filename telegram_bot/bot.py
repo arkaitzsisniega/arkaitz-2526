@@ -2493,6 +2493,187 @@ def _detectar_intent_estado(prompt: str):
     return (canonico, n)
 
 
+def _detectar_intent_carga_ultima(prompt: str):
+    """Ídem que bot_datos: matchea 'carga jugador por jugador', 'borg del entreno',
+    'qué tal la sesión de ayer', etc. Devuelve fecha YYYY-MM-DD o '' (última)."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    sesion_triggers = (
+        "ultima sesion", "ultimo entreno", "ultimo entrenamiento",
+        "del entreno de hoy", "sesion de hoy", "entreno de hoy",
+        "que tal el entreno", "que tal la sesion",
+        "que tal el ultimo entreno", "que tal la ultima sesion",
+        "como ha ido el entreno", "como ha ido la sesion",
+        "entreno de ayer", "sesion de ayer", "entreno ayer",
+    )
+    carga_triggers = (
+        "carga jugador", "carga por jugador", "carga del equipo",
+        "carga de la sesion", "carga del entreno", "borg de hoy",
+        "borg de la sesion", "borg del entreno", "borg jugador",
+        "como fue la carga", "que carga", "que borg",
+        "borg del ", "carga del ", "borg de ayer", "carga de ayer",
+        "carga de hoy", "carga jugador por jugador",
+    )
+    if not (any(t in p for t in carga_triggers) or any(t in p for t in sesion_triggers)):
+        return None
+    import re as _re
+    import datetime as _dt
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        hoy = _dt.datetime.now(tz=_ZI("Europe/Madrid")).date()
+    except Exception:
+        hoy = _dt.date.today()
+    if "anteayer" in p:
+        return (hoy - _dt.timedelta(days=2)).isoformat()
+    if "ayer" in p:
+        return (hoy - _dt.timedelta(days=1)).isoformat()
+    if "hoy" in p:
+        return hoy.isoformat()
+    m = _re.search(r"\b(20\d{2})-(\d{2})-(\d{2})\b", p)
+    if m:
+        return m.group(0)
+    m = _re.search(r"\b(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?\b", p)
+    if m:
+        d, mo, y = m.groups()
+        if not y: y = str(hoy.year)
+        elif len(y) == 2: y = "20" + y
+        try: return _dt.date(int(y), int(mo), int(d)).isoformat()
+        except ValueError: pass
+    MESES = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+             "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,
+             "noviembre":11,"diciembre":12}
+    pat = _re.compile(r"\b(\d{1,2})\s+(?:de\s+)?(" + "|".join(MESES.keys()) + r")(?:\s+(?:de\s+)?(\d{4}))?\b")
+    m = pat.search(p)
+    if m:
+        d, mes_n, y = m.groups()
+        if not y: y = str(hoy.year)
+        try: return _dt.date(int(y), int(MESES[mes_n]), int(d)).isoformat()
+        except ValueError: pass
+    return ""
+
+
+def _detectar_intent_ranking(prompt: str):
+    """Ídem que bot_datos: matchea 'lista asistencias liga', 'ranking goleadores'.
+    Devuelve (categoria, competicion) o None."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    CAT_TRIGGERS = {
+        "asistencias": ("asistencias", "asistencia", "asistente", "asistentes"),
+        "goles":       ("goles", "goleadores", "goleador", "maximo goleador",
+                          "ranking de goles", "quien mete", "quien marca"),
+        "disparos":    ("disparos", "tiros totales", "ranking disparos"),
+        "puerta":      ("a puerta", "disparos a puerta", "tiros a puerta"),
+        "faltas":      ("faltas",),
+        "amarillas":   ("amarillas", "tarjetas amarillas"),
+        "rojas":       ("rojas", "tarjetas rojas", "expulsiones"),
+        "perdidas":    ("perdidas", "pérdidas"),
+        "robos":       ("robos", "robo", "recuperaciones"),
+        "cortes":      ("cortes", "intercepciones"),
+        "bdg":         ("balones ganados", "bdg"),
+        "bdp":         ("balones perdidos", "bdp"),
+        "minutos":     ("minutos jugados", "ranking minutos"),
+        "plus_minus":  ("plus minus", "plus/minus", "+/-",
+                          "diferencia goles en pista"),
+    }
+    triggers_ranking = (
+        "lista de", "ranking", "top ", "quien ", "quién ",
+        "mas ", "más ", "mayor", "mejor", "del equipo",
+        "de la temporada", "en liga", "en la liga", "en copa",
+        "por jugador", "por jugadores",
+    )
+    if not any(t in p for t in triggers_ranking):
+        return None
+    cat_found = None
+    for cat, kws in CAT_TRIGGERS.items():
+        if any(kw in p for kw in kws):
+            cat_found = cat; break
+    if cat_found is None:
+        return None
+    comp = "TODAS"
+    for kw, val in (
+        ("liga", "LIGA"), ("copa del rey", "COPA_REY"), ("copa rey", "COPA_REY"),
+        ("copa de espana", "COPA_ESPANA"), ("copa espana", "COPA_ESPANA"),
+        ("copa del mundo", "COPA_MUNDO"), ("mundial", "COPA_MUNDO"),
+        ("amistoso", "AMISTOSO"), ("playoff", "PLAYOFF"), ("play off", "PLAYOFF"),
+        ("supercopa", "SUPERCOPA"), ("temporada", "TODAS"),
+    ):
+        if kw in p:
+            comp = val; break
+    return (cat_found, comp)
+
+
+def _detectar_intent_lesiones(prompt: str) -> bool:
+    """'lesiones activas' / 'quién está lesionado' / 'bajas del equipo'."""
+    if not prompt:
+        return False
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    triggers = (
+        "lesiones activas", "lesiones activos", "lesion activa",
+        "quien esta lesionado", "quienes estan lesionados",
+        "que jugadores estan lesionados",
+        "bajas del equipo", "bajas actuales", "que bajas",
+        "jugadores lesionados", "lista de lesionados",
+        "lesionados actuales", "quien tiene lesion",
+    )
+    return any(t in p for t in triggers)
+
+
+def _run_carga_ultima(fecha: str = "") -> str:
+    """Ejecuta src/carga_ultima_sesion.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [fecha] if fecha else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "carga_ultima_sesion.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar carga: {res.salida}" if not res.ok else res.salida)
+
+
+def _run_ranking_temporada(categoria: str, competicion: str = "TODAS") -> str:
+    """Ejecuta src/ranking_temporada.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [categoria]
+    if competicion and competicion != "TODAS":
+        args.append(competicion)
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "ranking_temporada.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar ranking: {res.salida}" if not res.ok else res.salida)
+
+
+def _run_lesiones_activas(por_dorsal: bool = False) -> str:
+    """Ejecuta src/lesiones_activas.py. Alfred es admin: nombres reales (no
+    dorsal)."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = ["--por-dorsal"] if por_dorsal else []
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "lesiones_activas.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar lesiones: {res.salida}" if not res.ok else res.salida)
+
+
 def _run_estado_jugador(canonico: str, n: int) -> str:
     """Ejecuta src/estado_jugador.py vía el helper común. Sin paths
     hardcodeados ni filtros de warning duplicados (eso lo hace el helper)."""
@@ -2519,7 +2700,42 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
     continuar = chat_id not in _fresh_chats
     _fresh_chats.discard(chat_id)
 
-    # ── ATAJO sin LLM: estado de jugador ──
+    # ── ATAJOS SIN LLM (evitan safety filters + son deterministas) ──
+    # Orden de prioridad: más específico primero. Si matchea uno, ejecuta
+    # el script curado y retorna sin pasar por Gemini.
+    if _detectar_intent_lesiones(prompt):
+        log.info("ATAJO intent=lesiones_activas (prompt='%s')", prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        # Alfred = admin: nombres reales (sin --por-dorsal)
+        salida = await asyncio.to_thread(_run_lesiones_activas, False)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
+    intent_r = _detectar_intent_ranking(prompt)
+    if intent_r is not None:
+        cat, comp = intent_r
+        log.info("ATAJO intent=ranking cat=%s comp=%s (prompt='%s')",
+                 cat, comp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_ranking_temporada, cat, comp)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
+    intent_cu = _detectar_intent_carga_ultima(prompt)
+    if intent_cu is not None:
+        log.info("ATAJO intent=carga_ultima fecha=%r (prompt='%s')",
+                 intent_cu, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_carga_ultima, intent_cu)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
     intent = _detectar_intent_estado(prompt)
     if intent:
         canonico, n = intent
