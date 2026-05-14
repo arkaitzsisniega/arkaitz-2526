@@ -62,7 +62,10 @@ export default function NuevoPartido() {
   const [pista3, setPista3] = useState(campoConv[2]?.nombre || "");
   const [pista4, setPista4] = useState(campoConv[3]?.nombre || "");
 
-  const empezar = () => {
+  const [empezando, setEmpezando] = useState(false);
+
+  const empezar = async () => {
+    if (empezando) return;  // anti-doble-click en iPad
     if (!rival.trim()) { alert("Pon el nombre del rival"); return; }
     if (!partidoId.trim()) { alert("Pon el ID del partido (ej: J29.VALDEPEÑAS)"); return; }
     if (!portero || !pista1 || !pista2 || !pista3 || !pista4) {
@@ -72,22 +75,33 @@ export default function NuevoPartido() {
     const unicos = new Set([portero, pista1, pista2, pista3, pista4]);
     if (unicos.size < 5) { alert("Los 5 jugadores deben ser distintos"); return; }
 
-    iniciarPartido({
-      rival: rival.trim().toUpperCase(),
-      fecha, hora, lugar: lugar.trim(), competicion,
-      local, partido_id: partidoId.trim(),
-      convocados,
-      pista_inicial: { portero, pista1, pista2, pista3, pista4 },
-      duracionParte: {
-        "1T": Math.round(dur1T * 60),
-        "2T": Math.round(dur2T * 60),
-        PR1: Math.round(durPR1 * 60),
-        PR2: Math.round(durPR2 * 60),
-      },
-      permiteTanda,
-      direccionInter1T,
-    });
-    router.push("/partido");
+    setEmpezando(true);
+    try {
+      // iniciarPartido ahora persiste a Dexie ANTES de resolver. Así
+      // cuando navegamos a /partido, la BD ya tiene el estado nuevo y
+      // /partido lo carga correctamente (antes a veces leía el viejo
+      // por culpa del debounce de autosave).
+      await iniciarPartido({
+        rival: rival.trim().toUpperCase(),
+        fecha, hora, lugar: lugar.trim(), competicion,
+        local, partido_id: partidoId.trim(),
+        convocados,
+        pista_inicial: { portero, pista1, pista2, pista3, pista4 },
+        duracionParte: {
+          "1T": Math.round(dur1T * 60),
+          "2T": Math.round(dur2T * 60),
+          PR1: Math.round(durPR1 * 60),
+          PR2: Math.round(durPR2 * 60),
+        },
+        permiteTanda,
+        direccionInter1T,
+      });
+      router.push("/partido");
+    } catch (e) {
+      console.error("Error al iniciar partido:", e);
+      alert("No pude iniciar el partido. Mira la consola.");
+      setEmpezando(false);
+    }
   };
 
   return (
@@ -185,12 +199,14 @@ export default function NuevoPartido() {
           <div className="grid grid-cols-2 gap-2">
             <button type="button"
               onClick={() => setDireccionInter1T("izq")}
-              className={`py-3 rounded text-base font-bold ${
+              style={{ touchAction: "manipulation", WebkitTapHighlightColor: "rgba(16,185,129,0.3)" }}
+              className={`py-3 rounded text-base font-bold active:scale-95 transition-transform ${
                 direccionInter1T === "izq" ? "bg-emerald-700" : "bg-zinc-800"
               }`}>← Izquierda</button>
             <button type="button"
               onClick={() => setDireccionInter1T("der")}
-              className={`py-3 rounded text-base font-bold ${
+              style={{ touchAction: "manipulation", WebkitTapHighlightColor: "rgba(16,185,129,0.3)" }}
+              className={`py-3 rounded text-base font-bold active:scale-95 transition-transform ${
                 direccionInter1T === "der" ? "bg-emerald-700" : "bg-zinc-800"
               }`}>Derecha →</button>
           </div>
@@ -243,8 +259,12 @@ export default function NuevoPartido() {
       </section>
 
       <button onClick={empezar}
-        className="w-full py-5 bg-green-700 hover:bg-green-600 rounded-xl text-2xl font-bold">
-        🏁 EMPEZAR PARTIDO
+        disabled={empezando}
+        style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
+        className={`w-full py-5 rounded-xl text-2xl font-bold ${
+          empezando ? "bg-zinc-700 opacity-60" : "bg-green-700 hover:bg-green-600 active:scale-95"
+        } transition-transform`}>
+        {empezando ? "⏳ Iniciando…" : "🏁 EMPEZAR PARTIDO"}
       </button>
     </div>
   );

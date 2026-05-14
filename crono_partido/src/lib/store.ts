@@ -308,41 +308,64 @@ export function usePartido() {
 
   // ────────────────── acciones ─────────────────────────────────────────
 
-  function iniciarPartido(config: ConfigPartido) {
-    setPartido((prev) => {
-      const tiempos: Record<string, TiempoJugador> = {};
-      const ahora = Date.now();
-      const pi = config.pista_inicial;
-      const enPistaIni = [pi.portero, pi.pista1, pi.pista2, pi.pista3, pi.pista4];
-      for (const j of config.convocados) {
-        const enPista = enPistaIni.includes(j);
-        tiempos[j] = {
-          nombre: j,
-          totalSegundos: 0,
-          porParte: { "1T": 0, "2T": 0, PR1: 0, PR2: 0 },
-          segTurnoActual: enPista ? 0 : null,
-          turnoStart: null,
-          ultimaSalida: enPista ? null : ahora,
-          // Banquillo desde el inicio: 0s acumulados, descanso aún parado
-          // (reloj no corre). Cuando se le dé PLAY arrancará.
-          segDescansoActual: enPista ? null : 0,
-          descansoStart: null,
-          segTurnoUltimo: null,
-        };
-      }
-      const acciones: typeof prev.acciones = { porJugador: {} };
-      for (const j of config.convocados) {
-        acciones.porJugador[j] = contadoresVacios();
-      }
-      return {
-        ...prev,
-        estado: "en_curso",
-        config,
-        enPista: enPistaIni,
-        tiempos,
-        acciones,
+  async function iniciarPartido(config: ConfigPartido): Promise<void> {
+    // Construir el partido fuera del setPartido para poder persistirlo
+    // sincronamente a Dexie ANTES de que la siguiente pantalla (/partido)
+    // lo cargue. Sin esto, el debounce de 500ms del autosave puede no
+    // haber escrito todavía cuando /partido monta su propio usePartido
+    // y lee de la BD, viendo el estado viejo (estado="configurando").
+    const ahora = Date.now();
+    const pi = config.pista_inicial;
+    const enPistaIni = [pi.portero, pi.pista1, pi.pista2, pi.pista3, pi.pista4];
+    const tiempos: Record<string, TiempoJugador> = {};
+    for (const j of config.convocados) {
+      const enPista = enPistaIni.includes(j);
+      tiempos[j] = {
+        nombre: j,
+        totalSegundos: 0,
+        porParte: { "1T": 0, "2T": 0, PR1: 0, PR2: 0 },
+        segTurnoActual: enPista ? 0 : null,
+        turnoStart: null,
+        ultimaSalida: enPista ? null : ahora,
+        segDescansoActual: enPista ? null : 0,
+        descansoStart: null,
+        segTurnoUltimo: null,
       };
+    }
+    const acciones = { porJugador: {} as Record<string, ContadoresJugador> };
+    for (const j of config.convocados) {
+      acciones.porJugador[j] = contadoresVacios();
+    }
+
+    // Cancelar timer pendiente de autosave por si tiene un valor obsoleto.
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+
+    // Construir el partido nuevo. Usamos el valor ACTUAL del state como base
+    // (vía setPartido callback) y obtenemos el resultado para persistir.
+    const nuevo: Partido = await new Promise((resolve) => {
+      setPartido((prev) => {
+        const n: Partido = {
+          ...prev,
+          estado: "en_curso",
+          config,
+          enPista: enPistaIni,
+          tiempos,
+          acciones,
+          actualizado: ahora,
+        };
+        resolve(n);
+        return n;
+      });
     });
+
+    // Persistencia SÍNCRONA a Dexie ANTES de retornar. Esto garantiza que
+    // la próxima pantalla (/partido) puede leer el estado correcto al
+    // hacer router.push. Sin este await, /partido a veces leía el estado
+    // viejo (estado='configurando') y mostraba "No hay partido en curso".
+    await db.partidos.put(nuevo);
   }
 
   function play() {

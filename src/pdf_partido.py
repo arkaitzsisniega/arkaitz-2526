@@ -405,6 +405,183 @@ def _dibujar_porteria_mpl(cuadrantes: dict) -> bytes:
     return buf.read()
 
 
+def _dibujar_cronograma_jugadores_mpl(jp: pd.DataFrame, ep: pd.DataFrame) -> bytes:
+    """Cronograma horizontal: una fila por jugador con barras apiladas que
+    muestran sus rotaciones (segmentos verde claro = 1T, azul claro = 2T,
+    con líneas que separan cada rotación individual). Encima, una línea
+    de tiempo con los goles a favor (verde) y en contra (rojo) marcados
+    en su minuto absoluto.
+
+    No reconstruye posición temporal exacta de cada cambio (no tenemos
+    timestamps de cambios individuales). Concatena rotaciones secuencialmente
+    desde el inicio de cada parte para que se vea la fragmentación real.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+
+    if jp.empty:
+        # PNG vacío de placeholder
+        fig, ax = plt.subplots(figsize=(11, 4))
+        ax.text(0.5, 0.5, "Sin datos", ha="center", va="center", fontsize=12, color="#888")
+        ax.axis("off")
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+
+    # Ordenar jugadores por min_total desc, separar porteros para no
+    # competirles con el resto en el tamaño visual.
+    porteros_set = {"GARCIA", "HERRERO", "OSCAR"}
+    jp_sorted = jp[jp["min_total"] > 0].copy().sort_values(
+        ["min_total"], ascending=False)
+    jp_sorted["_es_p"] = jp_sorted["jugador"].astype(str).str.upper().isin(porteros_set)
+
+    n = len(jp_sorted)
+    if n == 0:
+        fig, ax = plt.subplots(figsize=(11, 4))
+        ax.text(0.5, 0.5, "Nadie con minutos jugados", ha="center", va="center")
+        ax.axis("off")
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+
+    # Duración de cada parte: usamos el max de la suma de rotaciones de
+    # cada parte como referencia (suele ser 20 min).
+    rot_cols_1 = [f"rot_1t_{i}" for i in range(1, 9)]
+    rot_cols_2 = [f"rot_2t_{i}" for i in range(1, 9)]
+    has_rots = all(c in jp_sorted.columns for c in rot_cols_1 + rot_cols_2)
+
+    dur_1t = 20.0  # default min
+    dur_2t = 20.0
+    if has_rots:
+        # Buscamos el jugador con más minutos en cada parte (probablemente
+        # cubre la parte completa)
+        max_1t = jp_sorted["min_1t"].max() if "min_1t" in jp_sorted.columns else 0
+        max_2t = jp_sorted["min_2t"].max() if "min_2t" in jp_sorted.columns else 0
+        dur_1t = max(20.0, float(max_1t or 0))
+        dur_2t = max(20.0, float(max_2t or 0))
+    dur_total = dur_1t + dur_2t
+
+    # ── Figura ──
+    h_per_row = 0.32
+    height = max(4.5, 1.5 + h_per_row * n)
+    fig, ax = plt.subplots(figsize=(11, height))
+
+    # Colores
+    COL_1T = "#A5D6A7"  # verde claro
+    COL_2T = "#90CAF9"  # azul claro
+    COL_PT_1T = "#FFE082"  # amarillo claro para porteros
+    COL_PT_2T = "#FFCC80"  # naranja claro para porteros
+    COL_BORDE = "#37474F"
+    COL_TEXTO = "#212121"
+
+    y_labels = []
+    for idx, (_, r) in enumerate(jp_sorted.iloc[::-1].iterrows()):
+        y = idx  # invertimos: el de más minutos arriba
+        es_p = r["_es_p"]
+        dorsal = int(r.get("dorsal", 0) or 0)
+        nombre = str(r.get("jugador", "")).upper()
+        min_total = float(r.get("min_total", 0) or 0)
+        y_labels.append(f"#{dorsal:>2} {nombre}")
+
+        # Dibujar rotaciones 1T → concatenadas desde x=0
+        if has_rots:
+            cur_x = 0.0
+            for c in rot_cols_1:
+                mins = float(r.get(c, 0) or 0)
+                if mins > 0:
+                    ax.barh(y, mins, left=cur_x, height=0.65,
+                             color=COL_PT_1T if es_p else COL_1T,
+                             edgecolor="white", linewidth=0.8)
+                    cur_x += mins
+            # 2T → desde dur_1t
+            cur_x = dur_1t
+            for c in rot_cols_2:
+                mins = float(r.get(c, 0) or 0)
+                if mins > 0:
+                    ax.barh(y, mins, left=cur_x, height=0.65,
+                             color=COL_PT_2T if es_p else COL_2T,
+                             edgecolor="white", linewidth=0.8)
+                    cur_x += mins
+        else:
+            # Fallback: dos bloques (1T + 2T) sin subdivisiones
+            m1 = float(r.get("min_1t", 0) or 0)
+            m2 = float(r.get("min_2t", 0) or 0)
+            if m1 > 0:
+                ax.barh(y, m1, left=0, height=0.65,
+                         color=COL_PT_1T if es_p else COL_1T, edgecolor=COL_BORDE, linewidth=0.5)
+            if m2 > 0:
+                ax.barh(y, m2, left=dur_1t, height=0.65,
+                         color=COL_PT_2T if es_p else COL_2T, edgecolor=COL_BORDE, linewidth=0.5)
+
+        # Total a la derecha
+        ax.text(dur_total + 0.5, y, _fmt_minutos(min_total),
+                 va="center", ha="left", fontsize=8, color=COL_TEXTO)
+
+    # Eje Y con nombres
+    ax.set_yticks(range(n))
+    ax.set_yticklabels(y_labels, fontsize=8)
+
+    # Eje X: 0..dur_1t = 1T, dur_1t..dur_total = 2T
+    ax.set_xlim(-1, dur_total + 4)
+    ax.set_ylim(-0.7, n - 0.3)
+    # Líneas verticales cada 5'
+    for m in range(0, int(dur_total) + 1, 5):
+        ax.axvline(m, color="#CFD8DC", linewidth=0.5, zorder=0)
+    # Separador 1T / 2T
+    ax.axvline(dur_1t, color=COL_BORDE, linewidth=1.5, zorder=1)
+    # Etiquetas eje X
+    xticks = list(range(0, int(dur_total) + 1, 5))
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([str(t) for t in xticks], fontsize=7)
+    ax.set_xlabel("Minutos (1ª parte 0-{}'  |  2ª parte {}'-{}')".format(
+        int(dur_1t), int(dur_1t), int(dur_total)), fontsize=9)
+
+    # Marcar goles
+    if not ep.empty and "minuto" in ep.columns:
+        for _, ev in ep.iterrows():
+            m = ev.get("minuto")
+            if pd.isna(m):
+                continue
+            try: m = float(m)
+            except: continue
+            es_inter = ev.get("equipo_marca") == "INTER"
+            color = "#2E7D32" if es_inter else "#C62828"
+            label = "GOL" if es_inter else "GC"
+            ax.axvline(m, color=color, linewidth=1.3, alpha=0.7, zorder=2,
+                        linestyle="--")
+            # Etiqueta encima en fondo color sólido para legibilidad
+            ax.text(m, n - 0.1, label, ha="center", va="bottom",
+                     fontsize=7, color="white", weight="bold",
+                     bbox=dict(boxstyle="round,pad=0.2", fc=color, ec="none"))
+
+    # Leyenda
+    handles = [
+        mpatches.Patch(color=COL_1T, label="1ª parte"),
+        mpatches.Patch(color=COL_2T, label="2ª parte"),
+        mpatches.Patch(color=COL_PT_1T, label="1ª (portero)"),
+        mpatches.Patch(color=COL_PT_2T, label="2ª (portero)"),
+    ]
+    ax.legend(handles=handles, loc="upper right", fontsize=7,
+              ncol=4, frameon=False, bbox_to_anchor=(1.0, 1.06))
+
+    ax.set_title("Cronograma de minutos en pista — rotaciones concatenadas + goles",
+                  fontsize=10, color=COL_TEXTO, pad=14)
+    ax.grid(False)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
 def _png_to_image(png_bytes: bytes, width: float, height: float) -> RLImage:
     """Wrapping a PNG byte buffer en un RLImage con tamaño deseado."""
     img = RLImage(io.BytesIO(png_bytes), width=width, height=height)
@@ -885,6 +1062,33 @@ def generar_pdf_partido(partido_id: str, sh=None,
             story.append(_png_to_image(png_chart, 17*cm, 8.5*cm))
         except Exception as _ec:
             story.append(Paragraph(f"(Error gráfico goles 5': {_ec})", p_caption))
+
+    # ── Cronograma horizontal de minutos en pista por jugador ──────────────
+    # Barras apiladas (1T + 2T) con cada rotación como sub-segmento + goles
+    # marcados como líneas verticales. NO es timeline cronológico exacto
+    # (no tenemos timestamps de cambios), pero da una visión clara de
+    # quién juega más, cómo se fragmenta su tiempo y cuándo se marcaron
+    # los goles.
+    try:
+        png_crono = _dibujar_cronograma_jugadores_mpl(jp, ep)
+        story.append(PageBreak())
+        story.append(Paragraph("⏱ Cronograma de minutos por jugador", h_seccion))
+        story.append(Paragraph(
+            "<font size='8' color='#666'>Cada barra es un jugador. Verde claro = "
+            "1ª parte · azul claro = 2ª parte · amarillo/naranja = portero. "
+            "Las líneas verticales discontinuas marcan los goles "
+            "(⚽ a favor · 🥅 en contra). El reparto de rotaciones se "
+            "muestra como sub-bloques dentro de cada barra, no como timeline "
+            "cronológico exacto.</font>",
+            p_body))
+        story.append(Spacer(1, 6))
+        # Altura proporcional al nº de jugadores (el png ya tiene su altura,
+        # pero ReportLab necesita medidas explícitas)
+        n_jug = int((jp["min_total"] > 0).sum()) if not jp.empty else 0
+        h_pdf = max(8, min(22, 2.4 + 0.5 * n_jug))
+        story.append(_png_to_image(png_crono, 18*cm, h_pdf*cm))
+    except Exception as _ec:
+        story.append(Paragraph(f"(Error cronograma: {_ec})", p_caption))
 
     # ── Rotaciones ──────────────────────────────────────────────────────────
     # Colores según minutos en una rotación (criterio del usuario):

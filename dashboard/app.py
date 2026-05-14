@@ -7184,20 +7184,12 @@ with tab_editar:
         ]
 
         def _conexion_sheet():
-            """Devuelve un objeto Spreadsheet ya abierto. Reusable por los
-            helpers de guardado de la pestaña Editar partido."""
-            import gspread
-            from google.oauth2.service_account import Credentials
-            SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
-                       "https://www.googleapis.com/auth/drive"]
-            creds_path = Path(__file__).parent.parent / "google_credentials.json"
-            if creds_path.exists():
-                creds = Credentials.from_service_account_file(str(creds_path), scopes=SCOPES)
-            else:
-                info = dict(st.secrets["gcp_service_account"])
-                creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-            gc = gspread.authorize(creds)
-            return gc.open(SHEET_NAME)
+            """Devuelve el handle del Spreadsheet ya CACHEADO globalmente.
+            Antes esta función reconectaba a Google en cada re-render del
+            editor (cada keystroke), por eso el ralentí. Ahora reusa el
+            handle cacheado en get_spreadsheet() y la conexión solo se
+            hace UNA vez por sesión."""
+            return get_spreadsheet()
 
         def _guardar_cabecera_totales(cab, totales_disp=None):
             """Crea/actualiza la fila de EST_TOTALES_PARTIDO para este

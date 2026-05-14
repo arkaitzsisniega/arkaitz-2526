@@ -564,7 +564,7 @@ df = pd.DataFrame(ss.worksheet('_VISTA_RECUENTO').get_all_records(value_render_o
 roster = pd.DataFrame(ss.worksheet('JUGADORES_ROSTER').get_all_records())
 fila = df[df['JUGADOR']=='PIRATA']
 d = roster[roster['nombre']=='PIRATA']['dorsal'].iloc[0] if not roster.empty else '?'
-print(f"Recuento jugador #{d}:")
+print(f"Recuento jugador #{{d}}:")
 print(fila[['SESIONES_CON_DATOS','PCT_PARTICIPACION','EST_S','EST_A','EST_L','EST_N','EST_D','EST_NC','EST_NJ','RETIRADAS','RETIRADAS_DETALLE']].to_string(index=False))
 ```
 
@@ -599,7 +599,7 @@ df = pd.DataFrame(ss.worksheet('_VISTA_RECUENTO').get_all_records(value_render_o
 roster = pd.DataFrame(ss.worksheet('JUGADORES_ROSTER').get_all_records())
 con_ret = df[df['RETIRADAS'] > 0].merge(roster[['dorsal','nombre']], left_on='JUGADOR', right_on='nombre')
 for _, r in con_ret.iterrows():
-    print(f"#{r['dorsal']}: {r['RETIRADAS']} retiradas — {r['RETIRADAS_DETALLE']}")
+    print(f"#{{r['dorsal']}}: {{r['RETIRADAS']}} retiradas — {{r['RETIRADAS_DETALLE']}}")
 ```
 
 13) "¿Cómo está / va Cecilio esta semana?" → ANALÍTICA: combinar carga +
