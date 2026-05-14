@@ -786,6 +786,13 @@ directamente la hoja con gspread.
   partido_id, ordenado por min_total.
 - "Rotaciones de X en el partido Y" → EST_PARTIDOS, columnas
   rot_1t_1..8 y rot_2t_1..8.
+- "Recuento de X" / "asistencia de X esta temporada" → _VISTA_RECUENTO
+  (incluye EST_S/A/L/N/D/NC/NJ + RETIRADAS + RETIRADAS_DETALLE).
+- "¿Quién entrenó el [fecha]?" → _VISTA_CARGA filtrado por FECHA.
+  Lista entrenaron (Borg numérico) + estados (Borg letra) + retirados
+  (BORG.INCIDENCIA no vacía).
+- "¿Quién está lesionado / se ha retirado?" → LESIONES activas (FECHA
+  ALTA vacía) + _VISTA_RECUENTO.RETIRADAS_DETALLE.
 
 ### ⚠ CONVENCIÓN DE LECTURA
 
