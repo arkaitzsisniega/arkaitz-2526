@@ -6,6 +6,18 @@ qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
 
 ---
 
+## 💶 PRESUPUESTO APROBADO — 75€/mes desde 1 junio 2026
+
+Movistar Inter FS ha aprobado **75 €/mes** para mejora sustancial de
+Streamlit + bots. Arranca **1 de junio**. Hasta entonces, mandato de
+Arkaitz: **profundizar al máximo, dejar bots niquelados y web volando.**
+
+Plan operativo en `docs/plan_junio_2026.md`. Incluye también el proyecto
+futuro de **bot de scouting de partido** (anotaciones de partido por voz
+durante el directo).
+
+---
+
 ## 🔔 ESTADO 15/5/2026 — sesión profundización (3h trabajando solo)
 
 Antes de presentar presupuesto al club Arkaitz pidió endurecer TODO.

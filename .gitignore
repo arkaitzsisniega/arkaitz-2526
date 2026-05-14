@@ -8,6 +8,7 @@ google_credentials.json
 !crono_partido/public/manifest.json
 !crono_partido/package.json
 !crono_partido/tsconfig.json
+!gastos_bot/gastos_fijos_PLANTILLA.json
 .streamlit/secrets_PLANTILLA.toml
 .streamlit/secrets.toml
 

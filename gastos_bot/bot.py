@@ -53,7 +53,16 @@ from categorias import CATEGORIAS, categorizar
 from clasificador_gemini import clasificar as clasificar_con_claude  # nombre histórico, ahora Gemini
 from intencion import detectar_intencion
 from parser import GastoParseado, parsear
+import gastos_fijos
 import sheets
+
+# Zona horaria Madrid para JobQueue (gastos fijos se aplican a las 09:00
+# hora local, no UTC).
+try:
+    from zoneinfo import ZoneInfo
+    TZ_MADRID = ZoneInfo("Europe/Madrid")
+except Exception:
+    TZ_MADRID = None  # fallback: usará UTC
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 HERE = Path(__file__).resolve().parent
@@ -499,6 +508,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"({p['categoria']})",
             parse_mode=constants.ParseMode.MARKDOWN,
         )
+        # Tras apuntar, mandamos automáticamente el resumen del mes en
+        # curso: total + por categorías + cronología concepto a concepto.
+        # Lo hacemos en best-effort: si Sheets va lento, no bloquea ni
+        # estropea la confirmación.
+        try:
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            if chat_id is not None:
+                await _enviar_resumen_post_apunte(ctx, chat_id)
+        except Exception as e:
+            log.warning("No pude enviar el resumen tras apunte: %s", e)
 
 
 # ─── Resúmenes ───────────────────────────────────────────────────────────────
@@ -544,6 +563,70 @@ async def _enviar_resumen_semana(update: Update):
         f"📅 Últimos 7 días ({desde.strftime('%d/%m')} – {hoy.strftime('%d/%m')})", rows
     )
     await update.message.reply_text(txt, parse_mode=constants.ParseMode.MARKDOWN)
+
+
+async def _enviar_resumen_post_apunte(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Tras apuntar un gasto, manda al chat:
+      1) Resumen del mes en curso (total + por categorías + %).
+      2) Cronología completa concepto a concepto.
+
+    No depende de `update.message` (estamos respondiendo a un callback) —
+    usa `ctx.bot.send_message(chat_id, ...)` directamente.
+    """
+    hoy = _dt.date.today()
+    desde = hoy.replace(day=1)
+    try:
+        todas = sheets.leer_todos()
+    except Exception as e:
+        log.warning("Resumen post-apunte: error leyendo Sheet: %s", e)
+        return
+
+    # ── 1) Resumen por categoría ──────────────────────────────
+    rows_cat = _filtrar(todas, desde, hoy)
+    nombre_mes = NOMBRES_MESES[hoy.month].capitalize() + f" {hoy.year}"
+    txt_resumen = _formatear_resumen(f"📅 {nombre_mes}", rows_cat)
+    await ctx.bot.send_message(
+        chat_id, txt_resumen, parse_mode=constants.ParseMode.MARKDOWN
+    )
+
+    # ── 2) Cronología detallada ──────────────────────────────
+    rows_cron = _filtrar_por_periodo(todas, desde, hoy)
+    if not rows_cron:
+        return
+    rows_ord = sorted(
+        rows_cron,
+        key=lambda r: (r.get("_fecha") or _dt.date.min,
+                       -(r.get("_cantidad") or 0)),
+    )
+    total = sum(r.get("_cantidad", 0) for r in rows_ord)
+    cab = (
+        f"🧾 *Cronología {nombre_mes}* — {len(rows_ord)} gastos · "
+        f"{fmt_eur(total)}\n"
+    )
+    bloques: list[str] = []
+    actual = cab
+    for r in rows_ord:
+        fecha = r.get("_fecha")
+        ftxt = (fecha.strftime("%d/%m") if isinstance(fecha, _dt.date)
+                else str(r.get("fecha", "")))
+        concepto = str(r.get("concepto", "")).strip()
+        cant = r.get("_cantidad", 0)
+        cat = str(r.get("categoria", ""))
+        quien_apunta = str(r.get("quien_apunta", ""))
+        linea = (
+            f"`{ftxt}` {fmt_eur(cant):>9} — {concepto} "
+            f"_({cat}, {quien_apunta})_"
+        )
+        if len(actual) + len(linea) + 1 > 3500:
+            bloques.append(actual)
+            actual = ""
+        actual += "\n" + linea
+    if actual.strip():
+        bloques.append(actual)
+    for b in bloques:
+        await ctx.bot.send_message(
+            chat_id, b, parse_mode=constants.ParseMode.MARKDOWN
+        )
 
 
 async def _enviar_resumen_mes_actual(update: Update):
@@ -786,6 +869,87 @@ async def cmd_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ─── Gastos fijos (día 1 de cada mes) ────────────────────────────────────────
+async def _job_aplicar_gastos_fijos(ctx: ContextTypes.DEFAULT_TYPE):
+    """Job de JobQueue que se dispara automáticamente el día 1 a las 09:00
+    hora Madrid. Aplica los gastos fijos configurados y manda mensaje a
+    todos los usuarios autorizados con el detalle de lo aplicado."""
+    try:
+        insertados, errores = gastos_fijos.aplicar()
+    except Exception as e:
+        log.exception("Job gastos fijos falló: %s", e)
+        return
+    if not insertados and not errores:
+        # Nada que reportar (ya aplicados o sin config)
+        return
+    msg = gastos_fijos.resumen_para_telegram(insertados, errores)
+    destinatarios = ALLOWED or set()
+    for chat_id in destinatarios:
+        try:
+            await ctx.bot.send_message(
+                chat_id, msg, parse_mode=constants.ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            log.warning("No pude avisar de gastos fijos a %s: %s", chat_id, e)
+
+
+async def _chequear_gastos_fijos_al_arrancar(app: Application):
+    """Al iniciar el bot, si estamos en día >= 1 y los gastos fijos del
+    mes en curso NO se han aplicado todavía, se aplican ahora (recupera
+    el caso de que el bot estuviera apagado el día 1)."""
+    hoy = _dt.date.today()
+    if gastos_fijos.ya_aplicado():
+        log.info("Gastos fijos del mes %s ya aplicados — skip al arrancar.",
+                 hoy.strftime("%Y-%m"))
+        return
+    try:
+        insertados, errores = gastos_fijos.aplicar()
+    except Exception as e:
+        log.exception("Aplicación al arrancar falló: %s", e)
+        return
+    if not insertados and not errores:
+        return
+    msg = "🔄 *Recuperando gastos fijos al arrancar:*\n\n" + \
+          gastos_fijos.resumen_para_telegram(insertados, errores)
+    for chat_id in (ALLOWED or set()):
+        try:
+            await app.bot.send_message(
+                chat_id, msg, parse_mode=constants.ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            log.warning("No pude avisar al arrancar a %s: %s", chat_id, e)
+
+
+async def cmd_gastos_fijos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Aplica AHORA los gastos fijos del mes (manualmente). Sirve si el
+    bot estaba apagado el día 1 o si los has añadido a media."""
+    if not autorizado(update):
+        return
+    args = [a.lower() for a in (ctx.args or [])]
+    forzar = "--force" in args or "--forzar" in args or "force" in args
+    config = gastos_fijos.cargar_config()
+    if not config:
+        await update.message.reply_text(
+            "ℹ️ No tienes gastos fijos configurados. Copia "
+            "`gastos_fijos_PLANTILLA.json` → `gastos_fijos.json` y edítalo.",
+            parse_mode=constants.ParseMode.MARKDOWN,
+        )
+        return
+    try:
+        insertados, errores = gastos_fijos.aplicar(forzar=forzar)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error aplicando gastos fijos: {e}")
+        return
+    if not insertados and not forzar:
+        await update.message.reply_text(
+            "✅ Ya estaban aplicados los gastos fijos de este mes. "
+            "Usa `/gastos_fijos --force` para forzar."
+        )
+        return
+    msg = gastos_fijos.resumen_para_telegram(insertados, errores)
+    await update.message.reply_text(msg, parse_mode=constants.ParseMode.MARKDOWN)
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 def main():
     if not TOKEN:
@@ -795,7 +959,12 @@ def main():
     if not ALLOWED:
         log.warning("ALLOWED_CHAT_IDS vacío: el bot aceptará a CUALQUIERA. Configúralo.")
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(_chequear_gastos_fijos_al_arrancar)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("id", cmd_id))
@@ -805,10 +974,26 @@ def main():
     app.add_handler(CommandHandler("ultimos", cmd_ultimos))
     app.add_handler(CommandHandler("borrar", cmd_borrar))
     app.add_handler(CommandHandler("categoria", cmd_categoria))
+    app.add_handler(CommandHandler("gastos_fijos", cmd_gastos_fijos))
 
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    # ── JobQueue: gastos fijos día 1 a las 09:00 Madrid ─────────────────────
+    if app.job_queue is not None:
+        hora_local = _dt.time(hour=9, minute=0, tzinfo=TZ_MADRID) \
+            if TZ_MADRID else _dt.time(hour=7, minute=0)  # 07 UTC ≈ 09 Madrid
+        app.job_queue.run_monthly(
+            _job_aplicar_gastos_fijos,
+            when=hora_local,
+            day=1,
+            name="gastos_fijos_mensuales",
+        )
+        log.info("JobQueue: gastos fijos cada día 1 a las %s.", hora_local)
+    else:
+        log.warning("JobQueue no disponible: no se aplicarán gastos fijos automáticos. "
+                    "Instala 'python-telegram-bot[job-queue]'.")
 
     log.info("Bot de gastos arrancado. Usuarios autorizados: %s", sorted(ALLOWED) or "TODOS")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

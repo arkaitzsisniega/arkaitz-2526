@@ -1,0 +1,31 @@
+{
+  "_comentario": "Plantilla de gastos fijos mensuales. Copia este fichero a 'gastos_fijos.json' (sin _PLANTILLA) y edítalo con tus gastos reales. Se aplican automáticamente el día 1 de cada mes a las 09:00 hora Madrid. Si el bot estaba apagado el día 1, se aplican al arrancar.",
+  "_categorias_disponibles": [
+    "Supermercado", "Restaurantes", "Casa", "Alquiler/Hipoteca",
+    "Transporte", "Salud", "Ocio", "Compras", "Mascotas",
+    "Fin de semana", "Otros"
+  ],
+  "gastos_fijos": [
+    {
+      "concepto": "Alquiler",
+      "cantidad": 850,
+      "categoria": "Alquiler/Hipoteca",
+      "quien": "Arkaitz",
+      "notas": "Gasto fijo mensual"
+    },
+    {
+      "concepto": "Netflix",
+      "cantidad": 12.99,
+      "categoria": "Ocio",
+      "quien": "Lis",
+      "notas": "Suscripción"
+    },
+    {
+      "concepto": "Seguro coche",
+      "cantidad": 45,
+      "categoria": "Transporte",
+      "quien": "Arkaitz",
+      "notas": "Mensualidad seguro"
+    }
+  ]
+}

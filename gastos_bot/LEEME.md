@@ -111,7 +111,54 @@ y 3 botones:
 | `/borrar` | Borra TU último gasto (no el de Lis) |
 | `/categoria <nombre>` | Cambia la categoría de TU último gasto |
 | `/categorias` | Lista de categorías disponibles |
+| `/gastos_fijos` | Aplica AHORA los gastos fijos del mes (manual) |
+| `/gastos_fijos --force` | Reaplica aunque ya estuvieran este mes |
 | `/id` | Tu chat_id (para autorizar a alguien nuevo) |
+
+### Tras apuntar un gasto — resumen automático
+Cuando confirmas un gasto con "✅ Apuntar", el bot **te manda automáticamente**:
+1. El **resumen del mes en curso** (total + desglose por categoría con %).
+2. La **cronología completa** del mes: concepto a concepto, en orden de
+   fecha, con cantidad, categoría y quién lo apuntó.
+
+Sin tener que pedir nada. Si quieres ver el resumen sin apuntar, sigue
+existiendo `/resumen_mes`.
+
+### Gastos fijos mensuales — automatización día 1
+
+El bot puede inyectar **automáticamente** tus gastos recurrentes (alquiler,
+suscripciones, seguros, etc.) el día 1 de cada mes a las 09:00 hora Madrid.
+
+**Configuración (5 minutos, una sola vez)**:
+1. Copia el archivo `gastos_fijos_PLANTILLA.json` a `gastos_fijos.json`
+   (sin `_PLANTILLA`):
+   ```bash
+   cd gastos_bot
+   cp gastos_fijos_PLANTILLA.json gastos_fijos.json
+   ```
+2. Ábrelo con cualquier editor y edita la lista con tus gastos reales:
+   ```json
+   {
+     "gastos_fijos": [
+       {"concepto": "Alquiler", "cantidad": 850,
+        "categoria": "Alquiler/Hipoteca", "quien": "Arkaitz",
+        "notas": "Gasto fijo mensual"},
+       ...
+     ]
+   }
+   ```
+3. Reinicia el bot (`Ctrl+C` y `./iniciar.sh`).
+
+**Cómo funciona**:
+- El día 1 a las 09:00 (hora Madrid) el bot añade todas las filas al Sheet
+  y os manda mensaje a Arkaitz y a Lis con el detalle de lo aplicado.
+- Si el bot estaba **apagado** el día 1, al arrancar comprueba si ya se
+  aplicaron este mes; si no, los aplica al momento.
+- Si quieres dispararlos a mano sin esperar: `/gastos_fijos`.
+- Si ya estaban aplicados y quieres reaplicar (caso raro): `/gastos_fijos --force`.
+
+**Importante**: `gastos_fijos.json` está en `.gitignore` (contenido personal).
+La plantilla `gastos_fijos_PLANTILLA.json` SÍ se sube al repo como referencia.
 
 ---
 
@@ -119,15 +166,18 @@ y 3 botones:
 
 ```
 gastos_bot/
-├── bot.py            # Bot principal (Telegram)
-├── parser.py         # Texto/voz → cantidad + concepto
-├── categorias.py     # Mapeo concepto → categoría por keywords
-├── sheets.py         # Wrapper gspread (append, leer, borrar)
-├── crear_sheet.py    # Inicializa la hoja GASTOS (1 vez)
-├── iniciar.sh        # Lanza el bot
+├── bot.py                          # Bot principal (Telegram)
+├── parser.py                       # Texto/voz → cantidad + concepto
+├── categorias.py                   # Mapeo concepto → categoría por keywords
+├── sheets.py                       # Wrapper gspread (append, leer, borrar)
+├── gastos_fijos.py                 # Lógica de gastos fijos mensuales
+├── gastos_fijos_PLANTILLA.json     # Plantilla de gastos fijos (committed)
+├── gastos_fijos.json               # TU configuración real (gitignored)
+├── crear_sheet.py                  # Inicializa la hoja GASTOS (1 vez)
+├── iniciar.sh                      # Lanza el bot
 ├── requirements.txt
-├── .env              # Token + Sheet ID + chat_ids (gitignored)
-└── LEEME.md          # Este archivo
+├── .env                            # Token + Sheet ID + chat_ids (gitignored)
+└── LEEME.md                        # Este archivo
 ```
 
 ## 🔒 Privacidad
