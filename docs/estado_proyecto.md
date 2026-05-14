@@ -18,7 +18,69 @@ durante el directo).
 
 ---
 
-## 🔔 ESTADO 15/5/2026 — sesión profundización (3h trabajando solo)
+## 🔔 ESTADO 15/5/2026 (TARDE-NOCHE) — segunda tanda con Arkaitz
+
+Resumen de qué se cerró tras la sesión sola de la mañana. Detalle completo
+en `docs/sesion_15-05-2026_tarde_pendiente.md` y `docs/pendiente_manana_16-05-2026.md`.
+
+### Crono iPad — fix definitivo
+- Causa raíz del "no me deja clickar": Turbopack del dev server no
+  hidrataba en iOS Safari. Confirmado con página de diagnóstico `/test-tap`.
+- Solución: build estático (`output: 'export'`) + despliegue en GitHub Pages.
+- URL nueva: `https://arkaitzsisniega.github.io/arkaitz-2526/crono/`
+- Defensas en profundidad: `hoyISO()` ahora local (no UTC); `useState(fecha)`
+  se inicializa vacío y rellena en useEffect.
+
+### Alfred — niquelado funcional
+- 3 palancas en `/ejercicios` (parser regex sin LLM cuando el texto
+  está estructurado · cache `_OLIVER_SESIONES` antes de paginar API ·
+  respuesta async "Recibido, procesando" + worker background).
+- Mismo patrón async aplicado a `/consolidar` (4 subprocesos chained
+  que ahora corren en background con progress messages 1/4, 2/4…).
+- Comando nuevo `/status` — health check en vivo (Sheet, vistas,
+  Gemini, Oliver token, faster-whisper, estado_jugador).
+- Atajo nuevo SIN LLM: "goles de X jugador" (`src/goles_jugador.py`).
+  Diferenciado del ranking general — específico por jugador con
+  cronología partido a partido. En ambos bots.
+
+### Gastos bot — features pedidas por Arkaitz
+- Tras apuntar cualquier gasto, mensaje automático con: resumen del
+  mes (total + por categorías + %) + cronología concepto a concepto.
+- Gastos fijos automáticos día 1 a las 09:00 Madrid vía JobQueue.
+- Campo opcional `meses: [...]` para gastos no mensuales (alarma
+  trimestral, seguros anuales).
+- Datos reales de Arkaitz guardados en `gastos_bot/gastos_fijos.json`
+  (gitignored): jardinero/Tatiana/Netflix/préstamo placas/Lowi + alarma
+  trimestral. 477,90 €/mes + 104,59 € en ene/abr/jul/oct.
+- Smoke test independiente `tests/smoke_gastos_bot.py` (10/10).
+- `requirements.txt` extendido con `python-telegram-bot[job-queue]`.
+
+### SA read-only del bot_datos
+- En Mac casa: SA creada, JSON descargado, Sheet compartido como Lector,
+  `.env` local actualizado.
+- En servidor (mañana, vía SSH desde LAN del Inter): `scp` del JSON,
+  edit `.env`, `pip install` (auto_pull NO instala deps), reinicio del
+  bot_datos.
+
+### Infra documentada
+- Memoria persistente `feedback_infra_bots.md`: bots en mac viejo de
+  oficina 24/7, auto_pull cada 5 min (solo git pull + kickstart, NO
+  pip install), SSH solo en LAN del Inter, SÍ hay LaunchAgents
+  (`com.arkaitz.bot/.bot_datos/.gastos_bot/.autopull`).
+- Arkaitz siempre en casa salvo visitas a oficina. Cualquier acción
+  que requiera SSH se acumula para la próxima visita.
+
+### Pendiente para mañana 16/5 (oficina, vía SSH/LAN)
+1. Probar crono en iPad real.
+2. `pip install -r requirements.txt` en gastos_bot del servidor.
+3. `scp gastos_fijos.json` al servidor.
+4. Cerrar SA read-only en el servidor.
+5. Confirmar Alfred `/ejercicios` + `/status` + nuevo atajo "goles de X"
+   en producción.
+
+---
+
+## 🔔 ESTADO 15/5/2026 (MAÑANA) — sesión profundización (3h trabajando solo)
 
 Antes de presentar presupuesto al club Arkaitz pidió endurecer TODO.
 Sesión sola con auditoría exhaustiva. Detalle completo en

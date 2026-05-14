@@ -1521,91 +1521,100 @@ async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Lee _FORM_PRE y _FORM_POST, los integra en BORG/PESO/WELLNESS y
-    luego recalcula todas las vistas para que el dashboard se actualice."""
+    luego recalcula todas las vistas.
+
+    ⚡ ASYNC: responde inmediatamente con acuse y lanza el flujo de 4
+    subprocesos en background. Cada paso emite su propio mensaje al chat
+    según va completándose. El bot queda libre para atender otros mensajes.
+    Antes, el flujo entero podía tardar hasta 22 min con "escribiendo…"
+    eterno.
+    """
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🔄 Consolidando respuestas de los Forms…")
-    stop = asyncio.Event()
-    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
-    try:
-        rc, out, err = await _run_script(PROJECT_DIR / "src" / "consolidar_forms.py", timeout=300)
-    finally:
-        stop.set()
-        try: await task
-        except Exception: pass
-    if rc != 0:
-        await update.message.reply_text(
-            f"❌ Error consolidando (código {rc}):\n{(err or out)[:1500]}"
-        )
-        return
-    await _enviar_bloques(update, out)
+    await update.message.reply_text(
+        "✅ Recibido. Consolidando en segundo plano (4 pasos: forms → "
+        "vistas → fisios → lanzamientos). Te aviso paso a paso conforme "
+        "vayan terminando."
+    )
+    asyncio.create_task(_consolidar_worker(chat_id, update, ctx))
 
-    # Después de consolidar, recalcular vistas para que el dashboard refleje los datos
-    await update.message.reply_text("🧮 Recalculando vistas para el dashboard…")
-    stop2 = asyncio.Event()
-    task2 = asyncio.create_task(_keep_typing(chat_id, ctx, stop2))
-    try:
-        rc2, out2, err2 = await _run_script(PROJECT_DIR / "src" / "calcular_vistas.py", timeout=600)
-    finally:
-        stop2.set()
-        try: await task2
-        except Exception: pass
-    if rc2 != 0:
-        await update.message.reply_text(
-            f"⚠️ Consolidación OK pero el recálculo de vistas falló:\n{(err2 or out2)[-1500:]}"
-        )
-        return
 
-    # Recalcular vistas FISIOS (Lesiones, Tratamientos, Temperatura)
-    await update.message.reply_text("🏥 Recalculando vistas de fisios…")
-    stop3 = asyncio.Event()
-    task3 = asyncio.create_task(_keep_typing(chat_id, ctx, stop3))
+async def _consolidar_worker(chat_id: int, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Tarea de fondo del /consolidar — 4 pasos chained, emite progreso."""
     try:
+        # ── 1) Consolidar Forms → BORG/PESO/WELLNESS ────────────────────
+        await ctx.bot.send_message(chat_id, "🔄 (1/4) Consolidando respuestas de los Forms…")
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "consolidar_forms.py", timeout=300)
+        if rc != 0:
+            await ctx.bot.send_message(
+                chat_id, f"❌ Error consolidando (código {rc}):\n{(err or out)[:1500]}"
+            )
+            return
+        try:
+            await _enviar_bloques(update, out)
+        except Exception:
+            await ctx.bot.send_message(chat_id, out[-3500:] or "(sin salida)")
+
+        # ── 2) Recalcular vistas principales ───────────────────────────
+        await ctx.bot.send_message(chat_id, "🧮 (2/4) Recalculando vistas para el dashboard…")
+        rc2, out2, err2 = await _run_script(
+            PROJECT_DIR / "src" / "calcular_vistas.py", timeout=600)
+        if rc2 != 0:
+            await ctx.bot.send_message(
+                chat_id,
+                f"⚠️ Consolidación OK pero el recálculo de vistas falló:\n"
+                f"{(err2 or out2)[-1500:]}"
+            )
+            return
+
+        # ── 3) Recalcular vistas FISIOS (no bloqueante) ────────────────
+        await ctx.bot.send_message(chat_id, "🏥 (3/4) Recalculando vistas de fisios…")
         rc3, out3, err3 = await _run_script(
             PROJECT_DIR / "src" / "calcular_vistas_fisios.py", timeout=300)
-    finally:
-        stop3.set()
-        try: await task3
-        except Exception: pass
-    if rc3 != 0:
-        await update.message.reply_text(
-            f"⚠️ Vistas principales OK pero las de fisios fallaron:\n{(err3 or out3)[-1000:]}"
-        )
-        # No abortamos: el dashboard principal sigue actualizado
+        if rc3 != 0:
+            await ctx.bot.send_message(
+                chat_id,
+                f"⚠️ Vistas principales OK pero las de fisios fallaron:\n"
+                f"{(err3 or out3)[-1000:]}"
+            )
+            # No abortamos: dashboard principal sigue actualizado
 
-    # Sincronizar Sheet de Lanzamientos (cuerpo técnico) → EST_SCOUTING_PEN_10M.
-    # Imprime también lista de lanzamientos con info incompleta del portero.
-    await update.message.reply_text("🎯 Sincronizando lanzamientos del cuerpo técnico…")
-    stop4 = asyncio.Event()
-    task4 = asyncio.create_task(_keep_typing(chat_id, ctx, stop4))
-    try:
+        # ── 4) Sincronizar lanzamientos del cuerpo técnico ─────────────
+        await ctx.bot.send_message(chat_id, "🎯 (4/4) Sincronizando lanzamientos del cuerpo técnico…")
         rc4, out4, err4 = await _run_script(
             PROJECT_DIR / "src" / "sincronizar_lanzamientos.py", timeout=120)
-    finally:
-        stop4.set()
-        try: await task4
-        except Exception: pass
-    if rc4 != 0:
-        await update.message.reply_text(
-            f"⚠️ Lanzamientos no se sincronizaron:\n{(err4 or out4)[-800:]}"
-        )
-    else:
-        # Enviamos el bloque de lanzamientos (incluye lista de incompletos si los hay)
-        await _enviar_bloques(update, out4)
+        if rc4 != 0:
+            await ctx.bot.send_message(
+                chat_id, f"⚠️ Lanzamientos no se sincronizaron:\n{(err4 or out4)[-800:]}"
+            )
+        else:
+            try:
+                await _enviar_bloques(update, out4)
+            except Exception:
+                if out4 and out4.strip():
+                    await ctx.bot.send_message(chat_id, out4[-3500:])
 
-    await update.message.reply_text(
-        "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
-    )
-    _registrar_accion_local(
-        chat_id,
-        "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS, "
-        "vistas principales + fisios recalculadas, y Sheet de Lanzamientos del "
-        "cuerpo técnico sincronizado con EST_SCOUTING_PEN_10M. Si había "
-        "lanzamientos con info incompleta del portero, ya se ha avisado al usuario. "
-        "El dashboard YA está actualizado."
-    )
+        await ctx.bot.send_message(
+            chat_id,
+            "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
+        )
+        _registrar_accion_local(
+            chat_id,
+            "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS, "
+            "vistas principales + fisios recalculadas, y Sheet de Lanzamientos del "
+            "cuerpo técnico sincronizado con EST_SCOUTING_PEN_10M. Si había "
+            "lanzamientos con info incompleta del portero, ya se ha avisado al usuario. "
+            "El dashboard YA está actualizado."
+        )
+    except Exception as e:
+        log.exception("Worker /consolidar falló: %s", e)
+        try:
+            await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /consolidar: {e}")
+        except Exception:
+            pass
 
 
 async def cmd_ejercicios_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2717,6 +2726,70 @@ def _detectar_intent_ranking(prompt: str):
     return (cat_found, comp)
 
 
+def _detectar_intent_goles_jugador(prompt: str):
+    """'goles de Pirata' / 'cuántos goles ha metido Raya' / 'Javi goles liga'.
+
+    Devuelve (nombre_canonico, competicion) o None. Distinto del ranking
+    'ranking goleadores' (varios jugadores) — este es UN solo jugador.
+
+    Para evitar falsos positivos con _detectar_intent_ranking, este detector
+    debe llamarse ANTES del ranking en la cadena, y solo matchea cuando
+    encuentra UN jugador concreto en el prompt.
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+
+    # No matchear si pide ranking general
+    bloqueadores = ("ranking", "lista de", "top ", "quien mete mas",
+                     "quien marca mas", "maximo goleador", "max goleador",
+                     "mejor goleador")
+    if any(b in p for b in bloqueadores):
+        return None
+
+    # Hay que detectar palabra "gol/goles" Y un nombre de jugador del roster
+    if not any(kw in p for kw in ("goles", "gol ", " gol")):
+        return None
+
+    # Importar el roster para detectar el nombre en el prompt
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+
+    # Buscamos cualquier forma del nombre (canónico o alias)
+    candidatos = set()
+    for nombre in ROSTER_CANONICO:
+        if nombre.lower() in p:
+            candidatos.add(nombre)
+    for alias, canon in ALIASES_JUGADOR.items():
+        if alias.lower() in p:
+            candidatos.add(canon)
+    if len(candidatos) != 1:
+        # 0 = no menciona jugador → no es intent específico
+        # >1 = ambiguo (mencionar dos) → mejor que Gemini razone
+        return None
+
+    nombre = next(iter(candidatos))
+
+    # Competición opcional
+    comp = "TODAS"
+    for kw, val in (
+        ("en liga", "LIGA"), (" liga", "LIGA"),
+        ("copa del rey", "COPA_REY"), ("copa rey", "COPA_REY"),
+        ("copa de espana", "COPA_ESPANA"), ("copa espana", "COPA_ESPANA"),
+        ("copa del mundo", "COPA_MUNDO"), ("mundial", "COPA_MUNDO"),
+        ("amistoso", "AMISTOSO"), ("playoff", "PLAYOFF"),
+        ("supercopa", "SUPERCOPA"), ("temporada", "TODAS"),
+    ):
+        if kw in p:
+            comp = val; break
+    return (nombre, comp)
+
+
 def _detectar_intent_lesiones(prompt: str) -> bool:
     """'lesiones activas' / 'quién está lesionado' / 'bajas del equipo'."""
     if not prompt:
@@ -2748,6 +2821,23 @@ def _run_carga_ultima(fecha: str = "") -> str:
         args, timeout=60,
     )
     return (f"⚠️ Error al consultar carga: {res.salida}" if not res.ok else res.salida)
+
+
+def _run_goles_jugador(nombre: str, competicion: str = "TODAS") -> str:
+    """Ejecuta src/goles_jugador.py. Devuelve la salida lista para Telegram."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [nombre]
+    if competicion and competicion != "TODAS":
+        args.append(competicion)
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "goles_jugador.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar goles: {res.salida}" if not res.ok else res.salida)
 
 
 def _run_ranking_temporada(categoria: str, competicion: str = "TODAS") -> str:
@@ -2817,6 +2907,19 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         # Alfred = admin: nombres reales (sin --por-dorsal)
         salida = await asyncio.to_thread(_run_lesiones_activas, False)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
+    # Goles de UN jugador concreto (más específico que ranking, va antes)
+    intent_gj = _detectar_intent_goles_jugador(prompt)
+    if intent_gj is not None:
+        nombre, comp = intent_gj
+        log.info("ATAJO intent=goles_jugador nombre=%s comp=%s (prompt='%s')",
+                 nombre, comp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_goles_jugador, nombre, comp)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try: await update.message.reply_text(trozo, parse_mode="Markdown")
             except Exception: await update.message.reply_text(trozo)

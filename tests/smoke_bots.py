@@ -220,10 +220,14 @@ tests = [
     ('carga jugador por jugador de ayer',  'carga'),
     ('borg del entreno del 13 de mayo',  'carga'),
     ('estado de Pirata',         'estado'),
+    ('goles de Pirata',          'goles_jugador'),
+    ('cuantos goles ha metido Raya',  'goles_jugador'),
+    ('Javi goles en liga',       'goles_jugador'),
 ]
 results = []
 for prompt, expected in tests:
     if mod._detectar_intent_lesiones(prompt): m = 'lesiones'
+    elif mod._detectar_intent_goles_jugador(prompt) is not None: m = 'goles_jugador'
     elif mod._detectar_intent_ranking(prompt) is not None: m = 'ranking'
     elif mod._detectar_intent_carga_ultima(prompt) is not None: m = 'carga'
     elif mod._detectar_intent_estado(prompt) is not None: m = 'estado'

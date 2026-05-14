@@ -1875,6 +1875,54 @@ def _detectar_intent_ranking(prompt: str) -> Optional[Tuple[str, str]]:
     return (cat_found, comp)
 
 
+def _detectar_intent_goles_jugador(prompt: str):
+    """'goles de Pirata', 'cuántos goles Raya', 'Javi goles liga'.
+
+    Devuelve (canonico, competicion) o None. Distinto del ranking general
+    (varios jugadores) — éste es UN solo jugador. Por eso va ANTES del
+    ranking en la cadena de despacho: más específico primero.
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    bloqueadores = ("ranking", "lista de", "top ", "quien mete mas",
+                     "quien marca mas", "maximo goleador", "max goleador",
+                     "mejor goleador")
+    if any(b in p for b in bloqueadores):
+        return None
+    if not any(kw in p for kw in ("goles", "gol ", " gol")):
+        return None
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+    candidatos = set()
+    for nombre in ROSTER_CANONICO:
+        if nombre.lower() in p:
+            candidatos.add(nombre)
+    for alias, canon in ALIASES_JUGADOR.items():
+        if alias.lower() in p:
+            candidatos.add(canon)
+    if len(candidatos) != 1:
+        return None
+    nombre = next(iter(candidatos))
+    comp = "TODAS"
+    for kw, val in (
+        ("en liga", "LIGA"), (" liga", "LIGA"),
+        ("copa del rey", "COPA_REY"), ("copa rey", "COPA_REY"),
+        ("copa de espana", "COPA_ESPANA"), ("copa espana", "COPA_ESPANA"),
+        ("copa del mundo", "COPA_MUNDO"), ("mundial", "COPA_MUNDO"),
+        ("amistoso", "AMISTOSO"), ("playoff", "PLAYOFF"),
+        ("supercopa", "SUPERCOPA"), ("temporada", "TODAS"),
+    ):
+        if kw in p:
+            comp = val; break
+    return (nombre, comp)
+
+
 def _detectar_intent_lesiones(prompt: str) -> bool:
     """Detecta preguntas tipo:
       - "lesiones activas"
@@ -1917,6 +1965,23 @@ def _run_lesiones_activas(por_dorsal: bool = True) -> str:
     if not res.ok:
         return f"⚠️ Error al consultar lesiones: {res.salida}"
     return res.salida
+
+
+def _run_goles_jugador(nombre: str, competicion: str = "TODAS") -> str:
+    """Ejecuta src/goles_jugador.py — goles de UN jugador."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    args = [nombre]
+    if competicion and competicion != "TODAS":
+        args.append(competicion)
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "goles_jugador.py"),
+        args, timeout=60,
+    )
+    return (f"⚠️ Error al consultar goles: {res.salida}" if not res.ok else res.salida)
 
 
 def _run_ranking_temporada(categoria: str, competicion: str = "TODAS") -> str:
@@ -1989,6 +2054,23 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
                  chat_id, prompt[:80])
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         salida = await asyncio.to_thread(_run_lesiones_activas, True)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
+
+    # ── ATAJO sin LLM: goles de UN jugador concreto ──
+    # "goles de Pirata", "cuántos goles Raya", "Javi goles liga".
+    # Más específico que el ranking → va antes.
+    intent_gj = _detectar_intent_goles_jugador(prompt)
+    if intent_gj is not None:
+        nombre, comp = intent_gj
+        log.info("[%s] ATAJO intent=goles_jugador nombre=%s comp=%s (prompt='%s')",
+                 chat_id, nombre, comp, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_goles_jugador, nombre, comp)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try:
                 await update.message.reply_text(trozo, parse_mode="Markdown")
