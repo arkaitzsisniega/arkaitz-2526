@@ -48,7 +48,12 @@ def _periodo_actual(fecha: Optional[_dt.date] = None) -> str:
 
 
 def cargar_config() -> list[dict]:
-    """Devuelve la lista de gastos fijos (lista vacía si no hay config)."""
+    """Devuelve la lista de gastos fijos (lista vacía si no hay config).
+
+    Cada gasto admite un campo opcional `meses` (lista de números 1-12).
+    Si está, el gasto solo se aplica en esos meses (ej: alarma trimestral
+    → `"meses": [1, 4, 7, 10]`). Si no está, se aplica TODOS los meses.
+    """
     if not CONFIG_FILE.is_file():
         return []
     try:
@@ -58,7 +63,6 @@ def cargar_config() -> list[dict]:
         log.error("gastos_fijos.json inválido: %s", e)
         return []
     fijos = data.get("gastos_fijos") or []
-    # Validación mínima: tienen que tener concepto + cantidad
     out = []
     for g in fijos:
         if not isinstance(g, dict):
@@ -71,8 +75,28 @@ def cargar_config() -> list[dict]:
         except (TypeError, ValueError):
             log.warning("Gasto fijo con cantidad inválida descartado: %s", g)
             continue
+        # Validar campo opcional `meses`
+        meses = g.get("meses")
+        if meses is not None:
+            try:
+                meses_norm = [int(m) for m in meses]
+                if not all(1 <= m <= 12 for m in meses_norm):
+                    raise ValueError("meses fuera de rango 1-12")
+                g["meses"] = meses_norm
+            except (TypeError, ValueError) as e:
+                log.warning("Gasto fijo '%s' con `meses` inválido (%s) — se aplicará todos los meses",
+                            g["concepto"], e)
+                g.pop("meses", None)
         out.append(g)
     return out
+
+
+def _aplica_este_mes(gasto: dict, mes: int) -> bool:
+    """¿Toca aplicar este gasto en `mes` (1-12)?"""
+    meses = gasto.get("meses")
+    if not meses:
+        return True
+    return mes in meses
 
 
 def _leer_marca() -> str:
@@ -122,9 +146,18 @@ def aplicar(
         _escribir_marca(periodo)
         return [], []
 
+    # Filtrar por mes (los gastos con `meses` específicos solo se aplican
+    # en esos meses; los demás todos los meses).
+    aplicables = [g for g in config if _aplica_este_mes(g, f.month)]
+    if not aplicables:
+        log.info("Mes %s: ningún gasto fijo aplicable (todos son específicos "
+                 "de otros meses).", f.month)
+        _escribir_marca(periodo)
+        return [], []
+
     insertados: list[dict] = []
     errores: list[str] = []
-    for g in config:
+    for g in aplicables:
         try:
             sheets.append_gasto(
                 concepto=str(g["concepto"]),

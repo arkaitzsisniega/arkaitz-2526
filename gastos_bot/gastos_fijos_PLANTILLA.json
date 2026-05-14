@@ -1,10 +1,11 @@
 {
-  "_comentario": "Plantilla de gastos fijos mensuales. Copia este fichero a 'gastos_fijos.json' (sin _PLANTILLA) y edítalo con tus gastos reales. Se aplican automáticamente el día 1 de cada mes a las 09:00 hora Madrid. Si el bot estaba apagado el día 1, se aplican al arrancar.",
+  "_comentario": "Plantilla de gastos fijos. Copia este fichero a 'gastos_fijos.json' (sin _PLANTILLA) y edítalo con tus gastos reales. Se aplican automáticamente el día 1 de cada mes a las 09:00 hora Madrid. Si el bot estaba apagado el día 1, se aplican al arrancar.",
   "_categorias_disponibles": [
     "Supermercado", "Restaurantes", "Casa", "Alquiler/Hipoteca",
     "Transporte", "Salud", "Ocio", "Compras", "Mascotas",
     "Fin de semana", "Otros"
   ],
+  "_campo_meses_opcional": "Si quieres que un gasto solo se aplique en ciertos meses (ej. alarma trimestral, seguro anual), añade `\"meses\": [1, 4, 7, 10]` (números 1-12). Si no lo pones, se aplica TODOS los meses.",
   "gastos_fijos": [
     {
       "concepto": "Alquiler",
@@ -21,11 +22,20 @@
       "notas": "Suscripción"
     },
     {
-      "concepto": "Seguro coche",
-      "cantidad": 45,
+      "concepto": "Seguro coche (anual)",
+      "cantidad": 540,
       "categoria": "Transporte",
       "quien": "Arkaitz",
-      "notas": "Mensualidad seguro"
+      "notas": "Pago anual en enero",
+      "meses": [1]
+    },
+    {
+      "concepto": "Alarma (trimestral)",
+      "cantidad": 105,
+      "categoria": "Casa",
+      "quien": "Arkaitz",
+      "notas": "Cuota trimestral (ene/abr/jul/oct)",
+      "meses": [1, 4, 7, 10]
     }
   ]
 }

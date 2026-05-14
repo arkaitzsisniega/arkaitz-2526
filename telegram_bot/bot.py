@@ -2020,6 +2020,56 @@ async def on_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Health-check en vivo. Llama a src/health_check.py y devuelve un
+    resumen del estado de todos los componentes (Sheet, vistas, Gemini,
+    Oliver token, smoke tests). Útil para saber rápido si algo está mal
+    sin tener que probar comandos a ciegas."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🩺 Chequeando estado de todos los componentes…")
+    stop = asyncio.Event()
+    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        try:
+            from health_check import (  # type: ignore
+                run_health_check_quick, format_resultados, all_ok,
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ No puedo importar health_check: {type(e).__name__}: {e}"
+            )
+            return
+        loop = asyncio.get_event_loop()
+        try:
+            resultados = await loop.run_in_executor(None, run_health_check_quick)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Health check falló: {e}")
+            return
+        txt = format_resultados(resultados)
+        cabecera = ("✅ *Todo OK*" if all_ok(resultados)
+                    else "⚠️ *Hay avisos / fallos*")
+        msg = f"{cabecera}\n```\n{txt}\n```"
+        # Si el mensaje es muy largo, lo troceamos en bloques
+        if len(msg) <= 3800:
+            await update.message.reply_text(msg, parse_mode=constants.ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(cabecera, parse_mode=constants.ParseMode.MARKDOWN)
+            for chunk in _chunks(f"```\n{txt}\n```", size=3800):
+                await update.message.reply_text(chunk, parse_mode=constants.ParseMode.MARKDOWN)
+    finally:
+        stop.set()
+        try: await task
+        except Exception: pass
+    _registrar_accion_local(
+        chat_id,
+        "/status ejecutado: health check completo enviado al usuario."
+    )
+
+
 async def cmd_auditar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Ejecuta src/auditar_sheet.py y devuelve el resumen de incidencias
     detectadas en BORG/PESO/WELLNESS/SESIONES."""
@@ -3032,6 +3082,7 @@ def _intent_handler(cmd: str):
         "enlaces_wa": cmd_enlaces_wa,
         "prepost": cmd_prepost,
         "auditar": cmd_auditar,
+        "status": cmd_status,
         "golespartido": cmd_golespartido,
         "oliver_sync": cmd_oliver_sync,
         "oliver_deep": cmd_oliver_deep,
@@ -3398,6 +3449,7 @@ BOT_COMMANDS_ALFRED = [
     BotCommand("retirado",       "Marcar a un jugador retirado a mitad de sesión por lesión"),
     BotCommand("golespartido",   "Describir goles de un partido (voz, vuelca a EST_EVENTOS)"),
     BotCommand("auditar",        "Audita BORG/PESO/WELLNESS/SESIONES (errores y duplicados)"),
+    BotCommand("status",         "Health check en vivo (Sheet, Gemini, Oliver, vistas, etc.)"),
     BotCommand("oliver_sync",    "Sync incremental con Oliver Sports (MVP)"),
     BotCommand("oliver_deep",    "Sync profundo Oliver (68 métricas)"),
     BotCommand("oliver_token",   "Regenerar token de Oliver (cuando caduca)"),
@@ -3435,6 +3487,7 @@ def main():
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("auditar", cmd_auditar))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("retirado", cmd_retirado))
     app.add_handler(CommandHandler("golespartido", cmd_golespartido))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
