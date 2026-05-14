@@ -821,9 +821,10 @@ HOJAS_BATCH = [
     "JUGADORES_ROSTER",
     "EST_FALTAS", "EST_PENALTIS_10M",
     "ANTROPOMETRIA",
-    # NOTA: EST_SCOUTING_GOLES y EST_SCOUTING_PEN_10M NO se incluyen
-    # porque NO existen en el Sheet (cargar() las maneja con fallback
-    # individual que devuelve DataFrame vacío al detectar WorksheetNotFound).
+    "EST_SCOUTING_PEN_10M",  # rellenada por sincronizar_lanzamientos.py
+    # NOTA: EST_SCOUTING_GOLES sigue sin existir en el Sheet (cargar() la
+    # maneja con fallback individual que devuelve DataFrame vacío al
+    # detectar WorksheetNotFound).
 ]
 
 

@@ -1547,14 +1547,37 @@ async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"⚠️ Vistas principales OK pero las de fisios fallaron:\n{(err3 or out3)[-1000:]}"
         )
         # No abortamos: el dashboard principal sigue actualizado
+
+    # Sincronizar Sheet de Lanzamientos (cuerpo técnico) → EST_SCOUTING_PEN_10M.
+    # Imprime también lista de lanzamientos con info incompleta del portero.
+    await update.message.reply_text("🎯 Sincronizando lanzamientos del cuerpo técnico…")
+    stop4 = asyncio.Event()
+    task4 = asyncio.create_task(_keep_typing(chat_id, ctx, stop4))
+    try:
+        rc4, out4, err4 = await _run_script(
+            PROJECT_DIR / "src" / "sincronizar_lanzamientos.py", timeout=120)
+    finally:
+        stop4.set()
+        try: await task4
+        except Exception: pass
+    if rc4 != 0:
+        await update.message.reply_text(
+            f"⚠️ Lanzamientos no se sincronizaron:\n{(err4 or out4)[-800:]}"
+        )
+    else:
+        # Enviamos el bloque de lanzamientos (incluye lista de incompletos si los hay)
+        await _enviar_bloques(update, out4)
+
     await update.message.reply_text(
         "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
     )
     _registrar_accion_local(
         chat_id,
-        "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS y "
-        "todas las vistas (principales + fisios) recalculadas correctamente. "
-        "El usuario YA tiene el dashboard actualizado."
+        "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS, "
+        "vistas principales + fisios recalculadas, y Sheet de Lanzamientos del "
+        "cuerpo técnico sincronizado con EST_SCOUTING_PEN_10M. Si había "
+        "lanzamientos con info incompleta del portero, ya se ha avisado al usuario. "
+        "El dashboard YA está actualizado."
     )
 
 
