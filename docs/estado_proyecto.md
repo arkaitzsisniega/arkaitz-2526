@@ -532,6 +532,19 @@ Comandos: `/start`, `/yo`, `/nuevo`, `/oliver_sync`.
 
 ## 🔜 Hilos abiertos (orden sugerido)
 
+### 🚨 PRIORIDAD ALTA — antes del inicio temporada 26/27
+
+- **Crono iPad → PWA real**. Hoy no es PWA, vive en el dev server del
+  Mac de Arkaitz. Si Safari descarga la pestaña de memoria en mitad
+  de un partido se cuelga. Para inicio de temporada DEBE estar:
+  - manifest.json + service worker que cachee app + IndexedDB.
+  - Instalable como app real en el iPad sin necesitar dev server.
+  - Funciona offline 100% durante el partido completo.
+  - Probado y validado con un partido entero antes de jugar uno
+    oficial.
+- **Bot de datos rebrand**: ponerle nombre propio (no @InterFS_datos_bot
+  por defecto). Pendiente: Arkaitz decidir.
+
 ### Próxima sesión — pendientes inmediatos
 1. ~~⚠️ J25.INDUSTRIAS no se está extrayendo~~ ✅ CERRADO 8/5/2026:
    verificado, está en EST_PARTIDOS (13 jugadores), EST_EVENTOS (6 goles)
