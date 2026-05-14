@@ -41,7 +41,51 @@ sensación de "no me deja clickar".
 
 ---
 
-## 2. Terminar activación SA read-only (CON SSH desde la oficina)
+## 2. `pip install` en el servidor para gastos_bot
+
+Cuando volví a revisar `setup_servidor/auto_pull.sh` descubrí que **solo
+hace `git pull` + reinicio launchd, NO ejecuta `pip install`**. Eso
+significa que el commit de hoy `e4c53b6` (añadiendo
+`python-telegram-bot[job-queue]>=20.0` a `gastos_bot/requirements.txt`)
+**NO está activo en el servidor todavía**. Sin él, los gastos fijos
+del día 1 no se aplicarán automáticamente.
+
+Por SSH desde la LAN del Inter:
+```bash
+ssh USUARIO@SERVIDOR "cd /Users/mac/Desktop/Arkaitz/gastos_bot && venv/bin/pip install -r requirements.txt"
+ssh USUARIO@SERVIDOR "launchctl kickstart -k gui/\$(id -u)/com.arkaitz.gastos_bot"
+```
+
+Verificación: en el log de gastos_bot al arrancar tras esto debería
+salir la línea:
+```
+JobQueue: gastos fijos cada día 1 a las 09:00:00+02:00.
+```
+(O similar con la zona horaria Madrid.)
+
+Si en su lugar sale:
+```
+JobQueue no disponible: no se aplicarán gastos fijos automáticos…
+```
+→ el `pip install` no fue. Reintentar.
+
+## 3. Copiar `gastos_fijos.json` al servidor
+
+El JSON con TUS datos reales (Jardinero/Tatiana/Netflix/Placas/Lowi/Alarma)
+vive en `/Users/mac/Desktop/Arkaitz/gastos_bot/gastos_fijos.json` de
+**TU Mac casa**. Está gitignored, no viaja por auto_pull. Sin él, los
+gastos fijos del día 1 saldrán vacíos.
+
+Cuando estés en la oficina, llévate el JSON al Mac portátil (AirDrop o
+iCloud Drive), y desde allí en la LAN:
+```bash
+scp /ruta/del/json/en/portatil USUARIO@SERVIDOR:/Users/mac/Desktop/Arkaitz/gastos_bot/gastos_fijos.json
+```
+
+(O hazlo desde el Mac casa al servidor directamente cuando vayas a la
+oficina con el portátil, depende de tu flujo.)
+
+## 4. Terminar activación SA read-only (CON SSH desde la oficina)
 
 > SSH solo funciona dentro de la LAN del Inter (no hay VPN ni SSH
 > público). Por eso esto no se pudo cerrar anoche desde casa.
@@ -80,7 +124,7 @@ los comandos exactos en un bloque copiable. El esqueleto será:
 
 ---
 
-## 3. Confirmar Alfred + /ejercicios en producción real
+## 5. Confirmar Alfred + /ejercicios en producción real
 
 Ayer (15/5 noche) pusheamos las 3 palancas a main. El mac viejo hace
 auto_pull → Alfred debería tener el código nuevo a primera hora del 16/5.
