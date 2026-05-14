@@ -6,6 +6,30 @@
 
 ---
 
+## 0. [RECORDATORIO PARA ARKAITZ] — Probar `/status` de Alfred
+
+Esto va antes de todo lo demás, al abrir Telegram nada más llegar al
+servidor (cuando el bot ya haya hecho auto_pull con los cambios de
+ayer). Comando nuevo añadido en commit `d99aeb8`:
+
+```
+/status
+```
+
+Devuelve un parte de salud de TODOS los componentes (Sheet, vistas,
+Gemini, Oliver token, faster-whisper, estado_jugador). Tarda 10-30 s.
+Esperado: cabecera **"✅ Todo OK"** con bloque detallado.
+
+Si la cabecera dice **"⚠️ Hay avisos / fallos"** o algún componente
+sale en rojo → me lo dices con la salida y atacamos antes de seguir
+con lo demás.
+
+Si la salida es muy larga, ruidosa, o falta algún check útil, dímelo
+y la afino. La idea es que sea tu primer "buenos días" con el bot
+cada mañana.
+
+---
+
 ## 1. Probar el crono en el iPad real (oficina)
 
 **URL del crono en producción (GH Pages, ya desplegado):**
