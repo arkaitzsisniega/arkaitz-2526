@@ -1139,7 +1139,13 @@ def safe_float(v, default: float = 0.0) -> float:
 
 
 # ── Carga de datos ────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner="Cargando datos…")
+# TTL alto (30 min) porque los datos NO cambian solos: cualquier modificación
+# pasa por /consolidar (bot), una operación de escritura del dashboard
+# (guardar partido, marcar lesión…) o un Form rellenado por jugador. Las
+# operaciones del dashboard ya invalidan el cache con st.cache_data.clear().
+# Después de /consolidar (bot remoto), Arkaitz tiene el botón "🔄 Actualizar
+# datos" del sidebar para forzar refresco manual.
+@st.cache_data(ttl=1800, show_spinner="Cargando datos…")
 def datos():
     carga   = fecha_col(cargar("_VISTA_CARGA"),    "FECHA")
     semanal = fecha_col(cargar("_VISTA_SEMANAL"),  "FECHA_LUNES")

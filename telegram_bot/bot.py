@@ -551,14 +551,14 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    → USA SIEMPRE el script `src/apuntar_sesion.py`. Idempotente.
 
    ```bash
-   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X]
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X] [--hora HH:MM]
    ```
 
    Ejemplos:
    ```bash
-   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 M TEC-TAC 75
-   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 T GYM+TEC-TAC 90
-   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-15 T PARTIDO 40 --comp LIGA
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 M TEC-TAC 75 --hora 10:00
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-12 T GYM+TEC-TAC 90 --hora 18:30
+   /usr/bin/python3 {PROJECT_DIR}/src/apuntar_sesion.py 2026-05-15 T PARTIDO 40 --comp LIGA --hora 18:00
    ```
 
    Tipos: FISICO · TEC-TAC · GYM · RECUP · PARTIDO · PORTEROS · MATINAL ·
@@ -566,6 +566,14 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    Turnos: M · T · P.
    Competiciones: LIGA · COPA DEL REY · COPA ESPAÑA · COPA MOSTOLES ·
    COPA RIBERA · SUPERCOPA · PRE-TEMPORADA · AMISTOSO.
+
+   **HORA DE INICIO**: si el usuario menciona la hora ("a las 10",
+   "empezamos a las 6 y media", "10:30"), pasa `--hora HH:MM` (24h, 2
+   dígitos). Si NO la menciona, omite el flag — el script preserva
+   la hora previa si hubiera. Frases típicas → hora:
+     "a las 10" → --hora 10:00
+     "a las 6 y media de la tarde" → --hora 18:30
+     "matinal a las 9:15" → --hora 09:15
 
 5) **NO escribas a Forms (`_FORM_PRE`, `_FORM_POST`)** — esas hojas las
    alimenta Google Forms automáticamente. Tampoco a `_VISTA_*` (se
@@ -578,7 +586,7 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    · `apuntar_borg.py JUGADOR FECHA VALOR [TURNO]`
    · `apuntar_peso.py JUGADOR FECHA [TURNO] --pre N --post N --h2o N`
    · `apuntar_wellness.py JUGADOR FECHA --sueno N --fatiga N --molestias N --animo N`
-   · `apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X]`
+   · `apuntar_sesion.py FECHA TURNO TIPO MIN [--comp X] [--hora HH:MM]`
    · `marcar_lesion.py JUGADOR FECHA [TURNO]`
    Solo escribe Python con gspread directamente cuando NO existe un script
    curado para la operación que necesitas.

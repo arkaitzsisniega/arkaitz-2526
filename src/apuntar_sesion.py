@@ -79,11 +79,32 @@ def _semana_iso(fecha_iso: str) -> str:
 
 
 def apuntar_en_sesiones(ss, fecha_iso, turno, tipo_sesion, minutos,
-                         competicion, dry=False) -> str:
-    ws = ss.worksheet("SESIONES")
+                         competicion, dry=False, hora_inicio: str = "") -> str:
+    """Inserta o actualiza una fila en SESIONES (columnas A-G).
+
+    A=FECHA, B=SEMANA, C=TURNO, D=TIPO, E=MINUTOS, F=COMPETICION, G=HORA_INICIO.
+
+    Si `hora_inicio` viene vacío, NO sobrescribe la hora existente en
+    el caso de actualización — solo añade hora_inicio cuando se proporciona
+    explícitamente (así una llamada vieja sin --hora no borra una hora
+    apuntada previamente).
+    """
+    ws = ws_sesiones = ss.worksheet("SESIONES")
     rows = ws.get_all_values()
     d = datetime.strptime(fecha_iso, "%Y-%m-%d").date()
     fecha_alt = d.strftime("%d-%m-%Y")
+
+    # Defensa: asegurar cabecera G1 = HORA_INICIO (idempotente, no hace
+    # nada si ya está).
+    cab = rows[0] if rows else []
+    if len(cab) < 7 or (len(cab) >= 7 and cab[6] != "HORA_INICIO"):
+        if not dry and len(cab) < 7:
+            try:
+                ws.update_cell(1, 7, "HORA_INICIO")
+                rows = ws.get_all_values()  # recargar
+            except Exception:
+                pass
+
     row_idx = None
     for i, r in enumerate(rows[1:], start=2):
         if (r and len(r) >= 4
@@ -93,23 +114,30 @@ def apuntar_en_sesiones(ss, fecha_iso, turno, tipo_sesion, minutos,
             row_idx = i
             break
     semana = _semana_iso(fecha_iso)
-    fila = [fecha_iso, semana, turno, tipo_sesion,
+    base = [fecha_iso, semana, turno, tipo_sesion,
             str(minutos) if minutos is not None else "",
             competicion or ""]
+
     if row_idx is not None:
         actual = rows[row_idx - 1]
-        if actual[:6] == fila:
+        # Determinar hora final: si vienen vacía, preservar la existente
+        hora_existente = actual[6].strip() if len(actual) > 6 else ""
+        hora_final = hora_inicio if hora_inicio else hora_existente
+        fila = base + [hora_final]
+        actual_padded = (actual + [""] * 7)[:7]
+        if actual_padded == fila:
             return f"SESIONES: fila {row_idx} ya estaba con esos valores"
         if dry:
             return (f"SESIONES (dry-run): actualizaría fila {row_idx} "
-                    f"de {actual[:6]} a {fila}")
-        ws.update(values=[fila], range_name=f"A{row_idx}:F{row_idx}")
+                    f"de {actual_padded} a {fila}")
+        ws.update(values=[fila], range_name=f"A{row_idx}:G{row_idx}")
         return f"SESIONES: fila {row_idx} actualizada → {fila}"
     else:
         next_row = len(rows) + 1
+        fila = base + [hora_inicio]
         if dry:
             return f"SESIONES (dry-run): añadiría fila nueva {next_row} → {fila}"
-        ws.update(values=[fila], range_name=f"A{next_row}:F{next_row}")
+        ws.update(values=[fila], range_name=f"A{next_row}:G{next_row}")
         return f"SESIONES: fila nueva {next_row} → {fila}"
 
 
@@ -121,6 +149,8 @@ def main():
     ap.add_argument("minutos", help="Duración en minutos (entero)")
     ap.add_argument("--comp", default="",
                      help=f"Competición (solo PARTIDO/AMISTOSO): {' · '.join(COMPETICIONES_VALIDAS)}")
+    ap.add_argument("--hora", default="",
+                     help="Hora de inicio en formato HH:MM (24h). Opcional.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -166,15 +196,32 @@ def main():
     if tipo == "PARTIDO" and not comp:
         print(f"⚠️ Tipo=PARTIDO sin --comp. Se guarda sin competición.")
 
+    # Validar --hora (opcional). Acepta HH:MM 24h (admite "9:15" sin
+    # leading zero; se normaliza a "09:15").
+    hora_inicio = args.hora.strip() if args.hora else ""
+    if hora_inicio:
+        try:
+            dt = datetime.strptime(hora_inicio, "%H:%M")
+            hora_inicio = dt.strftime("%H:%M")  # normaliza a HH:MM
+        except ValueError:
+            print(f"❌ Hora inválida: {args.hora!r}. Usa HH:MM (24h), ej. 18:00.")
+            sys.exit(2)
+
     ss = _open_sheet()
-    msg = apuntar_en_sesiones(ss, fecha, turno, tipo, mins, comp, args.dry_run)
+    msg = apuntar_en_sesiones(ss, fecha, turno, tipo, mins, comp,
+                                 args.dry_run, hora_inicio=hora_inicio)
 
     print(MSG_SEP)
     cab = "📋 *Sesión apuntada*" if not args.dry_run else "🔍 *Dry-run SESIÓN*"
+    extras = ""
+    if comp:
+        extras += f"  ·  {comp}"
+    if hora_inicio:
+        extras += f"  ·  🕐 {hora_inicio}"
     print(
         f"{cab}\n\n"
         f"📅 {fecha}  ·  Turno *{turno}*  ·  Tipo *{tipo}*  ·  "
-        f"{mins} min{'  ·  ' + comp if comp else ''}\n\n"
+        f"{mins} min{extras}\n\n"
         f"• {msg}"
     )
 
