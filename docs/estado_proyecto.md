@@ -1,8 +1,57 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-13`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-15`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
 qué decisiones hemos tomado. Si discrepa con `CLAUDE.md`, gana este.
+
+---
+
+## 🔔 ESTADO 15/5/2026 — sesión profundización (3h trabajando solo)
+
+Antes de presentar presupuesto al club Arkaitz pidió endurecer TODO.
+Sesión sola con auditoría exhaustiva. Detalle completo en
+`docs/sesion_15-05-2026_profundizacion.md`. Resumen:
+
+### Bots (críticos cerrados)
+- **bot_datos: cinturón blindado** — 30+ patrones nuevos. Bloquea
+  `worksheet.update()`, `clear()`, `format()`, `share()`,
+  `to_csv/excel/pickle/parquet/etc`, `requests.post/put/delete`,
+  `socket`, `os.popen/exec`, `compile`. Verificado 15/15 bloqueado +
+  11/11 legítimos no bloqueados.
+- **Pendiente tuyo**: activar SA read-only (`READONLY_CREDS_FILE`).
+- **4 atajos SIN LLM** en AMBOS bots (Alfred + datos):
+  - `lesiones_activas` → "quién está lesionado" (con dorsales en datos)
+  - `ranking_temporada` → "ranking goleadores", "asistencias en liga"
+  - `carga_ultima_sesion` → "carga de ayer", "borg del 13 de mayo"
+    (entiende ayer/hoy/anteayer/"13 de mayo"/2026-05-13/13/05/...)
+  - `estado_jugador` → "cómo está Pirata" (ya existía)
+- **estado_jugador.py**: ya no crashea con N_SESIONES inválido.
+- **ranking_temporada.py**: avisa de competición no reconocida.
+- **carga_ultima_sesion.py**: fallback automático a `_FORM_POST` si
+  BORG no tiene datos (cuando jugadores rellenaron Form pero no se
+  ha hecho `/consolidar` aún).
+
+### Crono iPad
+- **iniciarPartido refactorizado**: persistencia Dexie síncrona ANTES
+  de setPartido. Resuelve race condition con /partido.
+- **Bug stale state pista_inicial**: useEffect sincroniza selects con
+  convocados. Validación en "Empezar" si jugador en pista no convocado.
+- **PWA básica**: manifest.json + apple-touch-icon + iconos
+  120/152/167/180/192/512 + maskable. Instalable en iPad como app
+  con escudo Inter (standalone mode).
+
+### Streamlit
+- **FACTOR_GYM configurable** vía env var. Default 1.25, sube a 1.5
+  con `FACTOR_GYM=1.5 python3 src/calcular_vistas.py`.
+- ACWR en semáforo: verificado, ya funciona.
+
+### Infra de pruebas
+- **`tests/smoke_bots.py`**: 10 tests automáticos (sintaxis, cinturón
+  bloquea/permite, scripts curados, intents, system prompts).
+  Salida actual: 10/10 OK.
+- **`verificar_todo.sh`**: pre-flight check antes de presentar al
+  club. Verifica 12 puntos (URLs públicas + dev server + git + smoke
+  tests + scripts). Salida actual: 12/12 OK.
 
 ---
 
