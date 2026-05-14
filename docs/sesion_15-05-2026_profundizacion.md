@@ -212,14 +212,28 @@ en el selector tarda 3s la primera vez, instantáneo después por 60s.
 
 ## 🧪 PARA VERIFICAR QUE TODO VA BIEN
 
-Cuando vuelvas, antes de presentar al club:
+Cuando vuelvas, **un solo comando** verifica TODO el sistema:
 
 ```bash
-# 1. Smoke test bots (10 tests automáticos)
-/usr/bin/python3 tests/smoke_bots.py
-# → Debe imprimir "✓ TODOS los tests pasaron"
+bash verificar_todo.sh
+```
 
-# 2. Probar bots desde Telegram con frases típicas:
+Comprueba (12 puntos):
+- Streamlit dashboard, landing gh-pages y apple-touch-icon vivos.
+- Dev server crono, manifest y apple-touch-icon del crono.
+- Git local sincronizado con remote.
+- 10 smoke tests de los bots OK (sintaxis, cinturón, intents, scripts).
+- 4 scripts curados ejecutan sin crash.
+
+Salida actual: **12/12 ✓**, listo para presentar.
+
+### Pruebas adicionales recomendadas (manuales)
+
+```bash
+# Smoke detallado de los bots
+/usr/bin/python3 tests/smoke_bots.py
+
+# Pruebas reales desde Telegram (cuando los bots se reinicien tras el push):
 #    - @InterFS_bot:  "carga jugador por jugador de ayer"
 #    - @InterFS_bot:  "ranking goleadores"
 #    - @InterFS_bot:  "lesiones activas"
@@ -227,7 +241,7 @@ Cuando vuelvas, antes de presentar al club:
 #    - @InterFS_datos_bot: "lista de asistencias en liga"
 # → Todas deben responder en <5s sin error.
 
-# 3. Crono iPad: Safari → URL del dev server → Empezar partido.
+# Crono iPad: Safari → URL del dev server → Empezar partido.
 # → Debe avanzar a /partido sin "no hay partido en curso".
 ```
 
