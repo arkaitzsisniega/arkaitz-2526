@@ -223,6 +223,75 @@ def volcar_a_principal(gc, lanz, dry_run=False):
     return len(filas)
 
 
+def detectar_partidos_nuestros_pendientes(gc, lanz_existentes):
+    """Mira EST_EVENTOS del principal: cada vez que en un partido nuestro
+    hubo un penalti o 10m (accion en {'Penalti','10 metros','10m'}), debería
+    figurar en el Sheet de Lanzamientos del CT. Si no está, lo lista para
+    que Arkaitz les diga al CT que lo visualicen y lo apunten.
+
+    Cruce por (fecha + rival + tipo). Si el CT añade el lanzamiento al
+    Sheet con misma fecha y rival, se considera ya cubierto.
+    """
+    try:
+        ss = gc.open(SHEET_PRINCIPAL)
+        ws = ss.worksheet("EST_EVENTOS")
+        vals = ws.get_all_values()
+    except Exception:
+        return []
+    if not vals or len(vals) < 2:
+        return []
+    hdr = vals[0]
+    rows = vals[1:]
+    idx = {c: i for i, c in enumerate(hdr)}
+    accion_idx = idx.get("accion")
+    fecha_idx = idx.get("fecha")
+    rival_idx = idx.get("rival")
+    eq_idx = idx.get("equipo_marca")
+    partido_idx = idx.get("partido_id")
+    if accion_idx is None or fecha_idx is None:
+        return []
+
+    # Set de (fecha, rival_upper, tipo_norm) ya en el Sheet del CT
+    def _norm_tipo(s):
+        s = (s or "").strip().lower()
+        if "10" in s:
+            return "10M"
+        if "penalt" in s:
+            return "PENALTI"
+        return s.upper()
+
+    cubiertos = set()
+    for r in lanz_existentes:
+        cubiertos.add((
+            _iso(r.get("fecha", "")),
+            (r.get("rival", "") or "").strip().upper(),
+            _norm_tipo(r.get("tipo_lanzamiento", "")),
+        ))
+
+    pendientes = []
+    for row in rows:
+        accion = row[accion_idx] if accion_idx < len(row) else ""
+        a_up = accion.upper().strip()
+        if not ("PENALT" in a_up or "10" in a_up):
+            continue
+        fecha = _iso(row[fecha_idx] if fecha_idx < len(row) else "")
+        rival = (row[rival_idx] if rival_idx < len(row) else "").strip().upper()
+        equipo = (row[eq_idx] if eq_idx < len(row) else "").strip().upper()
+        partido = row[partido_idx] if partido_idx < len(row) else ""
+        tipo = _norm_tipo(accion)
+        # ¿Está ya en el Sheet del CT?
+        if (fecha, rival, tipo) in cubiertos:
+            continue
+        pendientes.append({
+            "partido": partido,
+            "fecha": fecha,
+            "rival": rival,
+            "tipo": tipo,
+            "equipo_marca": equipo,  # INTER (nosotros lanzamos) o RIVAL (nosotros recibimos)
+        })
+    return pendientes
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
@@ -234,26 +303,26 @@ def main():
     lanz = leer_lanzamientos(gc)
     print(f"  → {len(lanz)} filas con datos")
 
-    if not lanz:
-        print(MSG_SEP)
-        print(
-            f"📭 El Sheet *{SHEET_LANZ}* está vacío. Cuando el cuerpo técnico "
-            "empiece a meter lanzamientos, este script los volcará a "
-            "EST_SCOUTING_PEN_10M y los verás en la pestaña Scouting del dashboard."
-        )
-        return
-
-    incompletos = detectar_incompletos(lanz)
-
-    print(f"Volcando a EST_SCOUTING_PEN_10M del Sheet principal…")
-    n = volcar_a_principal(gc, lanz, dry_run=args.dry_run)
+    incompletos = []
+    n = 0
+    if lanz:
+        incompletos = detectar_incompletos(lanz)
+        print(f"Volcando a EST_SCOUTING_PEN_10M del Sheet principal…")
+        n = volcar_a_principal(gc, lanz, dry_run=args.dry_run)
 
     # ── Resumen para el bot ─────────────────────────────────────────
     print(MSG_SEP)
-    head = "🔬 *DRY-RUN — sin escribir*" if args.dry_run else "✅ *Lanzamientos sincronizados*"
-    print(head)
-    print(f"📥 Leídos:      *{len(lanz)}* lanzamientos del Sheet del cuerpo técnico.")
-    print(f"📤 Volcados:    *{n}* filas a EST_SCOUTING_PEN_10M del principal.")
+    if not lanz:
+        print(
+            f"📭 El Sheet *{SHEET_LANZ}* está vacío todavía. Cuando el cuerpo "
+            "técnico empiece a meter lanzamientos, este script los volcará a "
+            "EST_SCOUTING_PEN_10M y los verás en la pestaña Scouting del dashboard."
+        )
+    else:
+        head = "🔬 *DRY-RUN — sin escribir*" if args.dry_run else "✅ *Lanzamientos sincronizados*"
+        print(head)
+        print(f"📥 Leídos:      *{len(lanz)}* lanzamientos del Sheet del cuerpo técnico.")
+        print(f"📤 Volcados:    *{n}* filas a EST_SCOUTING_PEN_10M del principal.")
     if incompletos:
         print(f"⚠️  Incompletos: *{len(incompletos)}* lanzamientos sin info del portero.")
         print()
@@ -271,8 +340,39 @@ def main():
             "rellena las columnas Des./Gesto/Mov del portero en esas filas. "
             "Vuelve a lanzar /consolidar y se vuelven a volcar."
         )
-    else:
+    elif lanz:
         print("✓ Todos los lanzamientos tienen info completa del portero.")
+
+    # ── Detectar penaltis/10m de NUESTROS partidos que el CT aún no ha
+    #    apuntado al Sheet de Lanzamientos. NO escribimos nada en el Sheet
+    #    del CT, solo avisamos a Arkaitz para que les diga.
+    pendientes_partido = detectar_partidos_nuestros_pendientes(gc, lanz)
+    if pendientes_partido:
+        print()
+        print(MSG_SEP)
+        print(
+            f"📋 *{len(pendientes_partido)} lanzamientos de partidos NUESTROS "
+            "sin registrar en el Sheet de Lanzamientos*"
+        )
+        print()
+        print("Cada penalti / 10m de un partido nuestro debería aparecer en el "
+              "Sheet del cuerpo técnico una vez lo visualicen. Estos faltan:")
+        print()
+        # Agrupar por partido para que sea más legible
+        from collections import defaultdict
+        por_partido = defaultdict(list)
+        for p in pendientes_partido:
+            por_partido[(p["partido"], p["fecha"], p["rival"])].append(p)
+        for (pid, fecha, rival), lst in sorted(por_partido.items(), key=lambda x: x[0][1] or "", reverse=True):
+            tipos = ", ".join(p["tipo"] for p in lst)
+            quien = ", ".join(set(p["equipo_marca"] for p in lst))
+            print(f"  · {fecha} · {pid} ({rival}) → {len(lst)}× {tipos} ({quien})")
+        print()
+        print(
+            "💡 Diles al cuerpo técnico que visualicen estos partidos y los "
+            "anoten en *Lanzamientos(10m_penaltis)*. Tras meterlos, vuelve a "
+            "lanzar /consolidar y se sincronizan."
+        )
 
 
 if __name__ == "__main__":
