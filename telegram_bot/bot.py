@@ -1316,23 +1316,68 @@ async def _run_oliver_sync(deep: bool = False) -> Tuple[int, str, str]:
 
 
 async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Sincroniza Oliver Sports (métricas MVP, rápido)."""
+    """Sincroniza Oliver Sports (métricas MVP).
+
+    ⚡ ASYNC: acuse inmediato + worker en background. El flujo total
+    (oliver_sync + calcular_vistas) puede tardar hasta 20 minutos; antes
+    bloqueaba a Alfred entero con un "escribiendo…" eterno. Ahora el bot
+    queda libre y manda mensajes de progreso conforme avanza.
+    """
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🏃 Sincronizando Oliver Sports (MVP)…")
-    stop = asyncio.Event()
-    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
+    await update.message.reply_text(
+        "✅ Recibido. Sincronizando Oliver Sports (MVP) + recálculo de "
+        "cruces en segundo plano. Suele tardar 1-5 minutos. Te aviso "
+        "paso a paso conforme termine."
+    )
+    asyncio.create_task(_oliver_sync_worker(chat_id, ctx, deep=False))
+
+
+async def cmd_oliver_deep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Sincroniza Oliver Sports (métricas DEEP — 68 columnas, lento).
+
+    ⚡ ASYNC: igual que /oliver_sync, en background. Puede tardar
+    bastante (10-20 min). El bot queda libre durante el proceso.
+    """
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "✅ Recibido. Sincronizando Oliver DEEP (68 métricas) + recálculo "
+        "en segundo plano. Tarda entre 10 y 20 minutos. Te aviso al "
+        "terminar."
+    )
+    asyncio.create_task(_oliver_sync_worker(chat_id, ctx, deep=True))
+
+
+async def _oliver_sync_worker(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE,
+                                  deep: bool):
+    """Tarea de fondo para /oliver_sync y /oliver_deep. Hace el sync +
+    relanza calcular_vistas + reporta al chat conforme avanza."""
+    etiqueta = "DEEP" if deep else "MVP"
     try:
-        rc, out, err = await _run_oliver_sync(deep=False)
-    finally:
-        stop.set()
-        try: await task
-        except Exception: pass
-    # Después, relanza calcular_vistas.py para que el cruce Oliver+Borg se actualice
-    if rc == 0:
-        await update.message.reply_text("✓ Oliver sincronizado. Recalculando cruces…")
+        # Paso 1: oliver_sync.py (o --deep)
+        await ctx.bot.send_message(
+            chat_id, f"🏃 (1/2) Descargando datos de Oliver ({etiqueta})…"
+        )
+        rc, out, err = await _run_oliver_sync(deep=deep)
+        if rc != 0:
+            detalle = (err or out or "(sin detalles)").strip()
+            for chunk in _chunks(f"❌ Error en oliver_sync ({etiqueta}):\n{detalle}"):
+                await ctx.bot.send_message(chat_id, chunk)
+            _registrar_accion_local(
+                chat_id,
+                f"/oliver_{'deep' if deep else 'sync'} FALLÓ — el sync de Oliver dio error."
+            )
+            return
+
+        # Paso 2: calcular_vistas.py para refrescar _VISTA_OLIVER
+        await ctx.bot.send_message(
+            chat_id, "🧮 (2/2) Recalculando cruces (Oliver × Borg × CARGA)…"
+        )
         proc = await asyncio.create_subprocess_exec(
             sys.executable, str(PROJECT_DIR / "src" / "calcular_vistas.py"),
             cwd=str(PROJECT_DIR),
@@ -1341,32 +1386,53 @@ async def cmd_oliver_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             out2, err2 = await asyncio.wait_for(proc.communicate(), timeout=600)
         except asyncio.TimeoutError:
-            proc.kill(); await proc.wait()
-            await update.message.reply_text("⚠️ calcular_vistas tardó demasiado.")
+            try:
+                proc.kill(); await proc.wait()
+            except Exception:
+                pass
+            await ctx.bot.send_message(
+                chat_id, "⚠️ calcular_vistas tardó demasiado (>10 min)."
+            )
             return
+
         if proc.returncode == 0:
-            await update.message.reply_text(
-                "✅ Todo al día. Abre el dashboard y mira la pestaña **🏃 Oliver**."
+            # Si fue DEEP, marcar la fecha para el recordatorio quincenal
+            if deep:
+                try:
+                    (PROJECT_DIR / ".oliver_deep_ultimo").write_text(
+                        _dt.date.today().isoformat()
+                    )
+                except Exception:
+                    pass
+            await ctx.bot.send_message(
+                chat_id,
+                "✅ Todo al día. Abre el dashboard y mira la pestaña **🏃 Oliver**.",
+                parse_mode="Markdown",
             )
             _registrar_accion_local(
                 chat_id,
-                "/oliver_sync ejecutado: sincronización MVP de Oliver + recálculo "
-                "de cruces (calcular_vistas) terminado correctamente."
+                f"/oliver_{'deep' if deep else 'sync'} ejecutado: sincronización "
+                f"{etiqueta} de Oliver + recálculo de cruces terminados correctamente."
             )
         else:
             tail = (err2 or out2 or b"").decode("utf-8", "replace")[-1500:]
-            await update.message.reply_text(f"⚠️ Oliver OK pero calcular_vistas falló:\n{tail}")
+            await ctx.bot.send_message(
+                chat_id, f"⚠️ Oliver OK pero calcular_vistas falló:\n{tail}"
+            )
             _registrar_accion_local(
                 chat_id,
-                "/oliver_sync ejecutado: sync OK pero el recálculo de vistas falló."
+                f"/oliver_{'deep' if deep else 'sync'} ejecutado: sync OK pero el "
+                "recálculo de vistas falló."
             )
-    else:
-        detalle = (err or out or "(sin detalles)").strip()
-        for chunk in _chunks(f"❌ Error en oliver_sync:\n{detalle}"):
-            await update.message.reply_text(chunk)
-        _registrar_accion_local(
-            chat_id, "/oliver_sync FALLÓ — el sync de Oliver dio error, no se actualizó."
-        )
+    except Exception as e:
+        log.exception("Worker /oliver_%s falló: %s", "deep" if deep else "sync", e)
+        try:
+            await ctx.bot.send_message(
+                chat_id,
+                f"❌ Error inesperado en /oliver_{'deep' if deep else 'sync'}: {e}"
+            )
+        except Exception:
+            pass
 
 
 async def _run_script(path: Path, *args, timeout: int = 600) -> Tuple[int, str, str]:
@@ -2266,41 +2332,6 @@ async def cmd_oliver_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         await update.message.reply_text(f"❌ Error guardando .env: {e}")
-
-
-async def cmd_oliver_deep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Sincronización profunda quincenal (las 68 métricas)."""
-    if not _authorized(update):
-        await update.message.reply_text("🚫 Acceso denegado.")
-        return
-    await update.message.reply_text("🔬 Sincronización profunda de Oliver (68 métricas)…")
-    chat_id = update.effective_chat.id
-    stop = asyncio.Event()
-    task = asyncio.create_task(_keep_typing(chat_id, ctx, stop))
-    try:
-        rc, out, err = await _run_oliver_sync(deep=True)
-    finally:
-        stop.set()
-        try: await task
-        except Exception: pass
-    if rc == 0:
-        # Marcar recordatorio como hecho hoy
-        try:
-            (LOGS_DIR.parent / ".oliver_deep_ultimo").write_text(_dt.date.today().isoformat())
-        except Exception: pass
-        await update.message.reply_text(
-            "✅ Análisis profundo al día. Reviso las 68 métricas en hoja `_OLIVER_DEEP`. "
-            "Si quieres que te resalte cosas raras, dime '*repásame el último deep*'."
-        )
-        _registrar_accion_local(
-            chat_id,
-            "/oliver_deep ejecutado: sync profundo de Oliver (68 métricas) terminado, "
-            "hoja _OLIVER_DEEP actualizada y .oliver_deep_ultimo marcado."
-        )
-    else:
-        detalle = (err or out or "(sin detalles)").strip()
-        for chunk in _chunks(f"❌ Error:\n{detalle}"):
-            await update.message.reply_text(chunk)
 
 
 # ─── Recordatorio quincenal Oliver deep ──────────────────────────────────────
