@@ -490,6 +490,8 @@ COL_TOOLTIPS: dict = {
     "TOTAL_SESIONES_EQUIPO": "Sesiones que ha tenido el equipo en el periodo (mide la asistencia ideal).",
     "SESIONES_CON_DATOS":    "Sesiones donde el jugador tiene Borg numérico (entrenó de verdad).",
     "PCT_PARTICIPACION":     "% de sesiones del equipo en las que entrenó (Sesiones con datos / Total).",
+    "RETIRADAS":             "Número de sesiones en las que el jugador se retiró a mitad por lesión/molestia (Alfred /retirado).",
+    "RETIRADAS_DETALLE":     "Fechas y motivos concretos de cada retirada de la sesión.",
     # Carga
     "ACWR":           "Acute:Chronic Workload Ratio. <0,8 infra-carga · 0,8–1,3 OK · 1,3–1,5 atención · >1,5 riesgo.",
     "CARGA":          "sRPE de la sesión (Borg × Minutos).",
@@ -1627,6 +1629,23 @@ with tab_sem:
                         motivos.append(f"<b>Algo bajo de peso</b> ({pd_:+.1f} kg vs media 2 meses).")
                 if pd.notna(monotonia) and float(monotonia) > 2.0:
                     motivos.append(f"<b>Monotonía alta</b> ({float(monotonia):.2f} > 2.0): carga muy uniforme entre sesiones, riesgo de sobreentrenamiento. Introducir variabilidad.")
+
+                # Retiradas a mitad de sesión por lesión/molestia (de _VISTA_RECUENTO).
+                # Aparece en el tooltip si el jugador tiene 1+ retiradas registradas
+                # vía /retirado en Alfred (rellena INCIDENCIA en BORG).
+                try:
+                    _row_rec = rec[rec["JUGADOR"] == jugador_nom] if not rec.empty else pd.DataFrame()
+                    n_ret = int(_row_rec["RETIRADAS"].iloc[0]) if not _row_rec.empty and "RETIRADAS" in _row_rec.columns else 0
+                    det = str(_row_rec["RETIRADAS_DETALLE"].iloc[0]) if n_ret > 0 and "RETIRADAS_DETALLE" in _row_rec.columns else ""
+                except Exception:
+                    n_ret = 0
+                    det = ""
+                if n_ret > 0:
+                    det_short = det if len(det) < 200 else det[:200] + "…"
+                    motivos.append(
+                        f"<b>Retirado en {n_ret} sesi{'ones' if n_ret != 1 else 'ón'}</b> por lesión/molestia: "
+                        f"<span style='opacity:0.8'>{det_short}</span>"
+                    )
 
                 if not motivos:
                     tooltip_html = (

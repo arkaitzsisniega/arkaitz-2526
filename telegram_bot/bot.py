@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, List, Any
 
 from dotenv import load_dotenv
-from telegram import Update, constants
+from telegram import Update, constants, BotCommand
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler,
@@ -436,6 +436,29 @@ ACCIONES COMUNES DE ESCRITURA AL SHEET:
    Arkaitz. Si falla algo, NO inventes Python alternativo: dile a Arkaitz el
    error literal y para.
 
+1b) **Jugador RETIRADO a mitad de sesión por lesión/molestia** (ej.
+   "Pirata se retiró hoy en el minuto 25 por molestia en el gemelo",
+   "Pani no acabó el entreno, paró en el 40 por aductor"):
+   → USA SIEMPRE el script `src/marcar_retirado.py`.
+     Es DISTINTO de marcar_lesion: aquí SÍ entrenó parte de la sesión.
+     Escribe en BORG (con valor numérico si lo dio, o "NC" si no) más
+     la columna INCIDENCIA = "Retirado min X - motivo". Y añade fila
+     a LESIONES.
+
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_retirado.py JUGADOR YYYY-MM-DD MIN "MOTIVO" [TURNO]
+   ```
+
+   Ejemplos:
+   ```bash
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_retirado.py PIRATA 2026-05-14 25 "gemelo derecho"
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_retirado.py PANI 2026-05-14 40 "aductor" T
+   /usr/bin/python3 {PROJECT_DIR}/src/marcar_retirado.py RAYA 2026-05-14 15 "molestia rodilla" --borg 6
+   ```
+
+   Si Arkaitz mencionó el Borg ("…se retiró pero apuntó un 7"), usa
+   `--borg 7`. Si no, omítelo (queda como NC).
+
 2) **Otros estados en BORG (S/A/D/N/NC) o Borg numérico**:
    → USA SIEMPRE el script `src/apuntar_borg.py`. NO escribas Python a mano.
      Es idempotente: si la fila existe se actualiza, si no se añade.
@@ -616,6 +639,159 @@ visión a veces falla.
 
 Cuando confirme, usa los scripts `apuntar_*` / `marcar_lesion` como
 siempre. Si los datos no son claros, díselo en humano y pídele detalle.
+
+══════════════════════════════════════════════════════════════════════
+ESQUEMA COMPLETO DEL SHEET (mayo 2026)
+══════════════════════════════════════════════════════════════════════
+
+Para consultas necesitas saber QUÉ hoja contiene CADA tipo de dato.
+Para escrituras puntuales (Borg, peso, wellness, lesión) usa los
+scripts apuntar_*.py / marcar_lesion.py. Para consultas amplias, lee
+directamente la hoja con gspread.
+
+### CARGA / ENTRENO
+
+- **SESIONES** (crudo): FECHA, SEMANA, TURNO, TIPO_SESION, MINUTOS,
+  COMPETICION. Calendario del equipo, NO tiene jugador.
+- **BORG** (crudo, 1 fila/jugador-sesión): FECHA, TURNO, JUGADOR, BORG.
+  BORG puede ser número 0-10 o letra S/A/L/N/D/NC/NJ.
+- **_VISTA_CARGA**: FECHA, TURNO, JUGADOR, TIPO_SESION, COMPETICION,
+  MINUTOS, BORG, CARGA (=Borg×Minutos), SEMANA, DIA_SEMANA.
+- **_VISTA_SEMANAL** (1 fila/jugador-semana): FECHA_LUNES, JUGADOR,
+  CARGA_SEMANAL, SESIONES, BORG_MEDIO, ACWR (EWMA agudo/crónico),
+  CARGA_AGUDA, CARGA_CRONICA, MONOTONIA, FATIGA, SEMAFORO.
+- **_VISTA_SEMAFORO** (foto reciente): JUGADOR, ACWR, MONOTONIA,
+  WELLNESS_MEDIO, WELLNESS_BELOW15, PESO_PRE_DESV_KG, ALERTAS_ACTIVAS,
+  SEMAFORO_GLOBAL (ROJO/NARANJA/VERDE).
+- **_VISTA_RECUENTO** (histórico asistencia): JUGADOR,
+  TOTAL_SESIONES_EQUIPO, EST_S/A/L/N/D/NC/NJ, SESIONES_CON_DATOS,
+  PCT_PARTICIPACION.
+
+### PESO Y WELLNESS
+
+- **PESO** (crudo): FECHA, TURNO, JUGADOR, PESO_PRE, PESO_POST, H2O_L.
+- **_VISTA_PESO**: ídem + DIFERENCIA, PCT_PERDIDA, ALERTA_PESO,
+  BASELINE_PRE, DESVIACION_BASELINE.
+- **WELLNESS** (crudo): FECHA, JUGADOR, SUENO, FATIGA, MOLESTIAS, ANIMO,
+  TOTAL. ⚠ La col se llama `SUENO` (sin tilde).
+- **_VISTA_WELLNESS**: ídem + WELLNESS_7D, BASELINE_WELLNESS,
+  DESVIACION_BASELINE, SEMAFORO_WELLNESS.
+
+### LESIONES / FISIO
+
+- **LESIONES** (crudo, cabecera en fila 2): JUGADOR, FECHA LESIÓN,
+  TIPO LESIÓN, ZONA CORPORAL, LADO, FECHA ALTA, GRAVEDAD, etc.
+  Para escribir SIEMPRE usa marcar_lesion.py (es idempotente).
+- **FISIO**: FECHA, JUGADOR, ESTADO, TIPO_LESION, ZONA_CORPORAL, LADO,
+  DIAS_BAJA_ESTIMADOS, NOTAS.
+
+### PARTIDOS · estadísticas
+
+- **EST_PARTIDOS** (1 fila por jugador × partido, ~600 filas):
+  partido_id, tipo, competicion, rival, fecha, dorsal, jugador,
+  min_1t, min_2t, min_total, convocado, participa,
+  rot_1t_1..8 / rot_2t_1..8 (rotaciones de cada parte),
+  pf/pnf, robos, cortes, bdg, bdp, dp (puerta) / dpalo / db / df (fuera),
+  par/gol_p/bloq_p/poste_p (portería), goles_a_favor, asistencias.
+- **EST_EVENTOS** (1 fila por gol): partido_id, fecha, rival, parte,
+  minuto, equipo_marca (INTER/RIVAL), accion (Contraataque, ABP, Banda,
+  Córner, 4x4, Penalti, 10m, Portero-jugador, etc.), zona_campo (A1-A11),
+  zona_porteria (P1-P9), jugador (goleador), asistencia, cuarteto
+  (jugadores de campo en pista separados por |), portero, descripcion.
+- **EST_DISPAROS** (1 fila por disparo): igual que EVENTOS pero TODOS
+  los disparos (gol y no-gol). Columnas: competicion, rival, fecha,
+  parte, minuto, equipo (INTER/RIVAL), jugador, asistencia, zona_campo,
+  zona_porteria, accion, resultado (GOL/PARADA/PALO/BLOQUEADO/FUERA).
+- **EST_DISPAROS_ZONAS**: pivot de disparos × zona campo × zona portería.
+- **EST_TOTALES_PARTIDO**: 1 fila por partido con totales (dt_inter,
+  dp_inter, dt_rival, dp_rival, pf_inter, pnf_inter, robos_inter,
+  cortes_inter, faltas_inter, faltas_rival, etc.).
+- **EST_FALTAS**: partido_id, parte, minuto_mmss, condicion
+  (A_FAVOR/EN_CONTRA), jugador, num_falta, genera_10m, descripcion.
+- **EST_PENALTIS_10M**: tirador, portero, resultado, parte, minuto,
+  partido, tipo (PENALTI/10M).
+- **EST_PLANTILLAS**: alineación inicial del partido.
+- **_VISTA_EST_JUGADOR**: agregado por jugador en toda la temporada.
+- **_VISTA_EST_AVANZADAS**: ratios (xG, eficiencia disparo, gol/min, …).
+- **_VISTA_EST_CUARTETOS**: combinaciones de jugadores en pista y su
+  rendimiento (minutos juntos, GF/GC en pista, plus_minus).
+
+### SCOUTING DE RIVALES
+
+- **SCOUTING_RIVALES**: hoja maestra (89 cols) por rival y fecha
+  observada — plantilla, sistema, fortalezas, debilidades, balón
+  parado favor/contra, duelos por zona, ABP, etc.
+- **_VISTA_SCOUTING_RIVAL** (129 cols): vista limpia por rival con
+  totales agregados.
+- **EST_SCOUTING_PEN_10M**: cómo marcan / reciben penaltis y 10m
+  cada rival visto. Tirador, portero, club, dirección, forma, zona,
+  es_gol, etc.
+
+### OLIVER (GPS)
+
+- **OLIVER** (~5000 filas, MVP 15 cols): session_id, fecha, jugador,
+  distancia, hsr, sprints, vel_max, aceleraciones, deceleraciones,
+  carga_mecanica.
+- **_OLIVER_DEEP** (68 métricas): detalle profundo.
+- **_VISTA_OLIVER** (31 cols): cruza Oliver con Borg y CARGA →
+  ratio_borg_oliver, eficiencia_sprint, asimetria_acc,
+  densidad_metabolica, pct_hsr, acwr_mecanico.
+
+### EJERCICIOS DE ENTRENO
+
+- **_EJERCICIOS** (input manual): id_sesion, fecha, turno,
+  nombre_ejercicio, tipo_ejercicio, minuto_inicio, minuto_fin,
+  jugadores, notas.
+- **_VISTA_EJERCICIOS**: 1 fila/jugador×ejercicio con métricas Oliver
+  agregadas sobre el rango del ejercicio.
+
+### ANTROPOMETRÍA (nutricionista)
+
+- **ANTROPOMETRIA**: jugador, fecha_medicion, peso_kg, altura_cm, imc,
+  pliegues (tríceps_mm, subescapular_mm, abdominal_mm, supraespinal_mm,
+  muslo_mm, pantorrilla_mm), sumatorio_6_pliegues_mm,
+  masa_grasa_yuhasz_pct, masa_grasa_faulkner_pct, masa_muscular_kg,
+  somatotipo_endomórfico/mesomórfico/ectomórfico.
+- Sumatorio 6 pliegues: <30 muy bajo · 30-45 excelente · 45-50 bueno ·
+  50-60 aceptable · 60-80 regular · >80 bajo rendimiento.
+
+### TELÉFONOS / FORMS
+
+- **TELEFONOS_JUGADORES**: dorsal, jugador, telefono, usar_whatsapp,
+  notas. Usado por /enlaces_wa.
+- **_FORM_PRE / _FORM_POST**: respuestas crudas de los Google Forms.
+
+### ROSTER
+
+- **JUGADORES_ROSTER**: dorsal, nombre, posicion (PORTERO/CAMPO),
+  equipo (PRIMER/FILIAL), activo (TRUE/FALSE).
+  ⚠ Cuartetos "sin portero" deben EXCLUIR HERRERO/GARCIA/OSCAR del
+  pool incluso si juegan de portero-jugador.
+
+### GUÍA OPERATIVA RÁPIDA — qué hoja usar por pregunta
+
+- "Goles X esta temporada" → _VISTA_EST_JUGADOR (rápido) o contar
+  EST_EVENTOS con jugador=X & equipo_marca=INTER.
+- "De qué zona tira más X" → EST_DISPAROS filtrado por jugador,
+  agrupar por zona_campo.
+- "Cuántos goles encajamos por penalti" → EST_PENALTIS_10M o
+  EST_EVENTOS con accion='PENALTI' & equipo_marca=RIVAL.
+- "Cómo marca/recibe goles el rival X" → _VISTA_SCOUTING_RIVAL.
+- "Cómo nos meten goles" → EST_EVENTOS con equipo_marca=RIVAL,
+  agrupar por accion / zona_porteria.
+- "Cómo metemos goles" → EST_EVENTOS con equipo_marca=INTER,
+  agrupar por accion / zona_campo.
+- "Cuartetos top" → _VISTA_EST_CUARTETOS.
+- "Quién jugó más minutos el partido X" → EST_PARTIDOS filtrado por
+  partido_id, ordenado por min_total.
+- "Rotaciones de X en el partido Y" → EST_PARTIDOS, columnas
+  rot_1t_1..8 y rot_2t_1..8.
+
+### ⚠ CONVENCIÓN DE LECTURA
+
+Para `get_all_records` pasa SIEMPRE
+`value_render_option=gspread.utils.ValueRenderOption.unformatted`.
+Sin esto, "74,7" (decimal con coma) llega como 747 (rompe los datos).
 """
 
 
@@ -1781,6 +1957,57 @@ async def cmd_prepost(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_retirado(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Apunta que un jugador se retiró a mitad de sesión por lesión.
+
+    Uso: /retirado JUGADOR FECHA MINUTO MOTIVO [TURNO]
+
+    Ejemplos:
+      /retirado PANI 2026-05-14 25 "gemelo derecho"
+      /retirado HERRERO 2026-05-14 40 "hombro" T
+      /retirado RAYA 2026-05-14 15 "molestia aductor" --borg 7
+
+    Si el bot recibe el mensaje por voz/texto natural ("Pirata se retiró
+    hoy en el minuto 25 por molestia en el gemelo"), Alfred lo interpreta
+    via Gemini y llama a este comando por debajo."""
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    args = ctx.args if hasattr(ctx, "args") else []
+    if len(args) < 4:
+        await update.message.reply_text(
+            "Uso: `/retirado JUGADOR FECHA MINUTO MOTIVO [TURNO]`\n"
+            "Ej:  `/retirado PANI 2026-05-14 25 \"gemelo derecho\"`",
+            parse_mode="Markdown",
+        )
+        return
+    # Reordenar: el motivo puede contener espacios → lo "junto" hasta el último arg
+    # si éste parece TURNO (M/T).
+    posible_turno = args[-1].upper() if len(args) > 4 and args[-1].upper() in ("M", "T") else None
+    if posible_turno:
+        motivo = " ".join(args[3:-1])
+        script_args = [args[0], args[1], args[2], motivo, posible_turno]
+    else:
+        motivo = " ".join(args[3:])
+        script_args = [args[0], args[1], args[2], motivo]
+    rc, out, err = await _run_script(
+        PROJECT_DIR / "src" / "marcar_retirado.py",
+        *script_args,
+    )
+    if rc != 0:
+        await update.message.reply_text(
+            f"❌ No pude apuntar la retirada (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    await _enviar_bloques(update, out)
+    _registrar_accion_local(
+        update.effective_chat.id,
+        f"/retirado ejecutado: marcado {script_args[0]} como retirado en {script_args[1]} "
+        f"min {script_args[2]} por '{motivo}'. INCIDENCIA escrita en BORG y "
+        f"entrada añadida a LESIONES. NO le preguntes nada más, ya está hecho."
+    )
+
+
 async def cmd_ejercicios_sync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Procesa la hoja _EJERCICIOS: baja timelines de Oliver, agrega métricas
     por rango de minutos y escribe _VISTA_EJERCICIOS."""
@@ -2826,9 +3053,44 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+# ─── Lista de comandos visible en el menú de Telegram (al pulsar "/") ─────────
+# Estos son TODOS los comandos del bot, en el orden y formato que el usuario
+# verá cuando escriba "/" en el chat. Telegram pinta uno por línea.
+BOT_COMMANDS_ALFRED = [
+    BotCommand("sesion",         "Apuntar sesión del día (voz/texto)"),
+    BotCommand("ejercicios",     "Apuntar ejercicios de un entreno (voz/texto)"),
+    BotCommand("consolidar",     "Volcar Forms PRE/POST → Sheet + recalcular vistas"),
+    BotCommand("prepost",        "Quién ha hecho PRE/POST/BORG de la última sesión"),
+    BotCommand("enlaces",        "Enlaces PRE+POST del día (genérico, 1 link)"),
+    BotCommand("enlaces_wa",     "1 enlace WhatsApp por jugador (lee TELEFONOS_JUGADORES)"),
+    BotCommand("retirado",       "Marcar a un jugador retirado a mitad de sesión por lesión"),
+    BotCommand("golespartido",   "Describir goles de un partido (voz, vuelca a EST_EVENTOS)"),
+    BotCommand("auditar",        "Audita BORG/PESO/WELLNESS/SESIONES (errores y duplicados)"),
+    BotCommand("oliver_sync",    "Sync incremental con Oliver Sports (MVP)"),
+    BotCommand("oliver_deep",    "Sync profundo Oliver (68 métricas)"),
+    BotCommand("oliver_token",   "Regenerar token de Oliver (cuando caduca)"),
+    BotCommand("ejercicios_sync", "Procesar hoja _EJERCICIOS (descarga timelines Oliver)"),
+    BotCommand("nuevo",          "Resetear contexto / nueva conversación con Alfred"),
+    BotCommand("id",             "Ver tu chat_id"),
+    BotCommand("start",          "Mensaje de bienvenida"),
+]
+
+
+async def _post_init(app: "Application") -> None:
+    """Se ejecuta tras conectar con Telegram. Registramos el menú de comandos."""
+    try:
+        await app.bot.set_my_commands(BOT_COMMANDS_ALFRED)
+        log.info("Menú de comandos registrado (%d entradas).", len(BOT_COMMANDS_ALFRED))
+    except Exception as e:
+        log.warning("No pude registrar el menú de comandos: %s", e)
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = (Application.builder()
+              .token(TOKEN)
+              .post_init(_post_init)
+              .build())
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))
@@ -2841,6 +3103,7 @@ def main():
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("auditar", cmd_auditar))
+    app.add_handler(CommandHandler("retirado", cmd_retirado))
     app.add_handler(CommandHandler("golespartido", cmd_golespartido))
     app.add_handler(CommandHandler("ejercicios_sync", cmd_ejercicios_sync))
     # /ejercicios = activa modo voz/texto + tras procesar lanza oliver_ejercicios

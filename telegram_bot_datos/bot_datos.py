@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Set, Dict, List, Any
 
 from dotenv import load_dotenv
-from telegram import Update, constants
+from telegram import Update, constants, BotCommand
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters,
 )
@@ -1772,8 +1772,28 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+# ─── Menú de comandos visibles en Telegram (al escribir "/") ─────────────────
+BOT_COMMANDS_DATOS = [
+    BotCommand("start",       "Bienvenida y comandos disponibles"),
+    BotCommand("yo",          "Ver tu chat_id (por si necesitas darlo a Arkaitz)"),
+    BotCommand("nuevo",       "Empezar conversación nueva (olvida el contexto)"),
+    BotCommand("oliver_sync", "Disparar sync incremental con Oliver Sports"),
+]
+
+
+async def _post_init(app: "Application") -> None:
+    try:
+        await app.bot.set_my_commands(BOT_COMMANDS_DATOS)
+        log.info("Menú de comandos registrado (%d entradas).", len(BOT_COMMANDS_DATOS))
+    except Exception as e:
+        log.warning("No pude registrar el menú de comandos: %s", e)
+
+
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = (Application.builder()
+              .token(TOKEN)
+              .post_init(_post_init)
+              .build())
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("yo", cmd_yo))
     app.add_handler(CommandHandler("nuevo", cmd_nuevo))

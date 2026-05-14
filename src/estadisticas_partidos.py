@@ -50,7 +50,11 @@ PATRON_PARTIDO = re.compile(
 )
 
 # Hojas que parecen partidos pero están vacías (plantillas no usadas)
-HOJAS_VACIAS = {"J27", "J28", "J29", "J30", "P49", "CAJA NEGRA"}
+# Si una jornada se rellena, hay que quitarla de aquí o el script no la
+# subirá. 14-may-2026: J27/J28/J29 ya están con datos, las saco de la lista.
+# J30 (NOIA) sigue siendo plantilla en `Estadisticas2526.xlsx` aunque ya se
+# jugó — si se rellena, sacarla también.
+HOJAS_VACIAS = {"J30", "P49", "CAJA NEGRA"}
 
 # Porteros canónicos del equipo. Si en la columna "portero" del Excel
 # aparece otro nombre, es un error de Arkaitz al rellenar (probablemente

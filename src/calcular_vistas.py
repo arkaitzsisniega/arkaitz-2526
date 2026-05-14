@@ -683,6 +683,8 @@ def vista_recuento(borg, ses):
     jugadores = borg["JUGADOR"].dropna().unique()
     jugadores = [j for j in jugadores if j]  # quitar vacíos
 
+    tiene_incidencia = "INCIDENCIA" in borg.columns
+
     rows = []
     for j in jugadores:
         # Deduplicar: cada sesión (FECHA+TURNO) cuenta una vez por jugador
@@ -699,6 +701,23 @@ def vista_recuento(borg, ses):
             round(min(row["SESIONES_CON_DATOS"] / total_ses * 100, 100), 1)
             if total_ses else 0
         )
+        # Retiradas: filas con INCIDENCIA no vacía (el script marcar_retirado.py
+        # rellena este campo con "Retirado min N - motivo"). Mostramos número
+        # total y detalle (fechas concatenadas) para que el dashboard lo pinte.
+        if tiene_incidencia:
+            incid = jdf[jdf["INCIDENCIA"].astype(str).str.strip() != ""]
+            row["RETIRADAS"] = int(len(incid))
+            if len(incid) > 0:
+                detalle = incid.sort_values("FECHA").apply(
+                    lambda r: f"{str(r['FECHA'])[:10]}: {str(r['INCIDENCIA']).strip()}",
+                    axis=1
+                ).tolist()
+                row["RETIRADAS_DETALLE"] = " · ".join(detalle)
+            else:
+                row["RETIRADAS_DETALLE"] = ""
+        else:
+            row["RETIRADAS"] = 0
+            row["RETIRADAS_DETALLE"] = ""
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values("PCT_PARTICIPACION", ascending=False)
