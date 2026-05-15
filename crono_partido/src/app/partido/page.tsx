@@ -30,6 +30,7 @@ export default function PartidoPage() {
   const [modalFalta, setModalFalta] = useState(false);
   const [modalGol, setModalGol] = useState(false);
   const [modalAmarilla, setModalAmarilla] = useState(false);
+  const [modalRoja, setModalRoja] = useState(false);
   const [modalTM, setModalTM] = useState(false);
   const [modalPen, setModalPen] = useState(false);
   const [modalTanda, setModalTanda] = useState(false);
@@ -333,11 +334,12 @@ export default function PartidoPage() {
       </div>
 
       {/* BOTONES ACCIÓN COLECTIVA */}
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-8 gap-2">
         <BotonAccion label="⚽ GOL" color="bg-emerald-700" onClick={() => setModalGol(true)} />
         <BotonAccion label="🎯 DISP. RIVAL" color="bg-red-700" onClick={() => setModalDisparoRival(true)} />
         <BotonAccion label="⚠️ FALTA" color="bg-orange-700" onClick={() => setModalFalta(true)} />
         <BotonAccion label="🟨 AMARILLA" color="bg-yellow-700" onClick={() => setModalAmarilla(true)} />
+        <BotonAccion label="🟥 ROJA" color="bg-red-800" onClick={() => setModalRoja(true)} />
         <BotonAccion label="🔄 CAMBIO" color="bg-zinc-700" onClick={() => setModalCambio({ sale: "" })} />
         <BotonAccion label="🛑 T.M." color="bg-purple-700" onClick={() => setModalTM(true)} />
         <BotonAccion label="🎯 PEN/10M" color="bg-pink-700" onClick={() => setModalPen(true)} />
@@ -396,6 +398,37 @@ export default function PartidoPage() {
             </span>
           </div>
         </div>
+
+        {/* Dorsales del RIVAL con tarjetas (amarilla / roja). Se construye
+            sobre la marcha desde los eventos. Útil para el CT que necesita
+            saber a quién han amonestado del rival. */}
+        {(() => {
+          const evs = partido.eventos as any[];
+          const amaRival = evs
+            .filter((e) => e.tipo === "amarilla" && e.equipo === "RIVAL" && e.jugador)
+            .map((e) => e.jugador as string);
+          const rojaRival = evs
+            .filter((e) => e.tipo === "roja" && e.equipo === "RIVAL" && e.jugador)
+            .map((e) => e.jugador as string);
+          if (!amaRival.length && !rojaRival.length) return null;
+          // Si un dorsal ya tiene roja, lo quitamos de la lista de amarillas
+          const rojaSet = new Set(rojaRival);
+          const amaSinExpulsados = amaRival.filter((d) => !rojaSet.has(d));
+          return (
+            <div className="mt-2 flex flex-wrap gap-3 text-sm">
+              {amaSinExpulsados.length > 0 && (
+                <span className="text-yellow-300">
+                  🟨 {cfg.rival}: <strong>{amaSinExpulsados.join(", ")}</strong>
+                </span>
+              )}
+              {rojaRival.length > 0 && (
+                <span className="text-red-300">
+                  🟥 {cfg.rival} expulsado: <strong>{rojaRival.join(", ")}</strong>
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {/* Avisos de faltas escalonados: 4ª (cuidado), 5ª (siguiente es 10m),
             6ª (ya es 10m). Solo mostramos el más alto que aplique. */}
         {sFalt.inter === 4 && (
@@ -452,6 +485,14 @@ export default function PartidoPage() {
             registrarAmarillaInter(modalAccionBanquillo.jugador);
             setModalAccionBanquillo(null);
           }}
+          onRoja={() => {
+            registrarEvento({
+              tipo: "roja",
+              equipo: "INTER",
+              jugador: modalAccionBanquillo.jugador,
+            } as any);
+            setModalAccionBanquillo(null);
+          }}
           onFalta={() => {
             registrarEvento({
               tipo: "falta",
@@ -481,6 +522,14 @@ export default function PartidoPage() {
           }}
           onAmarilla={() => {
             registrarAmarillaInter(modalAccionInd.jugador);
+            setModalAccionInd(null);
+          }}
+          onRoja={() => {
+            registrarEvento({
+              tipo: "roja",
+              equipo: "INTER",
+              jugador: modalAccionInd.jugador,
+            } as any);
             setModalAccionInd(null);
           }}
           onFalta={() => {
@@ -551,15 +600,27 @@ export default function PartidoPage() {
           onCerrar={() => setModalAmarilla(false)}
           onConfirmar={(ev) => {
             const evAny = ev as any;
-            // Si es amarilla a INTER con jugador concreto → usar helper
-            // (maneja la 2ª amarilla = roja automática). En cualquier
-            // otro caso (RIVAL o sin jugador) registramos directo.
             if (evAny.equipo === "INTER" && evAny.jugador) {
               registrarAmarillaInter(evAny.jugador);
             } else {
               registrarEvento(evAny);
             }
             setModalAmarilla(false);
+          }}
+        />
+      )}
+
+      {modalRoja && (
+        <ModalRoja
+          enPista={enPista}
+          banquillo={banquillo}
+          rivalNombre={cfg.rival}
+          onCerrar={() => setModalRoja(false)}
+          onConfirmar={(ev) => {
+            // Para INTER, registramos directo (la roja directa hace
+            // expulsado por sí sola, no hace falta amarilla previa).
+            registrarEvento(ev as any);
+            setModalRoja(false);
           }}
         />
       )}
@@ -713,19 +774,24 @@ function ModalAccionBanquillo(props: {
   enPista: string[];
   onCerrar: () => void;
   onAmarilla: () => void;
+  onRoja: () => void;
   onFalta: () => void;
   onCambioPor: (saleDePista: string) => void;
 }) {
   return (
     <ModalShell titulo={`🪑 ${props.jugador} (banquillo)`} onCerrar={props.onCerrar} maxW="max-w-2xl">
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-3 mb-4">
         <button onClick={props.onAmarilla}
           className="py-4 bg-yellow-700 hover:bg-yellow-600 rounded-lg text-lg font-bold">
           🟨 Amarilla
         </button>
+        <button onClick={props.onRoja}
+          className="py-4 bg-red-800 hover:bg-red-700 rounded-lg text-lg font-bold">
+          🟥 Roja
+        </button>
         <button onClick={props.onFalta}
           className="py-4 bg-orange-700 hover:bg-orange-600 rounded-lg text-lg font-bold">
-          ⚠️ Falta <span className="text-sm opacity-80">(p. ej. protesta)</span>
+          ⚠️ Falta
         </button>
       </div>
       <h3 className="text-sm text-zinc-400 mb-2">🔄 …o entra por (sale de pista):</h3>
@@ -884,18 +950,12 @@ function ModalFalta(props: {
 
 function ModalAmarilla(props: {
   enPista: string[];
-  banquillo: string[];     // tambien admitidos
+  banquillo: string[];
   rivalNombre: string;
   onCerrar: () => void;
   onConfirmar: (ev: any) => void;
 }) {
   const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
-
-  const aplicar = (jugador?: string) => {
-    const ev: any = { tipo: "amarilla", equipo };
-    if (jugador) ev.jugador = jugador;
-    props.onConfirmar(ev);
-  };
 
   const candidatos = [...props.enPista, ...props.banquillo];
 
@@ -919,7 +979,7 @@ function ModalAmarilla(props: {
             {candidatos.map((n) => {
               const enBanquillo = props.banquillo.includes(n);
               return (
-                <button key={n} onClick={() => aplicar(n)}
+                <button key={n} onClick={() => props.onConfirmar({ tipo: "amarilla", equipo: "INTER", jugador: n })}
                   className={`px-3 py-2 rounded ${
                     enBanquillo ? "bg-zinc-700 hover:bg-zinc-600 opacity-80"
                                 : "bg-emerald-700 hover:bg-emerald-600"
@@ -929,18 +989,146 @@ function ModalAmarilla(props: {
                 </button>
               );
             })}
-            <button onClick={() => aplicar(undefined)}
+            <button onClick={() => props.onConfirmar({ tipo: "amarilla", equipo: "INTER" })}
               className="px-3 py-2 rounded bg-zinc-700">SIN ASIGNAR</button>
           </div>
         </Paso>
       )}
       {equipo === "RIVAL" && (
-        <Paso n={2} titulo="Confirmar amarilla a rival" activo>
-          <button onClick={() => aplicar(undefined)}
-            className="w-full py-4 rounded bg-red-700 hover:bg-red-600 font-bold">Aplicar</button>
-        </Paso>
+        <TecladoDorsalRival
+          titulo={`Dorsal del rival que recibe la amarilla`}
+          onConfirmar={(dorsalOCT) => props.onConfirmar({
+            tipo: "amarilla", equipo: "RIVAL", jugador: dorsalOCT,
+          })}
+          onSinAsignar={() => props.onConfirmar({ tipo: "amarilla", equipo: "RIVAL" })}
+        />
       )}
     </ModalShell>
+  );
+}
+
+// ──────────────── MODAL ROJA ────────────────
+// Igual que amarilla pero registra evento roja directamente. Para
+// expulsiones por roja directa o por 2ª amarilla manual.
+
+function ModalRoja(props: {
+  enPista: string[];
+  banquillo: string[];
+  rivalNombre: string;
+  onCerrar: () => void;
+  onConfirmar: (ev: any) => void;
+}) {
+  const [equipo, setEquipo] = useState<"INTER" | "RIVAL" | null>(null);
+  const candidatos = [...props.enPista, ...props.banquillo];
+
+  return (
+    <ModalShell titulo="🟥 Tarjeta roja (expulsión)" onCerrar={props.onCerrar} maxW="max-w-2xl">
+      <Paso n={1} titulo="Equipo" activo={!equipo}>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setEquipo("INTER")}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "INTER" ? "bg-emerald-700" : "bg-zinc-800"
+            }`}>INTER</button>
+          <button onClick={() => setEquipo("RIVAL")}
+            className={`py-4 rounded text-lg font-bold ${
+              equipo === "RIVAL" ? "bg-red-700" : "bg-zinc-800"
+            }`}>{props.rivalNombre}</button>
+        </div>
+      </Paso>
+      {equipo === "INTER" && (
+        <Paso n={2} titulo="Jugador expulsado (tap = aplicar)" activo>
+          <div className="flex flex-wrap gap-2">
+            {candidatos.map((n) => {
+              const enBanquillo = props.banquillo.includes(n);
+              return (
+                <button key={n} onClick={() => props.onConfirmar({ tipo: "roja", equipo: "INTER", jugador: n })}
+                  className={`px-3 py-2 rounded ${
+                    enBanquillo ? "bg-zinc-700 hover:bg-zinc-600 opacity-80"
+                                : "bg-red-700 hover:bg-red-600"
+                  }`}>
+                  {n}{enBanquillo ? " 🪑" : ""}
+                </button>
+              );
+            })}
+          </div>
+        </Paso>
+      )}
+      {equipo === "RIVAL" && (
+        <TecladoDorsalRival
+          titulo="Dorsal del rival expulsado"
+          onConfirmar={(dorsalOCT) => props.onConfirmar({
+            tipo: "roja", equipo: "RIVAL", jugador: dorsalOCT,
+          })}
+          onSinAsignar={() => props.onConfirmar({ tipo: "roja", equipo: "RIVAL" })}
+        />
+      )}
+    </ModalShell>
+  );
+}
+
+// ──────────────── TECLADO NUMÉRICO RIVAL ────────────────
+// Permite teclear el dorsal del jugador rival que recibe la tarjeta.
+// Tecla extra "CT" = cuerpo técnico recibe la amonestación.
+// El dorsal se devuelve como string con prefijo "#": "#17", "#CT".
+
+function TecladoDorsalRival(props: {
+  titulo: string;
+  onConfirmar: (dorsalOCT: string) => void;
+  onSinAsignar: () => void;
+}) {
+  const [dorsal, setDorsal] = useState("");
+  const teclas = ["1","2","3","4","5","6","7","8","9","0"];
+
+  const pulsa = (t: string) => {
+    if (dorsal.length < 3) setDorsal(dorsal + t);
+  };
+  const borrar = () => setDorsal(dorsal.slice(0, -1));
+  const confirmar = () => {
+    if (!dorsal) return;
+    props.onConfirmar(`#${dorsal}`);
+  };
+
+  return (
+    <Paso n={2} titulo={props.titulo} activo>
+      <div className="bg-zinc-950 rounded-lg p-4 mb-3 text-center">
+        <div className="text-zinc-500 text-sm mb-1">Dorsal seleccionado:</div>
+        <div className="text-5xl font-bold font-mono tabular-nums min-h-[60px]">
+          {dorsal ? `#${dorsal}` : <span className="text-zinc-700">—</span>}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        {teclas.slice(0, 9).map((t) => (
+          <button key={t} onClick={() => pulsa(t)}
+            className="py-5 bg-zinc-700 hover:bg-zinc-600 rounded text-2xl font-bold">
+            {t}
+          </button>
+        ))}
+        <button onClick={borrar}
+          className="py-5 bg-zinc-800 hover:bg-zinc-700 rounded text-xl">
+          ⌫
+        </button>
+        <button onClick={() => pulsa("0")}
+          className="py-5 bg-zinc-700 hover:bg-zinc-600 rounded text-2xl font-bold">
+          0
+        </button>
+        <button onClick={confirmar} disabled={!dorsal}
+          className={`py-5 rounded text-xl font-bold ${
+            dorsal ? "bg-emerald-700 hover:bg-emerald-600" : "bg-zinc-800 opacity-50"
+          }`}>
+          ✓
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <button onClick={() => props.onConfirmar("#CT")}
+          className="py-4 bg-purple-700 hover:bg-purple-600 rounded text-base font-bold">
+          🧠 Cuerpo técnico (CT)
+        </button>
+        <button onClick={props.onSinAsignar}
+          className="py-4 bg-zinc-700 hover:bg-zinc-600 rounded text-base font-bold">
+          Sin asignar
+        </button>
+      </div>
+    </Paso>
   );
 }
 
@@ -1367,6 +1555,7 @@ function ModalAccionIndividual(props: {
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
   onAmarilla: () => void;
+  onRoja: () => void;
   onFalta: () => void;
   /** TODAS las acciones individuales con mapa: PF/PNF/Robo/Corte/BDG/BDP. */
   onAccionConZona: (tipo: AccionConZonaTipo, zonaCampo?: string) => void;
@@ -1413,9 +1602,10 @@ function ModalAccionIndividual(props: {
           <BotonGrande label="🎯 DISPARO" color="bg-pink-700" onClick={() => setPaso("disparoTipo")} />
         </div>
 
-        {/* Disciplina: amarilla + falta (cometida POR este jugador). */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Disciplina: amarilla + roja + falta (cometida POR este jugador). */}
+        <div className="grid grid-cols-3 gap-2">
           <BotonGrande label="🟨 Amarilla" color="bg-yellow-700" onClick={props.onAmarilla} />
+          <BotonGrande label="🟥 Roja" color="bg-red-800" onClick={props.onRoja} />
           <BotonGrande label="⚠️ Falta" color="bg-orange-700" onClick={props.onFalta} />
         </div>
 
