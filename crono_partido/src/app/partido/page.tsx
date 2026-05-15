@@ -79,71 +79,77 @@ export default function PartidoPage() {
   // durante esos 2 minutos (otro jugador puede entrar). En futsal real
   // la regla es: 2 min de juego efectivo o hasta gol del rival.
   //
-  // Cálculo derivado de los eventos (sin tocar el schema del partido):
-  //   1) Busca eventos `roja` del INTER ordenados por tiempo de partido.
-  //   2) Para cada uno, calcula segundosInicio (acumulados de partido).
-  //   3) Si el equipo tiene MENOS de 5 en pista actualmente, asumimos
-  //      que la última roja causó inferioridad. Si ya hay 5 (cambió a
-  //      "Nadie" → reemplazo posterior, etc.), no.
-  //   4) Si hubo gol del RIVAL después de la roja, fin de inferioridad.
-  //   5) Si han pasado más de 120s del cronómetro de partido, fin.
-  const inferioridad = useMemo(() => {
-    const evs = partido.eventos as any[];
-    const rojas = evs
-      .filter((e) => e.tipo === "roja" && e.equipo === "INTER")
-      .sort((a, b) => (a.segundosPartido || 0) - (b.segundosPartido || 0));
-    if (rojas.length === 0) return null;
-    if (partido.enPista.length >= 5) return null;  // ya hay 5 en pista
-    // Última roja
-    const ultRoja = rojas[rojas.length - 1];
-    const tRoja = ultRoja.segundosPartido || 0;
-    // ¿Hubo gol del rival después?
-    const golRivalDespues = evs.some(
-      (e) => e.tipo === "gol" && e.equipo === "RIVAL"
-              && (e.segundosPartido || 0) > tRoja
-    );
-    if (golRivalDespues) return null;
-    // Tiempo actual de partido
-    const tActual = segundosPartidoTotal();
-    const trans = tActual - tRoja;
-    if (trans >= 120) return null;  // ya pasaron los 2 minutos
-    return {
-      segRestantes: Math.max(0, 120 - trans),
-      jugador: ultRoja.jugador || "expulsado",
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partido.eventos, partido.enPista.length, partido.cronometro]);
+  // CRONOS DE INFERIORIDAD / SUPERIORIDAD — ahora es un ARRAY (puede haber
+  // 1, 2 o más activos simultáneamente si hay varias expulsiones seguidas).
+  //
+  // Cálculo derivado de los eventos:
+  //   1) Buscamos todas las rojas del equipo X ordenadas por tiempo de partido.
+  //   2) Buscamos goles del equipo CONTRARIO ordenados por tiempo.
+  //   3) Cada gol del contrario cancela la roja MÁS ANTIGUA aún activa
+  //      (regla FIFA futsal: cada gol libera al primer expulsado).
+  //   4) Las rojas que NO han sido canceladas Y han pasado <120s desde su
+  //      tiempo se muestran como cronos activos.
+  //   5) Cada crono tiene su propio segRestantes.
+  function calcularCronosActivos(
+    rojasEquipo: any[],
+    golesContrario: any[],
+    tActual: number,
+  ): Array<{ segRestantes: number; jugador: string; tInicio: number }> {
+    if (rojasEquipo.length === 0) return [];
+    // Cancelaciones: matchamos cada gol con la roja más antigua aún viva.
+    const rojas = rojasEquipo
+      .map((r) => ({
+        tInicio: r.segundosPartido || 0,
+        jugador: r.jugador || "expulsado",
+        cancelada: false,
+      }))
+      .sort((a, b) => a.tInicio - b.tInicio);
+    const goles = golesContrario
+      .map((g) => g.segundosPartido || 0)
+      .sort((a, b) => a - b);
+    for (const tGol of goles) {
+      // Cada gol cancela la roja más antigua que (a) aún esté viva y
+      // (b) cuyo tInicio sea anterior al gol.
+      const objetivo = rojas.find((r) => !r.cancelada && r.tInicio < tGol);
+      if (objetivo) objetivo.cancelada = true;
+    }
+    // Devolver los que siguen activos: no cancelados Y <120s desde inicio
+    return rojas
+      .filter((r) => !r.cancelada && tActual - r.tInicio < 120)
+      .map((r) => ({
+        segRestantes: Math.max(0, 120 - (tActual - r.tInicio)),
+        jugador: r.jugador,
+        tInicio: r.tInicio,
+      }));
+  }
 
-  // SUPERIORIDAD NUMÉRICA — espejo de inferioridad pero cuando expulsan
-  // a un jugador del RIVAL. El Inter juega con 5 vs 4. Termina si:
-  // (a) marca el INTER (compensación natural en futsal), o
-  // (b) pasan 120 s desde la expulsión.
-  // No depende de partido.enPista (estructuralmente no tenemos "rival
-  // en pista"; lo derivamos solo de eventos).
-  const superioridad = useMemo(() => {
+  const cronosInferioridad = useMemo(() => {
     const evs = partido.eventos as any[];
-    const rojasRival = evs
-      .filter((e) => e.tipo === "roja" && e.equipo === "RIVAL")
-      .sort((a, b) => (a.segundosPartido || 0) - (b.segundosPartido || 0));
-    if (rojasRival.length === 0) return null;
-    const ultRoja = rojasRival[rojasRival.length - 1];
-    const tRoja = ultRoja.segundosPartido || 0;
-    // ¿Hubo gol del INTER después? Entonces se ha "consumido" la
-    // superioridad (el rival recupera el quinto).
-    const golInterDespues = evs.some(
-      (e) => e.tipo === "gol" && e.equipo === "INTER"
-              && (e.segundosPartido || 0) > tRoja
-    );
-    if (golInterDespues) return null;
-    const tActual = segundosPartidoTotal();
-    const trans = tActual - tRoja;
-    if (trans >= 120) return null;
-    return {
-      segRestantes: Math.max(0, 120 - trans),
-      dorsalRival: ultRoja.jugador || "expulsado",
-    };
+    const rojas = evs.filter((e) => e.tipo === "roja" && e.equipo === "INTER");
+    const goles = evs.filter((e) => e.tipo === "gol" && e.equipo === "RIVAL");
+    return calcularCronosActivos(rojas, goles, segundosPartidoTotal());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partido.eventos, partido.cronometro]);
+
+  const cronosSuperioridad = useMemo(() => {
+    const evs = partido.eventos as any[];
+    const rojas = evs.filter((e) => e.tipo === "roja" && e.equipo === "RIVAL");
+    const goles = evs.filter((e) => e.tipo === "gol" && e.equipo === "INTER");
+    return calcularCronosActivos(rojas, goles, segundosPartidoTotal());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partido.eventos, partido.cronometro]);
+
+  // Avisos de porteros (validaciones tácticas):
+  // - 0 porteros en pista: situación normal en fin de partido perdiendo
+  //   (portero-jugador). Aviso pequeño, no exagerado.
+  // - 2 porteros en pista: nunca debe pasar. Aviso visible para corregir.
+  const porterosEnPista = useMemo(() => {
+    return partido.enPista.filter((n) => {
+      const j = ROSTER.find((r) => r.nombre === n);
+      return j?.posicion === "PORTERO";
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partido.enPista]);
 
   // Helper central para EXPULSAR a un jugador INTER: registra evento
   // roja + si el jugador está en pista, lo saca automáticamente
@@ -257,17 +263,20 @@ export default function PartidoPage() {
       </div>
 
       {/* BANNERS DE INFERIORIDAD / SUPERIORIDAD NUMÉRICA — pueden estar
-          activos simultáneamente si hay expulsión de ambos equipos
-          dentro de los 2 min. */}
-      {(inferioridad || superioridad) && (
-        <div className={`grid ${(inferioridad && superioridad) ? "grid-cols-2" : "grid-cols-1"} gap-2 mb-3`}>
-          {inferioridad && (
-            <div className="bg-red-700/90 border-2 border-red-400 rounded-lg p-3 flex items-center justify-between gap-3">
+          activos VARIOS a la vez (un crono independiente por expulsado,
+          regla FIFA futsal). Cada gol del rival cancela el crono de
+          inferioridad MÁS ANTIGUO; cada gol nuestro cancela el de
+          superioridad más antiguo. */}
+      {(cronosInferioridad.length > 0 || cronosSuperioridad.length > 0) && (
+        <div className={`grid ${(cronosInferioridad.length + cronosSuperioridad.length) >= 2 ? "grid-cols-2" : "grid-cols-1"} gap-2 mb-3`}>
+          {cronosInferioridad.map((c, i) => (
+            <div key={`inf-${c.tInicio}-${i}`}
+              className="bg-red-700/90 border-2 border-red-400 rounded-lg p-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <span className="text-3xl">🟥</span>
                 <div>
                   <div className="text-base font-bold leading-tight">
-                    INFERIORIDAD · expulsado {inferioridad.jugador}
+                    INFERIORIDAD · expulsado {c.jugador}
                   </div>
                   <div className="text-xs text-red-100 mt-0.5">
                     Acaba a los 2 min o si el rival mete gol.
@@ -275,17 +284,18 @@ export default function PartidoPage() {
                 </div>
               </div>
               <div className="text-4xl font-mono font-bold tabular-nums">
-                {formatMMSS(Math.ceil(inferioridad.segRestantes))}
+                {formatMMSS(Math.ceil(c.segRestantes))}
               </div>
             </div>
-          )}
-          {superioridad && (
-            <div className="bg-emerald-700/90 border-2 border-emerald-400 rounded-lg p-3 flex items-center justify-between gap-3">
+          ))}
+          {cronosSuperioridad.map((c, i) => (
+            <div key={`sup-${c.tInicio}-${i}`}
+              className="bg-emerald-700/90 border-2 border-emerald-400 rounded-lg p-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <span className="text-3xl">🟩</span>
                 <div>
                   <div className="text-base font-bold leading-tight">
-                    SUPERIORIDAD · rival {superioridad.dorsalRival} fuera
+                    SUPERIORIDAD · rival {c.jugador} fuera
                   </div>
                   <div className="text-xs text-emerald-100 mt-0.5">
                     Acaba a los 2 min o si nosotros metemos gol.
@@ -293,10 +303,30 @@ export default function PartidoPage() {
                 </div>
               </div>
               <div className="text-4xl font-mono font-bold tabular-nums">
-                {formatMMSS(Math.ceil(superioridad.segRestantes))}
+                {formatMMSS(Math.ceil(c.segRestantes))}
               </div>
             </div>
-          )}
+          ))}
+        </div>
+      )}
+
+      {/* AVISOS DE PORTEROS — validaciones tácticas.
+          - 2 porteros en pista: nunca debe pasar, banner amarillo destacado.
+          - 0 porteros en pista: situación normal en fin de partido
+            perdiendo (portero-jugador). Línea pequeña discreta. */}
+      {porterosEnPista.length >= 2 && (
+        <div className="bg-yellow-600/90 border-2 border-yellow-300 rounded-lg p-2 mb-3 flex items-center gap-2">
+          <span className="text-2xl">⚠️</span>
+          <div className="text-sm font-bold leading-tight">
+            Hay {porterosEnPista.length} porteros en pista ({porterosEnPista.join(", ")}).
+            Revísalo: solo uno puede estar.
+          </div>
+        </div>
+      )}
+      {porterosEnPista.length === 0 && enPista.length > 0 && (
+        <div className="text-xs text-zinc-500 mb-2 flex items-center gap-1.5">
+          <span>ℹ️</span>
+          <span>Sin portero en pista (portero-jugador).</span>
         </div>
       )}
 
