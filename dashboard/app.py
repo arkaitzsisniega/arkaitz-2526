@@ -2270,10 +2270,82 @@ with tab_les:
                               .isin(["ACTIVA", "EN_RECUP", "RECAÍDA"])).sum()
                 _alta = (les_show.get("estado_actual", pd.Series(dtype=str))
                             .astype(str).str.upper().eq("ALTA")).sum()
-                k1, k2, k3 = st.columns(3)
+                _recaidas = 0
+                if "recaida" in les_show.columns:
+                    _recaidas = (les_show["recaida"].astype(str).str.upper()
+                                 .isin(["TRUE", "1", "SI", "SÍ", "X"])).sum()
+                k1, k2, k3, k4 = st.columns(4)
                 k1.metric("Total lesiones (filtrado)", len(les_show))
                 k2.metric("🔴 Activas", int(_activas))
                 k3.metric("✅ Cerradas", int(_alta))
+                k4.metric("🔁 Recaídas", int(_recaidas),
+                          help="Lesiones marcadas como recaída (mismo jugador, misma zona).")
+
+                # ── ANÁLISIS VISUAL ──
+                # Sólo si hay suficientes datos para que aporte (>= 3 lesiones).
+                if len(les_show) >= 3:
+                    st.markdown("##### 📊 Análisis del periodo")
+                    col_a, col_b = st.columns(2)
+
+                    # GRÁFICO 1: días-baja por zona corporal (sumatorio)
+                    if "zona_corporal" in les_show.columns and "dias_baja_real" in les_show.columns:
+                        with col_a:
+                            les_dias = les_show.copy()
+                            les_dias["dias_baja_real"] = pd.to_numeric(
+                                les_dias["dias_baja_real"], errors="coerce").fillna(0)
+                            agg_zona = (les_dias.groupby("zona_corporal")["dias_baja_real"]
+                                        .sum().sort_values(ascending=True))
+                            agg_zona = agg_zona[agg_zona > 0]
+                            if not agg_zona.empty:
+                                st.caption("Días de baja por zona corporal")
+                                st.bar_chart(agg_zona, horizontal=True,
+                                             use_container_width=True, height=240)
+
+                    # GRÁFICO 2: lesiones por mes (cuenta)
+                    with col_b:
+                        if "fecha_lesion" in les_show.columns:
+                            les_mes = les_show.copy()
+                            les_mes["mes"] = les_mes["fecha_lesion"].dt.to_period("M").astype(str)
+                            agg_mes = les_mes.groupby("mes").size().sort_index()
+                            if len(agg_mes) >= 2:
+                                st.caption("Lesiones por mes")
+                                st.bar_chart(agg_mes, use_container_width=True, height=240)
+
+                    # TOP 3 jugadores más afectados (días totales)
+                    if "jugador" in les_show.columns and "dias_baja_real" in les_show.columns:
+                        top = les_show.copy()
+                        top["dias_baja_real"] = pd.to_numeric(
+                            top["dias_baja_real"], errors="coerce").fillna(0)
+                        agg_jug = (top.groupby("jugador")
+                                   .agg(lesiones=("jugador", "count"),
+                                        dias_totales=("dias_baja_real", "sum"))
+                                   .sort_values("dias_totales", ascending=False)
+                                   .head(3))
+                        if not agg_jug.empty and agg_jug["dias_totales"].sum() > 0:
+                            st.caption("Top 3 jugadores con más días de baja")
+                            st.dataframe(agg_jug, use_container_width=True, height=180)
+
+                    # Tiempo medio de recuperación por gravedad
+                    if "gravedad" in les_show.columns and "dias_baja_real" in les_show.columns:
+                        grav = les_show.copy()
+                        grav["dias_baja_real"] = pd.to_numeric(
+                            grav["dias_baja_real"], errors="coerce")
+                        grav = grav.dropna(subset=["dias_baja_real"])
+                        if not grav.empty:
+                            agg_grav = (grav.groupby("gravedad")["dias_baja_real"]
+                                        .agg(["count", "mean", "min", "max"])
+                                        .round(1)
+                                        .rename(columns={
+                                            "count": "Nº lesiones",
+                                            "mean": "Media días",
+                                            "min": "Min",
+                                            "max": "Max",
+                                        }))
+                            if not agg_grav.empty:
+                                st.caption("Tiempo de recuperación por gravedad")
+                                st.dataframe(agg_grav, use_container_width=True, height=180)
+
+                    st.markdown("---")
 
                 # Tabla ordenada por fecha de lesión descendente
                 cols_pref = ["fecha_lesion", "jugador", "dorsal", "zona_corporal",
