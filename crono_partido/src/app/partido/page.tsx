@@ -49,6 +49,30 @@ export default function PartidoPage() {
     return s;
   }, [partido.eventos]);
 
+  // Jugadores EXPULSADOS de los nuestros (2ª amarilla o roja directa).
+  // Estos jugadores se bloquean: no se pueden cambiar, ni tocar para
+  // acciones individuales, ni asignarles disparos/goles. Quedan fuera
+  // del partido para el resto de tiempo.
+  const jugadoresExpulsados = useMemo(() => {
+    const cuentaAmarillas: Record<string, number> = {};
+    const rojas = new Set<string>();
+    for (const ev of partido.eventos) {
+      const e = ev as any;
+      if (e.tipo === "amarilla" && e.equipo === "INTER" && e.jugador) {
+        cuentaAmarillas[e.jugador] = (cuentaAmarillas[e.jugador] || 0) + 1;
+      }
+      if (e.tipo === "roja" && e.equipo === "INTER" && e.jugador) {
+        rojas.add(e.jugador);
+      }
+    }
+    const expulsados = new Set<string>();
+    for (const [nombre, n] of Object.entries(cuentaAmarillas)) {
+      if (n >= 2) expulsados.add(nombre);
+    }
+    for (const n of rojas) expulsados.add(n);
+    return expulsados;
+  }, [partido.eventos]);
+
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
   }
@@ -147,24 +171,40 @@ export default function PartidoPage() {
             const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
             const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
             const tieneAmarilla = jugadoresAmarilla.has(nombre);
+            const estaExpulsado = jugadoresExpulsados.has(nombre);
             return (
               <button key={nombre}
-                onClick={() => setModalAccionInd({ jugador: nombre })}
+                onClick={() => {
+                  if (estaExpulsado) return;  // bloqueado: no se puede tocar
+                  setModalAccionInd({ jugador: nombre });
+                }}
+                disabled={estaExpulsado}
                 className={`relative p-5 min-h-[140px] rounded-lg text-center flex flex-col justify-center ${
-                  esPortero
-                    ? "bg-zinc-800 border-2 border-zinc-600"
-                    : colorTiempoPista(seg)
-                } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
-                {tieneAmarilla && (
+                  estaExpulsado
+                    ? "bg-red-900/70 border-2 border-red-500 opacity-80 cursor-not-allowed"
+                    : esPortero
+                      ? "bg-zinc-800 border-2 border-zinc-600"
+                      : colorTiempoPista(seg)
+                } ${tieneAmarilla && !estaExpulsado ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
+                {estaExpulsado && (
+                  <span className="absolute top-1.5 right-1.5 text-xl leading-none" title="Expulsado">🟥</span>
+                )}
+                {!estaExpulsado && tieneAmarilla && (
                   <span className="absolute top-1.5 right-1.5 text-xl leading-none" title="Amarilla">🟨</span>
                 )}
-                {esPortero && (
+                {esPortero && !estaExpulsado && (
                   <span className="absolute top-1.5 left-1.5 text-sm">🥅</span>
                 )}
                 <div className="text-sm opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
-                <div className="text-lg font-bold leading-tight">{nombre}</div>
-                <div className="text-3xl font-mono tabular-nums mt-2">{formatMMSS(seg)}</div>
-                <div className="text-sm opacity-70 mt-1">parte {formatMMSS(totalParte)}</div>
+                <div className={`text-lg font-bold leading-tight ${estaExpulsado ? "line-through" : ""}`}>{nombre}</div>
+                {estaExpulsado ? (
+                  <div className="text-base font-bold mt-2 text-red-200">EXPULSADO</div>
+                ) : (
+                  <>
+                    <div className="text-3xl font-mono tabular-nums mt-2">{formatMMSS(seg)}</div>
+                    <div className="text-sm opacity-70 mt-1">parte {formatMMSS(totalParte)}</div>
+                  </>
+                )}
               </button>
             );
           })}
@@ -180,20 +220,34 @@ export default function PartidoPage() {
             const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
             const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
             const tieneAmarilla = jugadoresAmarilla.has(nombre);
+            const estaExpulsado = jugadoresExpulsados.has(nombre);
             return (
               <button key={nombre}
-                onClick={() => setModalAccionBanquillo({ jugador: nombre })}
+                onClick={() => {
+                  if (estaExpulsado) return;
+                  setModalAccionBanquillo({ jugador: nombre });
+                }}
+                disabled={estaExpulsado}
                 className={`relative p-3 min-h-[90px] rounded-lg text-center flex flex-col justify-center ${
-                  esPortero
-                    ? "bg-zinc-800 border border-zinc-600"
-                    : colorTiempoBanquillo(seg)
-                } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
-                {tieneAmarilla && (
+                  estaExpulsado
+                    ? "bg-red-900/70 border border-red-500 opacity-80 cursor-not-allowed"
+                    : esPortero
+                      ? "bg-zinc-800 border border-zinc-600"
+                      : colorTiempoBanquillo(seg)
+                } ${tieneAmarilla && !estaExpulsado ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
+                {estaExpulsado && (
+                  <span className="absolute top-1 right-1 text-base leading-none">🟥</span>
+                )}
+                {!estaExpulsado && tieneAmarilla && (
                   <span className="absolute top-1 right-1 text-base leading-none">🟨</span>
                 )}
                 <div className="text-sm opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
-                <div className="text-base font-bold leading-tight">{nombre}</div>
-                <div className="text-xl font-mono tabular-nums mt-1.5">{formatMMSS(seg)}</div>
+                <div className={`text-base font-bold leading-tight ${estaExpulsado ? "line-through" : ""}`}>{nombre}</div>
+                {estaExpulsado ? (
+                  <div className="text-xs font-bold mt-1 text-red-200">EXPULSADO</div>
+                ) : (
+                  <div className="text-xl font-mono tabular-nums mt-1.5">{formatMMSS(seg)}</div>
+                )}
               </button>
             );
           })}
@@ -409,7 +463,27 @@ export default function PartidoPage() {
           banquillo={banquillo}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalAmarilla(false)}
-          onConfirmar={(ev) => { registrarEvento(ev as any); setModalAmarilla(false); }}
+          onConfirmar={(ev) => {
+            registrarEvento(ev as any);
+            // Si es la 2ª amarilla del mismo jugador INTER → auto-roja
+            // y queda EXPULSADO. Conteo previo + esta amarilla.
+            const evAny = ev as any;
+            if (evAny.equipo === "INTER" && evAny.jugador) {
+              const yaTenia = partido.eventos.filter(
+                (e: any) => e.tipo === "amarilla"
+                  && e.equipo === "INTER"
+                  && e.jugador === evAny.jugador
+              ).length;
+              if (yaTenia + 1 >= 2) {
+                registrarEvento({
+                  tipo: "roja",
+                  equipo: "INTER",
+                  jugador: evAny.jugador,
+                } as any);
+              }
+            }
+            setModalAmarilla(false);
+          }}
         />
       )}
 
