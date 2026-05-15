@@ -315,6 +315,121 @@ def detectar_duplicados(pre: pd.DataFrame, post: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(alertas)
 
 
+def eliminar_duplicados_form(ss) -> list[dict]:
+    """Elimina filas duplicadas de _FORM_PRE y _FORM_POST conservando la
+    más reciente (por TIMESTAMP). Devuelve lista de dicts con detalle de
+    lo borrado para reportar al usuario.
+
+    Defensivo: si no encuentra columnas críticas (timestamp/jugador/
+    fecha/turno) en una hoja, NO borra nada de esa hoja (evitar daño
+    por mala parametrización del Form). Reporta el skip en el dict.
+
+    El borrado en gspread se hace fila a fila en ORDEN DESCENDENTE de
+    row_index para no descolocar los demás índices durante el bucle.
+
+    Cada entrada del resultado:
+      { tipo: "PRE"|"POST", hoja: str, jugador: str, fecha: str,
+        turno: str, borrados: int, conservado_row: int }
+    Errores:
+      { hoja: str, error: str }
+    """
+    resultado: list[dict] = []
+    for tipo, key_cfg, nombre_default in (("PRE",  "pre",  "_FORM_PRE"),
+                                              ("POST", "post", "_FORM_POST")):
+        try:
+            nombre_hoja = load_config()[key_cfg].get("hoja_respuestas", nombre_default)
+        except Exception:
+            nombre_hoja = nombre_default
+        try:
+            ws = ss.worksheet(nombre_hoja)
+        except Exception:
+            continue
+        try:
+            all_values = ws.get_all_values()
+        except Exception as e:
+            resultado.append({"hoja": nombre_hoja, "error": f"no pude leer: {e}"})
+            continue
+        if len(all_values) < 2:
+            continue
+        cabeceras = all_values[0]
+
+        def find_col_idx(keys: list[str]) -> int:
+            """Devuelve índice 0-based de la primera columna cuyo nombre contiene cualquiera de las keys."""
+            for k in keys:
+                kl = k.lower()
+                for i, h in enumerate(cabeceras):
+                    if kl in (h or "").lower():
+                        return i
+            return -1
+
+        idx_ts = find_col_idx(["marca temporal", "timestamp"])
+        idx_jug = find_col_idx(["jugador"])
+        idx_fecha = find_col_idx(["fecha"])
+        idx_turno = find_col_idx(["turno"])
+        if idx_ts < 0 or idx_jug < 0 or idx_fecha < 0 or idx_turno < 0:
+            resultado.append({
+                "hoja": nombre_hoja,
+                "error": (f"columnas no detectadas (ts={idx_ts}, jug={idx_jug}, "
+                          f"fecha={idx_fecha}, turno={idx_turno}). Skip por seguridad."),
+            })
+            continue
+
+        # Agrupar filas (row_index real empieza en 2 = primera fila tras cabeceras)
+        grupos: dict[tuple, list[tuple[int, pd.Timestamp]]] = {}
+        for i, row in enumerate(all_values[1:], start=2):
+            jug = (row[idx_jug].strip() if idx_jug < len(row) else "")
+            fecha_raw = (row[idx_fecha].strip() if idx_fecha < len(row) else "")
+            fecha = _parse_fecha(fecha_raw)
+            turno = _str_turno(row[idx_turno]) if idx_turno < len(row) else ""
+            ts_raw = row[idx_ts] if idx_ts < len(row) else ""
+            if not jug or not fecha:
+                continue
+            try:
+                ts_parsed = pd.to_datetime(ts_raw, errors="coerce", dayfirst=True)
+            except Exception:
+                ts_parsed = pd.NaT
+            key = (jug, fecha, turno)
+            grupos.setdefault(key, []).append((i, ts_parsed))
+
+        # Para cada grupo con n>1: conservar el de TIMESTAMP más reciente,
+        # borrar los demás.
+        filas_a_borrar: list[int] = []
+        for key, lista in grupos.items():
+            if len(lista) <= 1:
+                continue
+            # Ordenar por timestamp DESC (más reciente primero). Si alguno
+            # es NaT, lo ponemos como min para que sea de los primeros a borrar.
+            lista_sorted = sorted(
+                lista,
+                key=lambda x: x[1] if pd.notna(x[1]) else pd.Timestamp.min,
+                reverse=True,
+            )
+            mantener_row, _ = lista_sorted[0]
+            for row_idx, _ in lista_sorted[1:]:
+                filas_a_borrar.append(row_idx)
+            resultado.append({
+                "tipo": tipo,
+                "hoja": nombre_hoja,
+                "jugador": key[0],
+                "fecha": key[1],
+                "turno": key[2],
+                "borrados": len(lista_sorted) - 1,
+                "conservado_row": mantener_row,
+            })
+
+        # Borrar EN ORDEN DESCENDENTE para no descolocar los índices restantes
+        for row_idx in sorted(filas_a_borrar, reverse=True):
+            try:
+                ws.delete_rows(row_idx)
+            except Exception as e:
+                resultado.append({
+                    "hoja": nombre_hoja,
+                    "error": f"fila {row_idx} no se borró: {e}",
+                })
+
+    return resultado
+
+
 def consolidar_a_sheet(ss, pre: pd.DataFrame, post: pd.DataFrame) -> dict:
     """Fusiona las respuestas del Form con las hojas BORG/PESO/WELLNESS existentes.
 
