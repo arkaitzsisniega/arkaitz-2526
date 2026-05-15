@@ -1711,14 +1711,20 @@ def _detectar_intent_estado(prompt: str) -> Optional[Tuple[str, int]]:
     return (canonico, n)
 
 
-def _detectar_intent_carga_ultima(prompt: str) -> Optional[str]:
-    """Detecta si el prompt es del tipo 'carga jugador por jugador de la
-    última sesión' / 'borg del último entreno' / 'carga de hoy' / 'qué tal
-    la última sesión'. Devuelve fecha YYYY-MM-DD si especifica una,
-    "" si es la última, None si no matchea.
+def _palabra_aparece(texto_sin_tildes: str, palabra: str) -> bool:
+    """Word-boundary relajada: la palabra aparece rodeada por no-alfanuméricos."""
+    import re as _re
+    return bool(_re.search(rf"(?:^|[^a-z0-9]){_re.escape(palabra)}(?:$|[^a-z0-9])", texto_sin_tildes))
 
-    Reconoce fechas en MUCHOS formatos: "13/05", "13-05-2026", "2026-05-13",
-    "13 de mayo", "13 mayo", "hoy", "ayer", "anteayer", "el lunes".
+
+def _detectar_intent_carga_ultima(prompt: str) -> Optional[str]:
+    """Detecta preguntas tipo 'carga jugador por jugador', 'borg del entreno
+    de ayer', 'qué tal el entrenamiento de ayer? dime las cargas',
+    'cargas del entrenamiento'.
+
+    Devuelve fecha YYYY-MM-DD si especifica una, '' si es la última, None
+    si no matchea. Tolerante a entreno/entrenamiento, carga/cargas,
+    sesión/sesiones, con o sin tildes.
     """
     if not prompt:
         return None
@@ -1726,27 +1732,41 @@ def _detectar_intent_carga_ultima(prompt: str) -> Optional[str]:
     for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
         p = p.replace(a, b)
 
-    sesion_triggers = (
-        "ultima sesion", "ultimo entreno", "ultimo entrenamiento",
-        "del entreno de hoy", "sesion de hoy", "entreno de hoy",
-        "que tal el entreno", "que tal la sesion",
-        "que tal el ultimo entreno", "que tal la ultima sesion",
-        "como ha ido el entreno", "como ha ido la sesion",
-        "entreno de ayer", "sesion de ayer", "entreno ayer",
+    SUSTANTIVOS_SESION = (
+        "entreno", "entrenamiento", "entrenos", "entrenamientos",
+        "sesion", "sesiones",
     )
-    carga_triggers = (
-        "carga jugador", "carga por jugador", "carga del equipo",
-        "carga de la sesion", "carga del entreno", "borg de hoy",
-        "borg de la sesion", "borg del entreno", "borg jugador",
+    SUSTANTIVOS_METRICA = ("carga", "cargas", "borg")
+    CONTEXTO_TEMPORAL = (
+        "ayer", "hoy", "anteayer", "ultim", " de ", " del ",
+    )
+    EXPRESIONES_DIRECTAS = (
+        "carga jugador por jugador",
+        "carga por jugador",
+        "borg jugador",
+        "que tal la sesion", "que tal el entreno", "que tal el entrenamiento",
         "como fue la carga", "que carga", "que borg",
-        "borg del ", "carga del ", "borg de ayer", "carga de ayer",
-        "carga de hoy", "carga jugador por jugador",
+        "como ha ido el entreno", "como ha ido el entrenamiento",
+        "como ha ido la sesion",
+        "como fue el entreno", "como fue el entrenamiento",
+        "como fue la sesion",
     )
-
-    matches_carga = any(t in p for t in carga_triggers)
-    matches_sesion = any(t in p for t in sesion_triggers)
-    if not (matches_carga or matches_sesion):
+    EXCLUSIONES = (
+        "carga del trabajo", "carga emocional", "carga laboral",
+    )
+    if any(x in p for x in EXCLUSIONES):
         return None
+
+    match_directo = any(t in p for t in EXPRESIONES_DIRECTAS)
+    sustantivo_sesion = any(_palabra_aparece(p, s) for s in SUSTANTIVOS_SESION)
+    sustantivo_metrica = any(_palabra_aparece(p, s) for s in SUSTANTIVOS_METRICA)
+    contexto_temp = any(c in p for c in CONTEXTO_TEMPORAL)
+    if not match_directo:
+        if not ((sustantivo_metrica or sustantivo_sesion) and contexto_temp):
+            return None
+        if sustantivo_sesion and not sustantivo_metrica:
+            if not any(t in p for t in ("ayer", "hoy", "anteayer", "ultim")):
+                return None
 
     import re as _re
     import datetime as _dt
