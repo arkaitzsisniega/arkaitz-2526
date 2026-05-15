@@ -18,6 +18,58 @@ durante el directo).
 
 ---
 
+## 🔔 ESTADO 15/5/2026 (NOCHE) — refinamiento crono + atajo duplicados
+
+Sesión corta sobre la sesión TARDE-NOCHE. Dos cierres quirúrgicos para
+dejar el crono y el flujo de Forms más sólidos antes del 1/junio.
+
+### Crono iPad — cronos múltiples + avisos de porteros (commits a2e722f source + f0c87f4 deploy)
+- **Cronos independientes por expulsado**. Antes había un único crono
+  de inferioridad / superioridad (singular). Ahora `cronosInferioridad`
+  y `cronosSuperioridad` son arrays: un crono de 2:00 por cada expulsado
+  vivo. Regla FIFA futsal: cada gol del rival cancela el crono de
+  inferioridad MÁS ANTIGUO (no todos los activos); idem para superioridad
+  con goles nuestros.
+- Helper `calcularCronosActivos(rojas, goles, tActual)` centraliza la
+  lógica: ordena por tiempo, marca canceladas (1 gol = 1 cancelación
+  más antigua), devuelve los vivos con su segRestantes.
+- **Aviso 2 porteros en pista** → banner amarillo destacado ("Hay 2
+  porteros en pista (…). Revísalo: solo uno puede estar."). Caso que
+  nunca debe pasar.
+- **Aviso 0 porteros en pista** → línea pequeña gris ("Sin portero en
+  pista (portero-jugador)."). Caso habitual al final de partido perdiendo.
+- **Cambio portero ↔ jugador** ya estaba soportado: `ModalCambio` y
+  `cambiarJugador` del store no filtran por posición.
+- Validado contra cita literal del user: "Si hay dos expulsados hay dos
+  cronos de dos minutos. Uno por cada expulsado", "un gol cancela el
+  crono más antiguo".
+
+### Forms — atajo `/limpiar_duplicados` sin recalcular vistas (commit 0519045)
+- Comando nuevo en Alfred: borra duplicados de `_FORM_PRE` / `_FORM_POST`
+  conservando la respuesta más reciente por TIMESTAMP. NO toca
+  BORG/PESO/WELLNESS ni recalcula vistas. Útil cuando caen duplicados
+  tarde y no quieres re-disparar el pipeline completo de ~10 min.
+- Script standalone `src/limpiar_duplicados.py`. Reutiliza
+  `fu.eliminar_duplicados_form` (ya probada, commit e254857 del
+  consolidar auto-limpieza).
+- Intents en lenguaje natural matcheados ANTES que `/consolidar` para
+  evitar solapamiento: "limpia los duplicados", "borra duplicados",
+  "elimina duplicados", "duplicados fuera". 10/10 smoke tests.
+- BotCommand en menú `/` para descubrimiento. SYSTEM_PROMPT actualizado
+  para que Alfred elija correctamente entre `/consolidar` (consolidación
+  + recálculo completo) y `/limpiar_duplicados` (solo housekeeping).
+- Al pushear: auto_pull en el servidor reinicia los bots solo (≤5 min).
+  Sin acción manual del usuario en la oficina.
+
+### Estado real del Sheet al cerrar la sesión
+- 2 duplicados reales pendientes detectados en dry-run: `DANI PRE 13/5 M`
+  y `GARCIA POST 14/5 M`. NO se borraron desde aquí — Arkaitz hará el
+  primer test en vivo del comando lanzando `/limpiar_duplicados` desde
+  Telegram cuando le llegue el aviso de "🔄 Bots actualizados" del
+  auto_pull.
+
+---
+
 ## 🔔 ESTADO 15/5/2026 (TARDE-NOCHE) — segunda tanda con Arkaitz
 
 Resumen de qué se cerró tras la sesión sola de la mañana. Detalle completo
