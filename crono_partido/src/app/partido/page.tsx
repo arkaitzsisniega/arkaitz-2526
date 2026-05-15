@@ -113,6 +113,24 @@ export default function PartidoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partido.eventos, partido.enPista.length, partido.cronometro]);
 
+  // Helper único para registrar amarilla a un jugador INTER. Si era la
+  // 2ª amarilla, automáticamente añade una ROJA encadenada y deja al
+  // jugador EXPULSADO (lo detecta el useMemo jugadoresExpulsados).
+  // Centralizamos aquí para que TODOS los sitios que registran amarilla
+  // a un jugador (modal global, modal banquillo, modal acción individual)
+  // tengan exactamente el mismo comportamiento.
+  const registrarAmarillaInter = (jugador: string) => {
+    registrarEvento({ tipo: "amarilla", equipo: "INTER", jugador } as any);
+    // Contar amarillas previas + ésta. Si ya tenía 1 o más, esta es la 2ª
+    // (o 3ª en casos raros) → roja.
+    const yaTenia = partido.eventos.filter(
+      (e: any) => e.tipo === "amarilla" && e.equipo === "INTER" && e.jugador === jugador
+    ).length;
+    if (yaTenia + 1 >= 2) {
+      registrarEvento({ tipo: "roja", equipo: "INTER", jugador } as any);
+    }
+  };
+
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
   }
@@ -431,11 +449,7 @@ export default function PartidoPage() {
           enPista={enPista}
           onCerrar={() => setModalAccionBanquillo(null)}
           onAmarilla={() => {
-            registrarEvento({
-              tipo: "amarilla",
-              equipo: "INTER",
-              jugador: modalAccionBanquillo.jugador,
-            } as any);
+            registrarAmarillaInter(modalAccionBanquillo.jugador);
             setModalAccionBanquillo(null);
           }}
           onFalta={() => {
@@ -463,6 +477,18 @@ export default function PartidoPage() {
           onCerrar={() => setModalAccionInd(null)}
           onCambio={(sale, entra) => {
             cambiarJugador(sale, entra);
+            setModalAccionInd(null);
+          }}
+          onAmarilla={() => {
+            registrarAmarillaInter(modalAccionInd.jugador);
+            setModalAccionInd(null);
+          }}
+          onFalta={() => {
+            registrarEvento({
+              tipo: "falta",
+              equipo: "INTER",
+              jugador: modalAccionInd.jugador,
+            } as any);
             setModalAccionInd(null);
           }}
           onContador={(tipo) => {
@@ -524,23 +550,14 @@ export default function PartidoPage() {
           rivalNombre={cfg.rival}
           onCerrar={() => setModalAmarilla(false)}
           onConfirmar={(ev) => {
-            registrarEvento(ev as any);
-            // Si es la 2ª amarilla del mismo jugador INTER → auto-roja
-            // y queda EXPULSADO. Conteo previo + esta amarilla.
             const evAny = ev as any;
+            // Si es amarilla a INTER con jugador concreto → usar helper
+            // (maneja la 2ª amarilla = roja automática). En cualquier
+            // otro caso (RIVAL o sin jugador) registramos directo.
             if (evAny.equipo === "INTER" && evAny.jugador) {
-              const yaTenia = partido.eventos.filter(
-                (e: any) => e.tipo === "amarilla"
-                  && e.equipo === "INTER"
-                  && e.jugador === evAny.jugador
-              ).length;
-              if (yaTenia + 1 >= 2) {
-                registrarEvento({
-                  tipo: "roja",
-                  equipo: "INTER",
-                  jugador: evAny.jugador,
-                } as any);
-              }
+              registrarAmarillaInter(evAny.jugador);
+            } else {
+              registrarEvento(evAny);
             }
             setModalAmarilla(false);
           }}
@@ -1349,6 +1366,8 @@ function ModalAccionIndividual(props: {
   cfg: ConfigPartido; parteActual: ParteId;
   onCerrar: () => void;
   onCambio: (sale: string, entra: string) => void;
+  onAmarilla: () => void;
+  onFalta: () => void;
   /** TODAS las acciones individuales con mapa: PF/PNF/Robo/Corte/BDG/BDP. */
   onAccionConZona: (tipo: AccionConZonaTipo, zonaCampo?: string) => void;
   onContador: (tipo: keyof ContadoresJugador) => void;
@@ -1390,8 +1409,14 @@ function ModalAccionIndividual(props: {
           <BotonGrande label="🥇 BDG"   subtitle="dividido ganado" onClick={() => irAAccionZona("bdg")} />
           <BotonGrande label="🥈 BDP"   subtitle="dividido perdido" onClick={() => irAAccionZona("bdp")} />
         </div>
-        <div className="grid grid-cols-1 gap-2">
+        <div className="grid grid-cols-1 gap-2 mb-2">
           <BotonGrande label="🎯 DISPARO" color="bg-pink-700" onClick={() => setPaso("disparoTipo")} />
+        </div>
+
+        {/* Disciplina: amarilla + falta (cometida POR este jugador). */}
+        <div className="grid grid-cols-2 gap-2">
+          <BotonGrande label="🟨 Amarilla" color="bg-yellow-700" onClick={props.onAmarilla} />
+          <BotonGrande label="⚠️ Falta" color="bg-orange-700" onClick={props.onFalta} />
         </div>
 
         {/* CAMBIO DIRECTO: tap en un jugador del banquillo y se hace el
@@ -1826,14 +1851,14 @@ function ModalCambioParte(props: {
     <ModalShell titulo={TITULOS[desde]} onCerrar={props.onCerrar}>
 
       {/* Marcador actual + estado */}
-      <div className="text-center bg-zinc-950 rounded-lg p-4 mb-4">
-        <div className="text-4xl font-bold tabular-nums">
+      <div className="text-center bg-zinc-950 rounded-lg p-5 mb-4">
+        <div className="text-5xl font-bold tabular-nums">
           <span className="text-emerald-400">INTER {partido.marcador.inter}</span>
           <span className="text-zinc-500 mx-2">-</span>
           <span className="text-red-400">{partido.marcador.rival} {cfg.rival}</span>
         </div>
         {esFinalParte && empate && (
-          <div className="text-yellow-400 text-sm mt-2">
+          <div className="text-yellow-400 text-base mt-2">
             ⚠️ Empate · hay que decidir cómo seguir
           </div>
         )}
@@ -1845,7 +1870,7 @@ function ModalCambioParte(props: {
           1T/PR1. Las opciones de 2T/PR2 siguen abajo. */}
       {(desde === "1T" || desde === "PR1") && (
         <button onClick={props.onContinuarSiguienteParte}
-          className="w-full py-5 mb-4 bg-green-700 hover:bg-green-600 rounded-xl text-2xl font-bold">
+          className="w-full py-6 mb-4 bg-green-700 hover:bg-green-600 rounded-xl text-3xl font-bold">
           ▶ {desde === "1T" ? "Empezar 2ª parte" : "Empezar prórroga 2"}
         </button>
       )}
