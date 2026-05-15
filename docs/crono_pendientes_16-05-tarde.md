@@ -3,40 +3,41 @@
 > Apuntado para no perder ninguna. Atacar **una por una**, cerrar al 100%
 > antes de pasar a la siguiente.
 
-## Lista (en orden de ataque)
+## Lista (en orden de ataque) — ✅ TODO CERRADO
 
-- [ ] **1. Roja → auto-salida de pista + crono 2 min visible**
-  - Cuando un jugador del INTER recibe roja estando en pista, sale
-    inmediatamente. El slot queda vacío.
-  - Crono regresivo 2 min visible para inferioridad (ya existe; verificar
-    con nuevo flujo automático).
-  - Cuando expulsan al RIVAL: crono regresivo de 2 min de superioridad
-    (NUEVO). Banner verde paralelo al rojo.
-- [ ] **2. Expulsado en banquillo → fuera de cualquier lista de cambio**
-  - El jugador expulsado se queda visible en banquillo como "EXPULSADO"
-    pero NO puede aparecer en ningún selector de cambio (ni manual ni
-    rápido), ni en ChipsJugador, ni en otros modales.
-- [ ] **3. Contraseña básica para el crono**
-  - Auth simple "inter1977" (o configurable) que pide al entrar la primera
-    vez. Sesión persistente en localStorage.
-- [x] **4. (Ya hecho)** Tarjetas al rival con dorsal — funciona.
-- [ ] **5. Colores progresivos en banquillo según fatiga residual**
-  - Color de salida = color al final de su última rotación.
-  - Cada minuto en banquillo, baja un nivel (rojo → naranja → verde → azul → gris).
-  - Colores "light" (pasteles) para distinguirlos de los de pista.
-- [ ] **6. Análisis profundo de datos disponibles**
-  - Auditar TODO lo que el crono ya recopila (eventos, contadores, tiempos).
-  - Identificar derivados que no estamos extrayendo aún:
-    · Quinteto inicial 1T y 2T.
-    · Zonas calientes de disparo (cuándo, desde dónde).
-    · Cuartetos con mejor +/-.
-    · Jugador con más asistencias a un goleador concreto.
-    · Tiempo medio de rotación por jugador.
-    · % efectividad disparos.
-    · Etc.
-  - Output: documento + (si procede) extender pestaña Resumen / nueva
-    sección de "Análisis avanzado".
+- [x] **1. Roja → auto-salida + crono superioridad rival** (commit 4db8bdd)
+  - Helper expulsarJugadorInter centraliza la lógica. El jugador sale
+    automáticamente del slot. Inferioridad ya existía; SUPERIORIDAD
+    nueva (banner verde paralelo al rojo).
+- [x] **2. Expulsado fuera de selectores** (commit 623ee7b)
+  - `enPistaActivos` y `banquilloActivos` (sin expulsados) pasados a
+    TODOS los modales. Queda visible en banquillo con badge rojo + EXPULSADO
+    pero NO aparece en cambios, faltas, goles, amarillas, rojas, penaltis,
+    disparo rival, tanda.
+- [x] **3. Contraseña básica (inter1977)** (commit 4738eb9)
+  - Componente AuthGate envuelve toda la app. SHA-256 del input vs
+    constante PASS_HASH (no aparece en plano en el bundle).
+    `localStorage.inter_crono_auth=1` persiste.
+- [x] **4. (Ya hecho)** Tarjetas al rival con dorsal.
+- [x] **5. Colores progresivos banquillo por fatiga residual** (commit 27fc4ac)
+  - colorTiempoBanquillo(seg, segUltimoTurno) ahora calcula nivel
+    inicial = nivel al salir de pista, y baja 1 nivel por minuto.
+    Colores light/40 para distinguir visualmente de los de pista.
+- [x] **6. Análisis profundo de datos** (commit f1c7f0e)
+  - Doc auditoria docs/crono_datos_disponibles.md.
+  - Nueva pestaña 🧠 Análisis en /resumen con 5 vistas:
+    1) Quintetos iniciales por parte (derivados de eventos cambio).
+    2) Asistencias por jugador + parejas más fluidas.
+    3) Eficiencia ofensiva (% efectividad, % puntería).
+    4) Cuartetos por +/- (top 5).
+    5) Transiciones 20s (recup→gol nuestro, pérdida→gol rival).
 
 ---
 
-Filosofía: una tarea, profundizar, smoke + deploy + verificar.
+**Cerrado: 6/6.** Lo que el user verá al refrescar el iPad:
+- Banner verde de superioridad cuando expulsamos al rival.
+- Roja saca al jugador automáticamente de pista (sin pasar por cambio manual).
+- Expulsado no aparece en ningún selector (solo se ve en banquillo).
+- Pantalla de login al entrar (pass: `inter1977`).
+- Banquillo con colores light degradados según última rotación.
+- Pestaña Análisis con métricas avanzadas en /resumen.
