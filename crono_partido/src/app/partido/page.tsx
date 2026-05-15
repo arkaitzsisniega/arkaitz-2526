@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePartido } from "@/lib/store";
 import { ROSTER } from "@/lib/roster";
@@ -935,8 +935,13 @@ function ModalDisparoRival(props: {
   const [zonaPorteria, setZonaPorteria] = useState("");
   const [porteroNuestro, setPorteroNuestro] = useState("");
   const [tirador, setTirador] = useState("");
+  // Flag para que el auto-confirmar solo dispare UNA vez (evita doble-close
+  // si el useEffect se ejecuta de más).
+  const yaConfirmado = useRef(false);
 
   const aplicar = () => {
+    if (yaConfirmado.current) return;
+    yaConfirmado.current = true;
     const ev: any = {
       tipo: "disparo",
       equipo: "RIVAL",
@@ -960,6 +965,30 @@ function ModalDisparoRival(props: {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ⚡ Auto-confirmar cuando se completen los pasos requeridos. Ahorra el
+  // click final de "Guardar" que pedía Arkaitz.
+  // - PUERTA: requiere zonaCampo + zonaPorteria + portero (este pre-seleccionado).
+  // - PALO/FUERA/BLOQUEADO: solo zonaCampo (no hay portería que marcar).
+  useEffect(() => {
+    if (!resultado || yaConfirmado.current) return;
+    if (resultado === "PUERTA") {
+      if (zonaCampo && zonaPorteria && porteroNuestro) {
+        // Pequeño delay para que el usuario VEA su última selección antes
+        // de que el modal se cierre (sensación de "fluido" en vez de
+        // "brusco").
+        const t = setTimeout(aplicar, 200);
+        return () => clearTimeout(t);
+      }
+    } else {
+      // PALO / FUERA / BLOQUEADO — basta con tener resultado + zonaCampo
+      if (zonaCampo) {
+        const t = setTimeout(aplicar, 200);
+        return () => clearTimeout(t);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultado, zonaCampo, zonaPorteria, porteroNuestro]);
 
   return (
     <ModalShell titulo={`🎯 Disparo del ${props.rivalNombre}`} onCerrar={props.onCerrar}>
@@ -1018,23 +1047,16 @@ function ModalDisparoRival(props: {
               seleccionado={porteroNuestro}
               onSelect={setPorteroNuestro} />
           </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button onClick={aplicar}
-              className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
-              ✅ Guardar parada
-            </button>
-          </div>
+          <p className="text-xs text-zinc-500 mt-2 italic">
+            Se guardará automáticamente al marcar la zona de portería.
+          </p>
         </Paso>
       )}
 
-      {/* Para PALO / FUERA / BLOQUEADO, no hace falta zona portería; botón directo */}
-      {resultado && resultado !== "PUERTA" && zonaCampo && (
-        <div className="mt-3 flex justify-end">
-          <button onClick={aplicar}
-            className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-bold">
-            ✅ Guardar {resultado.toLowerCase()}
-          </button>
-        </div>
+      {resultado && resultado !== "PUERTA" && !zonaCampo && (
+        <p className="text-xs text-zinc-500 mt-2 italic">
+          Se guardará automáticamente al marcar la zona del campo.
+        </p>
       )}
     </ModalShell>
   );
