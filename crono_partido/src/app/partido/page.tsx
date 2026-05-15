@@ -1826,72 +1826,83 @@ function ModalCambioParte(props: {
     <ModalShell titulo={TITULOS[desde]} onCerrar={props.onCerrar}>
 
       {/* Marcador actual + estado */}
-      <div className="text-center bg-zinc-950 rounded-lg p-3 mb-4">
-        <div className="text-3xl font-bold tabular-nums">
+      <div className="text-center bg-zinc-950 rounded-lg p-4 mb-4">
+        <div className="text-4xl font-bold tabular-nums">
           <span className="text-emerald-400">INTER {partido.marcador.inter}</span>
           <span className="text-zinc-500 mx-2">-</span>
           <span className="text-red-400">{partido.marcador.rival} {cfg.rival}</span>
         </div>
         {esFinalParte && empate && (
-          <div className="text-yellow-400 text-xs mt-1">
+          <div className="text-yellow-400 text-sm mt-2">
             ⚠️ Empate · hay que decidir cómo seguir
           </div>
         )}
       </div>
 
+      {/* ATAJO arriba — botón principal de avance bien visible.
+          Para 1T = empezar 2T, PR1 = empezar PR2. En 2T y PR2 no hay
+          un único atajo (hay 3 opciones), así que solo aparece para
+          1T/PR1. Las opciones de 2T/PR2 siguen abajo. */}
+      {(desde === "1T" || desde === "PR1") && (
+        <button onClick={props.onContinuarSiguienteParte}
+          className="w-full py-5 mb-4 bg-green-700 hover:bg-green-600 rounded-xl text-2xl font-bold">
+          ▶ {desde === "1T" ? "Empezar 2ª parte" : "Empezar prórroga 2"}
+        </button>
+      )}
+
       {/* DISPAROS — destacado, grande y con énfasis */}
-      <div className="bg-zinc-900 rounded-lg p-4 mb-3">
-        <h3 className="text-base font-bold text-zinc-200 mb-3">🎯 Disparos</h3>
+      <div className="bg-zinc-900 rounded-lg p-4 mb-4">
+        <h3 className="text-lg font-bold text-zinc-200 mb-3">🎯 Disparos</h3>
         <div className="grid grid-cols-2 gap-3">
           {/* INTER */}
-          <div className="bg-emerald-900/40 rounded-lg p-3 border border-emerald-700/40">
-            <div className="text-sm text-emerald-300 font-bold mb-2 uppercase tracking-wide">INTER</div>
+          <div className="bg-emerald-900/40 rounded-lg p-4 border border-emerald-700/40">
+            <div className="text-base text-emerald-300 font-bold mb-2 uppercase tracking-wide">INTER</div>
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-bold text-white tabular-nums">{totalDispINTER}</span>
-              <span className="text-xs text-emerald-300">total</span>
+              <span className="text-5xl font-bold text-white tabular-nums">{totalDispINTER}</span>
+              <span className="text-sm text-emerald-300">total</span>
             </div>
             <div className="mt-3 grid grid-cols-4 gap-1 text-center">
-              <div className="bg-emerald-800/40 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{tot.dpp}</div>
-                <div className="text-[10px] text-emerald-200 uppercase">Puerta</div>
+              <div className="bg-emerald-800/40 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{tot.dpp}</div>
+                <div className="text-xs text-emerald-200 uppercase">Puerta</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{tot.dpa}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Palo</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{tot.dpa}</div>
+                <div className="text-xs text-zinc-400 uppercase">Palo</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{tot.dpf}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Fuera</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{tot.dpf}</div>
+                <div className="text-xs text-zinc-400 uppercase">Fuera</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{tot.dpb}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Bloq.</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{tot.dpb}</div>
+                <div className="text-xs text-zinc-400 uppercase">Bloq.</div>
               </div>
             </div>
           </div>
           {/* RIVAL */}
-          <div className="bg-red-900/40 rounded-lg p-3 border border-red-700/40">
-            <div className="text-sm text-red-300 font-bold mb-2 uppercase tracking-wide">{cfg.rival}</div>
+          <div className="bg-red-900/40 rounded-lg p-4 border border-red-700/40">
+            <div className="text-base text-red-300 font-bold mb-2 uppercase tracking-wide">{cfg.rival}</div>
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-bold text-white tabular-nums">{totalDispRIVAL}</span>
-              <span className="text-xs text-red-300">total</span>
+              <span className="text-5xl font-bold text-white tabular-nums">{totalDispRIVAL}</span>
+              <span className="text-sm text-red-300">total</span>
             </div>
             <div className="mt-3 grid grid-cols-4 gap-1 text-center">
-              <div className="bg-red-800/40 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{r.puerta}</div>
-                <div className="text-[10px] text-red-200 uppercase">Puerta</div>
+              <div className="bg-red-800/40 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{r.puerta}</div>
+                <div className="text-xs text-red-200 uppercase">Puerta</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{r.palo}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Palo</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{r.palo}</div>
+                <div className="text-xs text-zinc-400 uppercase">Palo</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{r.fuera}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Fuera</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{r.fuera}</div>
+                <div className="text-xs text-zinc-400 uppercase">Fuera</div>
               </div>
-              <div className="bg-zinc-800/60 rounded py-1">
-                <div className="text-lg font-bold tabular-nums">{r.bloqueado}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">Bloq.</div>
+              <div className="bg-zinc-800/60 rounded py-1.5">
+                <div className="text-xl font-bold tabular-nums">{r.bloqueado}</div>
+                <div className="text-xs text-zinc-400 uppercase">Bloq.</div>
               </div>
             </div>
           </div>
@@ -1899,28 +1910,28 @@ function ModalCambioParte(props: {
       </div>
 
       {/* OTROS STATS DEL EQUIPO — Pérdidas / Recuperaciones / Balones divididos */}
-      <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+      <div className="grid grid-cols-3 gap-3 text-sm mb-4">
         <div className="bg-red-900/20 rounded-lg p-3 border border-red-700/20">
-          <div className="text-red-300 font-bold mb-2 text-sm">❌ Pérdidas</div>
+          <div className="text-red-300 font-bold mb-2 text-base">❌ Pérdidas</div>
           <div className="flex justify-between"><span>Forzada</span><strong>{tot.pf}</strong></div>
           <div className="flex justify-between"><span>No forzada</span><strong>{tot.pnf}</strong></div>
-          <div className="border-t border-red-700/40 mt-1 pt-1 flex justify-between text-red-200">
+          <div className="border-t border-red-700/40 mt-2 pt-2 flex justify-between text-red-200 text-base">
             <span>Total</span><strong>{tot.pf + tot.pnf}</strong>
           </div>
         </div>
         <div className="bg-green-900/20 rounded-lg p-3 border border-green-700/20">
-          <div className="text-green-300 font-bold mb-2 text-sm">✅ Recuperaciones</div>
+          <div className="text-green-300 font-bold mb-2 text-base">✅ Recuperaciones</div>
           <div className="flex justify-between"><span>Robos</span><strong>{tot.robos}</strong></div>
           <div className="flex justify-between"><span>Cortes</span><strong>{tot.cortes}</strong></div>
-          <div className="border-t border-green-700/40 mt-1 pt-1 flex justify-between text-green-200">
+          <div className="border-t border-green-700/40 mt-2 pt-2 flex justify-between text-green-200 text-base">
             <span>Total</span><strong>{tot.robos + tot.cortes}</strong>
           </div>
         </div>
         <div className="bg-purple-900/20 rounded-lg p-3 border border-purple-700/20">
-          <div className="text-purple-300 font-bold mb-2 text-sm">⚖️ Balones divididos</div>
+          <div className="text-purple-300 font-bold mb-2 text-base">⚖️ Balones divididos</div>
           <div className="flex justify-between"><span>Ganados</span><strong>{tot.bdg}</strong></div>
           <div className="flex justify-between"><span>No ganados</span><strong>{tot.bdp}</strong></div>
-          <div className="border-t border-purple-700/40 mt-1 pt-1 flex justify-between text-purple-200">
+          <div className="border-t border-purple-700/40 mt-2 pt-2 flex justify-between text-purple-200 text-base">
             <span>Ratio</span>
             <strong>{(tot.bdg + tot.bdp) > 0
               ? `${Math.round(tot.bdg / (tot.bdg + tot.bdp) * 100)}%`
@@ -1930,27 +1941,27 @@ function ModalCambioParte(props: {
       </div>
 
       {/* TIEMPOS POR JUGADOR */}
-      <div className="bg-zinc-900 rounded-lg p-3 mb-3">
-        <h3 className="text-xs font-bold text-zinc-300 mb-2">
+      <div className="bg-zinc-900 rounded-lg p-4 mb-4">
+        <h3 className="text-base font-bold text-zinc-300 mb-3">
           ⏱ Tiempos por jugador ({desde})
         </h3>
-        <div className="max-h-60 overflow-y-auto">
-          <table className="w-full text-xs">
-            <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
+        <div className="max-h-72 overflow-y-auto">
+          <table className="w-full text-base">
+            <thead className="text-sm text-zinc-500 border-b border-zinc-800">
               <tr>
-                <th className="text-left py-1">Jugador</th>
-                <th className="text-right px-1">{desde}</th>
-                <th className="text-right px-1">Total partido</th>
+                <th className="text-left py-2 px-2">Jugador</th>
+                <th className="text-right px-2">{desde}</th>
+                <th className="text-right px-2">Total partido</th>
               </tr>
             </thead>
             <tbody>
               {filasTiempos.map((f) => (
                 <tr key={f.nombre} className="border-b border-zinc-900">
-                  <td className={`py-1 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>
+                  <td className={`py-1.5 px-2 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>
                     {f.nombre}{f.esPortero ? " 🥅" : ""}
                   </td>
-                  <td className="text-right font-mono tabular-nums px-1">{formatMMSS(f.totalParte)}</td>
-                  <td className="text-right font-mono tabular-nums px-1 text-zinc-400">{formatMMSS(f.total)}</td>
+                  <td className="text-right font-mono tabular-nums px-2 font-bold">{formatMMSS(f.totalParte)}</td>
+                  <td className="text-right font-mono tabular-nums px-2 text-zinc-400">{formatMMSS(f.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1959,17 +1970,17 @@ function ModalCambioParte(props: {
       </div>
 
       {/* INDIVIDUAL — solo top scorers de cada categoría para no saturar */}
-      <div className="bg-zinc-900 rounded-lg p-3 mb-4">
-        <h3 className="text-xs font-bold text-zinc-300 mb-2">👤 Acciones individuales (jugadores con stats)</h3>
-        <div className="max-h-60 overflow-y-auto">
-          <table className="w-full text-[11px]">
-            <thead className="text-[10px] text-zinc-500 border-b border-zinc-800">
+      <div className="bg-zinc-900 rounded-lg p-4 mb-4">
+        <h3 className="text-base font-bold text-zinc-300 mb-3">👤 Acciones individuales (jugadores con stats)</h3>
+        <div className="max-h-72 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-zinc-500 border-b border-zinc-800">
               <tr>
-                <th className="text-left py-1">Jugador</th>
-                <th className="text-right px-1 text-emerald-300">Disp</th>
-                <th className="text-right px-1 text-red-300">Pérd</th>
-                <th className="text-right px-1 text-green-300">Recup</th>
-                <th className="text-right px-1 text-purple-300">Divid</th>
+                <th className="text-left py-2 px-2">Jugador</th>
+                <th className="text-right px-2 text-emerald-300">Disp</th>
+                <th className="text-right px-2 text-red-300">Pérd</th>
+                <th className="text-right px-2 text-green-300">Recup</th>
+                <th className="text-right px-2 text-purple-300">Divid</th>
               </tr>
             </thead>
             <tbody>
@@ -1987,11 +1998,11 @@ function ModalCambioParte(props: {
                   const div = (c.bdg||0)+(c.bdp||0);
                   return (
                     <tr key={f.nombre} className="border-b border-zinc-900">
-                      <td className={`py-1 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>{f.nombre}</td>
-                      <td className="text-right font-mono px-1">{disp}</td>
-                      <td className="text-right font-mono px-1">{perd}</td>
-                      <td className="text-right font-mono px-1">{rec}</td>
-                      <td className="text-right font-mono px-1">{div}</td>
+                      <td className={`py-1.5 px-2 ${f.esPortero ? "text-yellow-400" : ""} font-bold`}>{f.nombre}</td>
+                      <td className="text-right font-mono px-2">{disp}</td>
+                      <td className="text-right font-mono px-2">{perd}</td>
+                      <td className="text-right font-mono px-2">{rec}</td>
+                      <td className="text-right font-mono px-2">{div}</td>
                     </tr>
                   );
                 })}
@@ -2001,44 +2012,27 @@ function ModalCambioParte(props: {
       </div>
 
       {/* ACCIONES SEGÚN PARTE */}
-      <div className="border-t border-zinc-800 pt-3">
+      <div className="border-t border-zinc-800 pt-4">
 
-        {/* 1T → solo botón continuar */}
-        {desde === "1T" && (
-          <div className="grid grid-cols-1 gap-2">
-            <button onClick={props.onContinuarSiguienteParte}
-              className="py-4 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">
-              ▶ Empezar 2ª parte
-            </button>
-          </div>
-        )}
-
-        {/* PR1 → solo botón continuar a PR2 */}
-        {desde === "PR1" && (
-          <div className="grid grid-cols-1 gap-2">
-            <button onClick={props.onContinuarSiguienteParte}
-              className="py-4 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-bold">
-              ▶ Empezar prórroga 2
-            </button>
-          </div>
-        )}
+        {/* 1T y PR1 ya tienen el botón principal arriba (atajo visible).
+            No lo duplicamos aquí abajo. */}
 
         {/* 2T → tres opciones (prórroga / penaltis / finalizar) */}
         {esFinal2T && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-bold text-zinc-300">¿Cómo seguimos?</h3>
+          <div className="space-y-3">
+            <h3 className="text-base font-bold text-zinc-300">¿Cómo seguimos?</h3>
 
             {/* Prórroga */}
-            <div className="bg-zinc-800 rounded-lg p-3">
-              <div className="flex items-center gap-3 mb-2">
-                <label className="text-sm font-semibold">🟣 Hay prórroga de</label>
+            <div className="bg-zinc-800 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <label className="text-base font-semibold">🟣 Hay prórroga de</label>
                 <input type="number" min={1} max={20} value={minProrroga}
                   onChange={(e) => setMinProrroga(Number(e.target.value) || 5)}
-                  className="w-16 bg-zinc-950 rounded px-2 py-1 text-center" />
-                <span className="text-sm">min cada parte</span>
+                  className="w-16 bg-zinc-950 rounded px-2 py-1 text-center text-base" />
+                <span className="text-base">min cada parte</span>
               </div>
               <button onClick={() => props.onConfigurarProrroga(minProrroga)}
-                className="w-full py-3 bg-purple-700 hover:bg-purple-600 rounded font-bold">
+                className="w-full py-4 bg-purple-700 hover:bg-purple-600 rounded-lg text-lg font-bold">
                 ▶ Empezar prórroga ({minProrroga}+{minProrroga} min)
               </button>
             </div>
@@ -2046,14 +2040,14 @@ function ModalCambioParte(props: {
             {/* Tanda directa (sin prórroga) — solo si la competición la permite */}
             {cfg.permiteTanda && (
               <button onClick={props.onIrATanda}
-                className="w-full py-3 bg-pink-700 hover:bg-pink-600 rounded font-bold">
+                className="w-full py-4 bg-pink-700 hover:bg-pink-600 rounded-lg text-lg font-bold">
                 🥇 Pasar directo a tanda de penaltis
               </button>
             )}
 
             {/* Finalizar */}
             <button onClick={props.onFinalizar}
-              className="w-full py-3 bg-zinc-700 hover:bg-zinc-600 rounded font-bold">
+              className="w-full py-4 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-lg font-bold">
               🏁 Finalizar partido y ver resumen
             </button>
           </div>
@@ -2061,16 +2055,16 @@ function ModalCambioParte(props: {
 
         {/* PR2 → tanda o finalizar */}
         {esFinalPR2 && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-bold text-zinc-300">¿Cómo seguimos?</h3>
+          <div className="space-y-3">
+            <h3 className="text-base font-bold text-zinc-300">¿Cómo seguimos?</h3>
             {cfg.permiteTanda && (
               <button onClick={props.onIrATanda}
-                className="w-full py-3 bg-pink-700 hover:bg-pink-600 rounded font-bold">
+                className="w-full py-4 bg-pink-700 hover:bg-pink-600 rounded-lg text-lg font-bold">
                 🥇 Tanda de penaltis
               </button>
             )}
             <button onClick={props.onFinalizar}
-              className="w-full py-3 bg-zinc-700 hover:bg-zinc-600 rounded font-bold">
+              className="w-full py-4 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-lg font-bold">
               🏁 Finalizar partido y ver resumen
             </button>
           </div>
