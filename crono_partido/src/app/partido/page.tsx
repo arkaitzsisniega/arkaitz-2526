@@ -264,14 +264,36 @@ export default function PartidoPage() {
             </span>
           </div>
         </div>
+        {/* Avisos de faltas escalonados: 4ª (cuidado), 5ª (siguiente es 10m),
+            6ª (ya es 10m). Solo mostramos el más alto que aplique. */}
+        {sFalt.inter === 4 && (
+          <div className="mt-2 bg-amber-600 rounded px-3 py-1 text-center font-bold">
+            ⚠️ Inter: 4ª falta. Ojo.
+          </div>
+        )}
+        {sFalt.inter === 5 && (
+          <div className="mt-2 bg-orange-600 rounded px-3 py-1 text-center font-bold">
+            ⚠️ Inter: 5ª falta. La siguiente es 10 m.
+          </div>
+        )}
         {sFalt.inter >= 6 && (
           <div className="mt-2 bg-red-700 rounded px-3 py-1 text-center font-bold">
-            ⚠️ Inter 6ª falta → 10m a favor del rival
+            ⚠️ Inter {sFalt.inter}ª falta → 10 m a favor del rival
+          </div>
+        )}
+        {sFalt.rival === 4 && (
+          <div className="mt-2 bg-amber-600 rounded px-3 py-1 text-center font-bold">
+            ⚠️ Rival: 4ª falta. Ojo.
+          </div>
+        )}
+        {sFalt.rival === 5 && (
+          <div className="mt-2 bg-orange-600 rounded px-3 py-1 text-center font-bold">
+            ⚠️ Rival: 5ª falta. La siguiente es 10 m.
           </div>
         )}
         {sFalt.rival >= 6 && (
           <div className="mt-2 bg-emerald-700 rounded px-3 py-1 text-center font-bold">
-            ⚠️ Rival 6ª falta → 10m a favor del Inter
+            ⚠️ Rival {sFalt.rival}ª falta → 10 m a favor del Inter
           </div>
         )}
       </div>
