@@ -198,6 +198,13 @@ export default function PartidoPage() {
   const acabada = dur > 0 && restantes <= 0;
   const enPista = partido.enPista;
   const banquillo = cfg.convocados.filter((n) => !enPista.includes(n));
+  // Listas FILTRADAS sin expulsados: usadas en todos los modales y
+  // selectores donde no tiene sentido elegir a un jugador expulsado
+  // (cambios, asignación de stats, falta, gol, etc). Las versiones
+  // originales `enPista`/`banquillo` se reservan para el render
+  // visual donde el expulsado SÍ debe aparecer (con su estética roja).
+  const enPistaActivos = enPista.filter((n) => !jugadoresExpulsados.has(n));
+  const banquilloActivos = banquillo.filter((n) => !jugadoresExpulsados.has(n));
 
   const p = partido.cronometro.parteActual;
   const sFalt = partido.stats.faltas[p];
@@ -532,8 +539,8 @@ export default function PartidoPage() {
 
       {modalCambio && (
         <ModalCambio
-          enPista={enPista}
-          banquillo={banquillo}
+          enPista={enPistaActivos}
+          banquillo={banquilloActivos}
           saleInicial={modalCambio.sale}
           onCerrar={() => setModalCambio(null)}
           onConfirmar={(sale, entra) => {
@@ -546,7 +553,7 @@ export default function PartidoPage() {
       {modalAccionBanquillo && (
         <ModalAccionBanquillo
           jugador={modalAccionBanquillo.jugador}
-          enPista={enPista}
+          enPista={enPistaActivos}
           onCerrar={() => setModalAccionBanquillo(null)}
           onAmarilla={() => {
             registrarAmarillaInter(modalAccionBanquillo.jugador);
@@ -574,8 +581,8 @@ export default function PartidoPage() {
       {modalAccionInd && (
         <ModalAccionIndividual
           jugador={modalAccionInd.jugador}
-          enPista={enPista}
-          banquillo={banquillo}
+          enPista={enPistaActivos}
+          banquillo={banquilloActivos}
           cfg={cfg}
           parteActual={p}
           onCerrar={() => setModalAccionInd(null)}
@@ -624,8 +631,8 @@ export default function PartidoPage() {
 
       {modalFalta && (
         <ModalFalta
-          enPista={enPista}
-          banquillo={banquillo}
+          enPista={enPistaActivos}
+          banquillo={banquilloActivos}
           rivalNombre={cfg.rival}
           cfg={cfg}
           parteActual={p}
@@ -639,7 +646,7 @@ export default function PartidoPage() {
 
       {modalGol && (
         <ModalGol
-          enPista={enPista}
+          enPista={enPistaActivos}
           rivalNombre={cfg.rival}
           cfg={cfg}
           parteActual={p}
@@ -653,8 +660,8 @@ export default function PartidoPage() {
 
       {modalAmarilla && (
         <ModalAmarilla
-          enPista={enPista}
-          banquillo={banquillo}
+          enPista={enPistaActivos}
+          banquillo={banquilloActivos}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalAmarilla(false)}
           onConfirmar={(ev) => {
@@ -671,8 +678,8 @@ export default function PartidoPage() {
 
       {modalRoja && (
         <ModalRoja
-          enPista={enPista}
-          banquillo={banquillo}
+          enPista={enPistaActivos}
+          banquillo={banquilloActivos}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalRoja(false)}
           onConfirmar={(ev) => {
@@ -704,7 +711,7 @@ export default function PartidoPage() {
 
       {modalPen && (
         <ModalPenalti
-          enPista={enPista}
+          enPista={enPistaActivos}
           rivalNombre={cfg.rival}
           onCerrar={() => setModalPen(false)}
           onConfirmar={(ev) => { registrarEvento(ev as any); setModalPen(false); }}
@@ -713,7 +720,7 @@ export default function PartidoPage() {
 
       {modalDisparoRival && (
         <ModalDisparoRival
-          enPista={enPista}
+          enPista={enPistaActivos}
           rivalNombre={cfg.rival}
           cfg={cfg}
           parteActual={p}
@@ -728,8 +735,8 @@ export default function PartidoPage() {
       {modalTanda && (
         <ModalTanda
           tanda={partido.tanda}
-          enPista={enPista}
-          convocados={cfg.convocados}
+          enPista={enPistaActivos}
+          convocados={cfg.convocados.filter((n) => !jugadoresExpulsados.has(n))}
           rivalNombre={cfg.rival}
           onCerrar={() => { cerrarTanda(); setModalTanda(false); }}
           onApuntar={apuntarTiroTanda}
