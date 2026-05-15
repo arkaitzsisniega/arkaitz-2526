@@ -1952,6 +1952,59 @@ def _detectar_intent_prepost(prompt: str):
     return ""
 
 
+def _detectar_intent_peso_jugador(prompt: str):
+    """'peso de Cecilio', 'peso Pirata últimos 10 días'."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    if not any(k in p for k in ("peso ", " peso", "pesa ", "kilos", "kg ", " kg")):
+        return None
+    if "vista peso" in p:
+        return None
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+    candidatos = set()
+    for n in ROSTER_CANONICO:
+        if n.lower() in p:
+            candidatos.add(n)
+    for alias, canon in ALIASES_JUGADOR.items():
+        if alias.lower() in p:
+            candidatos.add(canon)
+    if len(candidatos) != 1:
+        return None
+    nombre = next(iter(candidatos))
+    import re as _re
+    n = 14
+    m = _re.search(r"ultim[ao]s?\s+(\d+)\s+(dia|semana|mes)", p)
+    if m:
+        try:
+            num = int(m.group(1))
+            unidad = m.group(2)
+            if unidad.startswith("dia"):
+                n = num
+            elif unidad.startswith("seman"):
+                n = num * 7
+            elif unidad.startswith("mes"):
+                n = num * 30
+        except ValueError:
+            pass
+    elif "ultima semana" in p or "esta semana" in p:
+        n = 7
+    elif "ultimo mes" in p or "este mes" in p:
+        n = 30
+    elif _re.search(r"(\d+)\s+dias", p):
+        try:
+            n = int(_re.search(r"(\d+)\s+dias", p).group(1))
+        except ValueError:
+            pass
+    return (nombre, max(1, min(90, n)))
+
+
 def _detectar_intent_goles_jugador(prompt: str):
     """'goles de Pirata', 'cuántos goles Raya', 'Javi goles liga'.
 
@@ -2059,6 +2112,19 @@ def _run_prepost(fecha: str = "") -> str:
     return (f"⚠️ Error al consultar PRE/POST: {res.salida}" if not res.ok else res.salida)
 
 
+def _run_peso_jugador(nombre: str, n_dias: int = 14) -> str:
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "peso_jugador.py"),
+        [nombre, str(n_dias)], timeout=60,
+    )
+    return (f"⚠️ Error al consultar peso: {res.salida}" if not res.ok else res.salida)
+
+
 def _run_goles_jugador(nombre: str, competicion: str = "TODAS") -> str:
     """Ejecuta src/goles_jugador.py — goles de UN jugador."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -2161,6 +2227,21 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
                  chat_id, intent_pp, prompt[:80])
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         salida = await asyncio.to_thread(_run_prepost, intent_pp)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try:
+                await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(trozo)
+        return
+
+    # ── ATAJO sin LLM: peso de UN jugador ──
+    intent_pe = _detectar_intent_peso_jugador(prompt)
+    if intent_pe is not None:
+        nombre, n = intent_pe
+        log.info("[%s] ATAJO intent=peso_jugador nombre=%s n=%d (prompt='%s')",
+                 chat_id, nombre, n, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_peso_jugador, nombre, n)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try:
                 await update.message.reply_text(trozo, parse_mode="Markdown")

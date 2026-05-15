@@ -2613,6 +2613,44 @@ def _detectar_intent_estado(prompt: str):
     return (canonico, n)
 
 
+def _sugerir_atajo_si_aplica(prompt: str) -> Optional[str]:
+    """Si el prompt suena a algo que SÍ tenemos como atajo SIN LLM,
+    devolver una reformulación que dispararía ese atajo. Sirve para
+    cuando Gemini falló (cuota / safety / timeout) y queremos darle
+    al usuario un camino directo en lugar de simplemente decir 'no me sale'.
+
+    Devuelve None si no detectamos un atajo aplicable.
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    # Goles de jugador
+    if any(k in p for k in ("goles", "gol ", "goleador")):
+        try:
+            sys.path.insert(0, str(PROJECT_DIR / "src"))
+            from aliases_jugadores import ROSTER_CANONICO  # type: ignore
+            for n in ROSTER_CANONICO:
+                if n.lower() in p:
+                    return f"goles de {n}"
+        except Exception:
+            pass
+    # Carga / sesión
+    if any(k in p for k in ("carga", "borg", "entren", "sesion")):
+        return "carga jugador por jugador"
+    # Lesiones
+    if any(k in p for k in ("lesion", "baja", "lesiona")):
+        return "lesiones activas"
+    # Ranking
+    if any(k in p for k in ("ranking", "lista de", "top ", "mejor", "maximo")):
+        return "ranking goleadores"
+    # PRE/POST
+    if any(k in p for k in ("pre y post", "lista del pre", "quien hizo el pre")):
+        return "dame la lista del pre y post de hoy"
+    return None
+
+
 def _palabra_aparece(texto_sin_tildes: str, palabra: str) -> bool:
     """¿`palabra` aparece como palabra suelta en `texto`? Word-boundary
     relajada: la palabra puede estar rodeada por caracteres no alfanuméricos
@@ -2848,6 +2886,65 @@ def _detectar_intent_prepost(prompt: str):
     return ""
 
 
+def _detectar_intent_peso_jugador(prompt: str):
+    """'peso de Cecilio', 'peso de Pirata últimos 10 días', 'cuánto pesa Raya'.
+    Devuelve (canonico, n_dias) o None. N por defecto 14, max 90.
+    """
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    # Triggers: tiene que mencionar 'peso' explícitamente
+    if not any(k in p for k in ("peso ", " peso", "pesa ", "kilos", "kg ", " kg")):
+        return None
+    # Excluir si pregunta por PESO de la HOJA en lugar de un jugador
+    if "vista peso" in p or "_vista_peso" in p:
+        return None
+    # Detectar jugador
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+    candidatos = set()
+    for n in ROSTER_CANONICO:
+        if n.lower() in p:
+            candidatos.add(n)
+    for alias, canon in ALIASES_JUGADOR.items():
+        if alias.lower() in p:
+            candidatos.add(canon)
+    if len(candidatos) != 1:
+        return None
+    nombre = next(iter(candidatos))
+    # Detectar N días
+    import re as _re
+    n = 14
+    m = _re.search(r"ultim[ao]s?\s+(\d+)\s+(dia|semana|mes)", p)
+    if m:
+        try:
+            num = int(m.group(1))
+            unidad = m.group(2)
+            if unidad.startswith("dia"):
+                n = num
+            elif unidad.startswith("seman"):
+                n = num * 7
+            elif unidad.startswith("mes"):
+                n = num * 30
+        except ValueError:
+            pass
+    elif "ultima semana" in p or "esta semana" in p:
+        n = 7
+    elif "ultimo mes" in p or "este mes" in p:
+        n = 30
+    elif _re.search(r"(\d+)\s+dias", p):
+        try:
+            n = int(_re.search(r"(\d+)\s+dias", p).group(1))
+        except ValueError:
+            pass
+    return (nombre, max(1, min(90, n)))
+
+
 def _detectar_intent_goles_jugador(prompt: str):
     """'goles de Pirata' / 'cuántos goles ha metido Raya' / 'Javi goles liga'.
 
@@ -2943,6 +3040,20 @@ def _run_carga_ultima(fecha: str = "") -> str:
         args, timeout=60,
     )
     return (f"⚠️ Error al consultar carga: {res.salida}" if not res.ok else res.salida)
+
+
+def _run_peso_jugador(nombre: str, n_dias: int = 14) -> str:
+    """Ejecuta src/peso_jugador.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "peso_jugador.py"),
+        [nombre, str(n_dias)], timeout=60,
+    )
+    return (f"⚠️ Error al consultar peso: {res.salida}" if not res.ok else res.salida)
 
 
 def _run_prepost(fecha: str = "") -> str:
@@ -3062,6 +3173,19 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
             except Exception: await update.message.reply_text(trozo)
         return
 
+    # Peso de UN jugador concreto
+    intent_p = _detectar_intent_peso_jugador(prompt)
+    if intent_p is not None:
+        nombre, n = intent_p
+        log.info("ATAJO intent=peso_jugador nombre=%s n=%d (prompt='%s')",
+                 nombre, n, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_peso_jugador, nombre, n)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
     # Goles de UN jugador concreto (más específico que ranking, va antes)
     intent_gj = _detectar_intent_goles_jugador(prompt)
     if intent_gj is not None:
@@ -3167,8 +3291,34 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
             msg_user = "⚠️ Tardé demasiado. Reformula más concreto y reintenta."
         elif "networkerror" in det_low or "connecterror" in det_low:
             msg_user = "⚠️ Se cayó la red del servidor. Reintenta en 1-2 min."
+        elif "finish_reason=10" in det_low or "safety" in det_low or "filtros de contenido" in det_low:
+            msg_user = (
+                "⚠️ Gemini bloqueó la pregunta por safety filter (falso positivo "
+                "probable con nombres de jugadores o términos médicos). "
+                "Prueba a reformular sin nombres o usa el atajo directo "
+                "(ej: 'lesiones activas', 'goles de Pirata', 'carga jugador por jugador')."
+            )
+        elif "permission" in det_low or "forbidden" in det_low or "403" in detalle[:50]:
+            msg_user = (
+                "⚠️ Permiso denegado al Sheet. Revisa que la SA tenga acceso "
+                "(o la SA read-only si esta acción requería escritura)."
+            )
+        elif "json" in det_low and ("decode" in det_low or "parse" in det_low):
+            msg_user = (
+                "⚠️ Gemini devolvió formato raro y no pude parsear. "
+                "Reintenta — suele pasar 1 de cada 50 veces."
+            )
+        elif "quota" in det_low and "exceeded" in det_low:
+            msg_user = "⚠️ Cuota del Sheet API agotada. Dame 1 minuto y reintenta."
         else:
-            msg_user = "⚠️ No me sale ahora."
+            # Como red de seguridad, intentamos sugerir el atajo más probable
+            # según el prompt del usuario, en caso de que estuviera intentando
+            # algo que sí tenemos como atajo SIN LLM.
+            sugerencia = _sugerir_atajo_si_aplica(prompt)
+            if sugerencia:
+                msg_user = f"⚠️ No me sale por LLM. Prueba: «{sugerencia}»"
+            else:
+                msg_user = "⚠️ No me sale ahora. Si insistes y sigue fallando, dime 'qué te ha fallado' y miro logs."
         # IMPORTANTE: enviar como TEXTO PLANO (no Markdown). El detalle del
         # error puede contener ^, paréntesis desbalanceados, _, *, etc., que
         # rompen el parser de Markdown de Telegram (BadRequest).
