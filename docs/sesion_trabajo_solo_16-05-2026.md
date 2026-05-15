@@ -54,6 +54,21 @@
   - Tabla tiempo medio recuperación por gravedad.
 - Solo aparece si hay >=3 lesiones (no satura con poca data).
 
+### 7. ✅ Nuevo atajo SIN LLM: recuento de jugador
+- Patrón detectado en logs ("cuántas sesiones lleva Jaime esta temporada").
+- Nuevo `src/recuento_jugador.py`: lee `_VISTA_RECUENTO`, devuelve
+  sesiones totales, sesiones con datos, % participación con semáforo,
+  desglose de estados (S/A/L/N/D/NC/NJ) y comparativa con la media
+  del equipo.
+- Detector + handler en ambos bots.
+- Probado: "Pirata 97% participación, +31% sobre la media."
+
+### 8. ✅ Letras más grandes en pestaña Resumen del crono
+- Pestaña **General**: cabeceras text-xl, cajas p-6, totales text-xl bold.
+- Pestaña **Individual**: tabla text-sm (era [11px]), padding +, columnas
+  más anchas (min-w-780px), totales destacados.
+- Cumple la queja del user: "respetando la organización aún más grande".
+
 ### 6. 🟡 Verificación bundle del crono
 - Confirmado: el bundle nuevo con 🟥 Roja, TecladoDorsalRival,
   ModalRoja, etc. **SÍ está desplegado** en gh-pages (MD5 idéntico
@@ -68,16 +83,46 @@
 
 ## 📋 Commits empujados durante esta sesión
 
+main:
 ```
 0d5495b fix Alfred: detector carga_ultima tolera entrenamiento/cargas/plurales
 ccd5f36 profundizar Alfred: peso_jugador atajo + mensajes error humanos + plan migracion
-[pendiente] streamlit: análisis visual lesiones + commit final
+7479494 dashboard: pestana Lesiones con analisis visual + nota sesion solo
+91ecab0 atajo SIN LLM: recuento jugador (cuantas sesiones lleva X)
+fe9aa7a crono: letras aun mas grandes en pestana general + individual (source)
 ```
 
-Y en gh-pages:
+gh-pages:
 ```
 691bc3f crono: re-deploy para invalidar caché CDN de GH Pages
+67b6d16 crono: letras aun mas grandes en resumen general + individual
 ```
+
+**Total: 7 commits, ~12 features/fixes.**
+
+---
+
+## 📊 Estado del backlog tras esta sesión
+
+### Atajos SIN LLM en producción
+1. ✅ Lesiones activas
+2. ✅ Ranking temporada (asistencias/goles/etc)
+3. ✅ Estado de jugador
+4. ✅ Carga última sesión (¡fix hoy del entrenamiento/cargas!)
+5. ✅ PRE/POST listado con fecha
+6. ✅ Goles de jugador
+7. ✅ Peso de jugador (NUEVO hoy)
+8. ✅ Recuento de jugador (NUEVO hoy)
+
+**8 atajos SIN LLM = mínimo riesgo de safety filter.**
+
+### Pendientes (sin urgencia)
+- Wrapper LLM agnóstico (preparativo migración 1 junio — diseño hecho,
+  implementación pendiente).
+- Test partido grabado real en iPad (Arkaitz lo apuntó).
+- Mini-crono regresivo: validación de casos límite (2 expulsados a la vez).
+- Editor partidos: auditoría de cache (Arkaitz dijo "suena a parche").
+- Bot scouting (post 1 junio).
 
 ---
 
