@@ -370,6 +370,10 @@ export default function PartidoPage() {
         <div className="grid grid-cols-6 gap-2">
           {banquillo.map((nombre) => {
             const seg = segundosBanquillo(nombre);
+            // segTurnoUltimo = tiempo que jugó en su última rotación antes
+            // de salir. Lo necesitamos para colorear el banquillo con el
+            // nivel correspondiente a su fatiga residual.
+            const segUltimo = partido.tiempos[nombre]?.segTurnoUltimo ?? 0;
             const dorsal = ROSTER.find((j) => j.nombre === nombre)?.dorsal || "";
             const esPortero = ROSTER.find((j) => j.nombre === nombre)?.posicion === "PORTERO";
             const tieneAmarilla = jugadoresAmarilla.has(nombre);
@@ -386,7 +390,7 @@ export default function PartidoPage() {
                     ? "bg-red-900/70 border border-red-500 opacity-80 cursor-not-allowed"
                     : esPortero
                       ? "bg-zinc-800 border border-zinc-600"
-                      : colorTiempoBanquillo(seg)
+                      : colorTiempoBanquillo(seg, segUltimo)
                 } ${tieneAmarilla && !estaExpulsado ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
                 {estaExpulsado && (
                   <span className="absolute top-1 right-1 text-base leading-none">🟥</span>
