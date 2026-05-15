@@ -174,6 +174,7 @@ def _registrar_accion_local(chat_id: int, descripcion: str) -> None:
     `descripcion` debe ser una frase corta tipo:
       "/enlaces (enlaces genéricos del día, mandados al usuario)"
       "/consolidar (consolidó Forms y recalculó vistas, OK)"
+      "/limpiar_duplicados (solo limpió duplicados de _FORM, sin consolidar)"
     """
     _acciones_pendientes.setdefault(chat_id, []).append(
         f"{_dt.datetime.now().strftime('%H:%M')} — {descripcion}"
@@ -590,6 +591,12 @@ REGLAS DE ORO:
 
 CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
 - /consolidar: lee FORM_PRE/POST → BORG/PESO/WELLNESS → recalcula vistas.
+- /limpiar_duplicados: ATAJO sin LLM y sin recálculo. Borra duplicados en
+  _FORM_PRE/_FORM_POST conservando la respuesta más reciente. NO toca
+  BORG/PESO/WELLNESS ni vistas. Úsalo cuando lleguen duplicados después
+  de un /consolidar previo y no quieras re-disparar todo el pipeline (~10 min).
+  Si el usuario pide "consolidar" → /consolidar. Si pide solo "limpiar
+  duplicados" → /limpiar_duplicados.
 - /enlaces: genera enlaces PRE+POST genéricos del día (un solo enlace
   para reenviar al grupo). El jugador elige su nombre.
 - /enlaces_wa: genera UN enlace wa.me POR JUGADOR (lee teléfonos de la
@@ -1652,6 +1659,42 @@ async def _consolidar_worker(chat_id: int, update: Update, ctx: ContextTypes.DEF
             await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /consolidar: {e}")
         except Exception:
             pass
+
+
+async def cmd_limpiar_duplicados(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Atajo SIN LLM y SIN consolidación.
+
+    Borra los duplicados de _FORM_PRE / _FORM_POST conservando la respuesta
+    más reciente por TIMESTAMP. NO toca BORG/PESO/WELLNESS ni recalcula
+    vistas. Útil cuando llegan duplicados después de un /consolidar previo
+    y no quieres re-disparar todo el pipeline (~10 min).
+    """
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "🧹 Limpiando duplicados de _FORM_PRE / _FORM_POST… (esto NO consolida "
+        "ni recalcula vistas, es solo el housekeeping del Form)."
+    )
+    rc, out, err = await _run_script(
+        PROJECT_DIR / "src" / "limpiar_duplicados.py", timeout=120
+    )
+    if rc != 0:
+        await ctx.bot.send_message(
+            chat_id, f"❌ Error limpiando duplicados (código {rc}):\n{(err or out)[:1500]}"
+        )
+        return
+    try:
+        await _enviar_bloques(update, out)
+    except Exception:
+        await ctx.bot.send_message(chat_id, out[-3500:] or "(sin salida)")
+    _registrar_accion_local(
+        chat_id,
+        "/limpiar_duplicados ejecutado: filas duplicadas borradas de "
+        "_FORM_PRE / _FORM_POST conservando la más reciente. NO se ha "
+        "consolidado ni recalculado vistas: para eso hace falta /consolidar."
+    )
 
 
 async def cmd_ejercicios_voz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -3486,6 +3529,18 @@ def _detectar_intent(texto: str) -> Optional[str]:
             r'\bvamos\s+a\s+apuntar\s+(?:la\s+)?sesi[oó]n\b',
             r'\bdictar?\s+(?:la\s+)?sesi[oó]n\b',
         ]),
+        # IMPORTANTE: el intent "limpiar_duplicados" tiene que estar
+        # ANTES del de "consolidar" porque comparten verbos parecidos.
+        # Si el usuario dice "limpia los duplicados", queremos pegarle
+        # al atajo (sin LLM, sin recálculo de vistas), no al consolidar
+        # completo.
+        ("limpiar_duplicados", [
+            r'\blimpia(?:r|me|los)?\s+(?:los\s+)?duplicad',
+            r'\b(?:borra|quita|elimina)(?:r|me|los)?\s+(?:los\s+)?duplicad',
+            r'\bduplicados?\s+fuera\b',
+            r'^/?limpiar_duplicados?\b',
+            r'^/?duplicados?$',
+        ]),
         ("consolidar", [
             r'\bconsolida(?:r|me|los)?\b',
             r'\blanza(?:r)?\s+consolidar?\b',
@@ -3540,6 +3595,7 @@ def _intent_handler(cmd: str):
     """Devuelve el handler async asociado al intent (None si no matchea)."""
     return {
         "consolidar": cmd_consolidar,
+        "limpiar_duplicados": cmd_limpiar_duplicados,
         "enlaces": cmd_enlaces,
         "enlaces_wa": cmd_enlaces_wa,
         "prepost": cmd_prepost,
@@ -3924,6 +3980,7 @@ BOT_COMMANDS_ALFRED = [
     BotCommand("sesion",         "Apuntar sesión del día (voz/texto)"),
     BotCommand("ejercicios",     "Apuntar ejercicios de un entreno (voz/texto)"),
     BotCommand("consolidar",     "Volcar Forms PRE/POST → Sheet + recalcular vistas"),
+    BotCommand("limpiar_duplicados", "Solo borrar duplicados en _FORM_PRE/_POST (sin recalcular)"),
     BotCommand("prepost",        "Quién ha hecho PRE/POST/BORG de la última sesión"),
     BotCommand("enlaces",        "Enlaces PRE+POST del día (genérico, 1 link)"),
     BotCommand("enlaces_wa",     "1 enlace WhatsApp por jugador (lee TELEFONOS_JUGADORES)"),
@@ -3966,6 +4023,7 @@ def main():
     app.add_handler(CommandHandler("enlaces_wa", cmd_enlaces_wa))
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
+    app.add_handler(CommandHandler("limpiar_duplicados", cmd_limpiar_duplicados))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("auditar", cmd_auditar))
     app.add_handler(CommandHandler("status", cmd_status))
