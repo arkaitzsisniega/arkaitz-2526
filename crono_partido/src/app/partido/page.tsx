@@ -73,6 +73,46 @@ export default function PartidoPage() {
     return expulsados;
   }, [partido.eventos]);
 
+  // INFERIORIDAD NUMÉRICA — crono regresivo de 2 minutos tras roja de
+  // un jugador que estaba en pista. Se cancela si el rival mete gol
+  // durante esos 2 minutos (otro jugador puede entrar). En futsal real
+  // la regla es: 2 min de juego efectivo o hasta gol del rival.
+  //
+  // Cálculo derivado de los eventos (sin tocar el schema del partido):
+  //   1) Busca eventos `roja` del INTER ordenados por tiempo de partido.
+  //   2) Para cada uno, calcula segundosInicio (acumulados de partido).
+  //   3) Si el equipo tiene MENOS de 5 en pista actualmente, asumimos
+  //      que la última roja causó inferioridad. Si ya hay 5 (cambió a
+  //      "Nadie" → reemplazo posterior, etc.), no.
+  //   4) Si hubo gol del RIVAL después de la roja, fin de inferioridad.
+  //   5) Si han pasado más de 120s del cronómetro de partido, fin.
+  const inferioridad = useMemo(() => {
+    const evs = partido.eventos as any[];
+    const rojas = evs
+      .filter((e) => e.tipo === "roja" && e.equipo === "INTER")
+      .sort((a, b) => (a.segundosPartido || 0) - (b.segundosPartido || 0));
+    if (rojas.length === 0) return null;
+    if (partido.enPista.length >= 5) return null;  // ya hay 5 en pista
+    // Última roja
+    const ultRoja = rojas[rojas.length - 1];
+    const tRoja = ultRoja.segundosPartido || 0;
+    // ¿Hubo gol del rival después?
+    const golRivalDespues = evs.some(
+      (e) => e.tipo === "gol" && e.equipo === "RIVAL"
+              && (e.segundosPartido || 0) > tRoja
+    );
+    if (golRivalDespues) return null;
+    // Tiempo actual de partido
+    const tActual = segundosPartidoTotal();
+    const trans = tActual - tRoja;
+    if (trans >= 120) return null;  // ya pasaron los 2 minutos
+    return {
+      segRestantes: Math.max(0, 120 - trans),
+      jugador: ultRoja.jugador || "expulsado",
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partido.eventos, partido.enPista.length, partido.cronometro]);
+
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
   }
@@ -146,6 +186,26 @@ export default function PartidoPage() {
           </button>
         </div>
       </div>
+
+      {/* BANNER INFERIORIDAD NUMÉRICA — visible solo si está activa */}
+      {inferioridad && (
+        <div className="bg-red-700/90 border-2 border-red-400 rounded-lg p-3 mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🟥</span>
+            <div>
+              <div className="text-base font-bold leading-tight">
+                INFERIORIDAD NUMÉRICA · expulsado {inferioridad.jugador}
+              </div>
+              <div className="text-xs text-red-100 mt-0.5">
+                Acaba al cumplirse los 2 min o si el rival mete gol.
+              </div>
+            </div>
+          </div>
+          <div className="text-4xl font-mono font-bold tabular-nums">
+            {formatMMSS(Math.ceil(inferioridad.segRestantes))}
+          </div>
+        </div>
+      )}
 
       {/* Botones de ajuste de reloj */}
       <div className="flex items-center gap-2 mb-3 text-sm">
@@ -688,6 +748,16 @@ function ModalCambio(props: {
                 {n}
               </button>
             ))}
+            {/* Slot NADIE: deja un hueco en pista (inferioridad numérica
+                tras expulsión, p.ej.). Si después quieres meter a alguien
+                usa Cambio normal con SALE = (uno de los 4 restantes) o
+                tocando un jugador del banquillo. */}
+            <button
+              onClick={() => props.onConfirmar(sale, "")}
+              className="px-4 py-3 bg-zinc-700 hover:bg-zinc-600 rounded text-base font-bold border-2 border-dashed border-zinc-500"
+              title="Dejar slot vacío en pista (inferioridad numérica)">
+              — Nadie (hueco)
+            </button>
           </div>
         </Paso>
       )}

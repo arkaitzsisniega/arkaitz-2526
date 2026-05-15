@@ -563,7 +563,9 @@ export function usePartido() {
   function cambiarJugador(sale: string, entra: string) {
     setPartido((prev) => {
       if (!prev.enPista.includes(sale)) return prev;
-      if (prev.enPista.includes(entra)) return prev;
+      // entra === "" → significa "Nadie entra" (slot vacío, inferioridad
+      // numérica). Saltamos validación de duplicado.
+      if (entra !== "" && prev.enPista.includes(entra)) return prev;
       const ahora = Date.now();
       const corriendo = prev.cronometro.ultimoStart != null;
       const tiempos = { ...prev.tiempos };
@@ -583,30 +585,33 @@ export function usePartido() {
           descansoStart: corriendo ? ahora : null,
         };
       }
-      const tEntra = tiempos[entra];
-      if (tEntra) {
-        // Congelar descanso antes de leerlo (para tener segDescansoActual real).
-        const congDesc = congelaDescanso(tEntra);
-        const segBanquillo = congDesc.segDescansoActual ?? 0;
-        const ultimoTurno = congDesc.segTurnoUltimo ?? 0;
-        // Regla "fatiga acumulada": si lleva MENOS de UMBRAL en banquillo
-        // y tiene un valor de turno previo (> 0), retomar desde ahí.
-        // Si no, empezar de 0 (descanso suficiente o nunca había jugado).
-        const retomar = segBanquillo < UMBRAL_RETOMAR_TURNO_SEG && ultimoTurno > 0;
-        const segInicial = retomar ? ultimoTurno : 0;
-        tiempos[entra] = {
-          ...congDesc,
-          segTurnoActual: segInicial,
-          turnoStart: corriendo ? ahora : null,
-          ultimaSalida: null,
-          // Deja de estar en banquillo
-          segDescansoActual: null,
-          descansoStart: null,
-          // Limpiar para próxima vez
-          segTurnoUltimo: null,
-        };
+      // Solo si entra es un jugador real (no "Nadie"), procesamos tiempos.
+      if (entra !== "") {
+        const tEntra = tiempos[entra];
+        if (tEntra) {
+          // Congelar descanso antes de leerlo.
+          const congDesc = congelaDescanso(tEntra);
+          const segBanquillo = congDesc.segDescansoActual ?? 0;
+          const ultimoTurno = congDesc.segTurnoUltimo ?? 0;
+          const retomar = segBanquillo < UMBRAL_RETOMAR_TURNO_SEG && ultimoTurno > 0;
+          const segInicial = retomar ? ultimoTurno : 0;
+          tiempos[entra] = {
+            ...congDesc,
+            segTurnoActual: segInicial,
+            turnoStart: corriendo ? ahora : null,
+            ultimaSalida: null,
+            segDescansoActual: null,
+            descansoStart: null,
+            segTurnoUltimo: null,
+          };
+        }
       }
-      const enPista = prev.enPista.map((n) => (n === sale ? entra : n));
+      // enPista: si entra es "" (Nadie), quitamos sin reemplazo → array
+      // queda con menos elementos (4 en lugar de 5, p.ej., en inferioridad
+      // numérica). Si entra es un jugador, sustituimos sale por entra.
+      const enPista = entra === ""
+        ? prev.enPista.filter((n) => n !== sale)
+        : prev.enPista.map((n) => (n === sale ? entra : n));
       const evento: Evento = {
         id: uid(),
         tipo: "cambio",
