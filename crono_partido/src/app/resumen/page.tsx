@@ -141,7 +141,7 @@ function colorSemaforoMin(seg: number, max: number): string {
 export default function ResumenPage() {
   const router = useRouter();
   const { partido, cargado } = usePartido();
-  const [tab, setTab] = useState<"general" | "tiempos" | "individual" | "cronograma" | "disparos">("general");
+  const [tab, setTab] = useState<"general" | "tiempos" | "individual" | "cronograma" | "disparos" | "analisis">("general");
 
   if (!cargado) {
     return <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">Cargando…</div>;
@@ -268,6 +268,7 @@ export default function ResumenPage() {
           { id: "individual", lbl: "👤 Individual" },
           { id: "cronograma", lbl: "📅 Cronograma" },
           { id: "disparos",   lbl: "🎯 Disparos" },
+          { id: "analisis",   lbl: "🧠 Análisis" },
         ].map((t) => (
           <button key={t.id}
             onClick={() => setTab(t.id as any)}
@@ -610,6 +611,11 @@ export default function ResumenPage() {
       {/* TAB: DISPAROS */}
       {tab === "disparos" && (
         <PestanaDisparos partido={partido} partesJugadas={partesJugadas} />
+      )}
+
+      {/* TAB: ANÁLISIS — datos derivados de los eventos del partido */}
+      {tab === "analisis" && (
+        <PestanaAnalisis partido={partido} partesJugadas={partesJugadas} />
       )}
 
       {/* FOOTER — acciones */}
@@ -1247,6 +1253,321 @@ function PestanaDisparos(props: { partido: Partido; partesJugadas: ParteId[] }) 
 type ResultadoDisparoLocal = "PUERTA" | "PALO" | "FUERA" | "BLOQUEADO";
 
 // ─── Helper de exportación ──────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────
+// PESTAÑA ANÁLISIS — datos derivados de los eventos del partido
+// ────────────────────────────────────────────────────────────────
+
+function PestanaAnalisis(props: { partido: Partido; partesJugadas: ParteId[] }) {
+  const { partido, partesJugadas } = props;
+  const cfg = partido.config!;
+  const evs = partido.eventos;
+
+  // ── 1) Quintetos iniciales por parte ──────────────────────────
+  // Para 1T: cfg.pista_inicial.
+  // Para partes posteriores: reconstruir aplicando todos los cambios
+  // de las partes anteriores al enPista inicial.
+  const quintetoInicialParte = (parte: ParteId): string[] => {
+    const inicial = [
+      cfg.pista_inicial.portero,
+      cfg.pista_inicial.pista1,
+      cfg.pista_inicial.pista2,
+      cfg.pista_inicial.pista3,
+      cfg.pista_inicial.pista4,
+    ];
+    if (parte === "1T") return inicial;
+    const PARTES: ParteId[] = ["1T", "2T", "PR1", "PR2"];
+    const idxActual = PARTES.indexOf(parte);
+    const partesPrevias = PARTES.slice(0, idxActual);
+    const pista = [...inicial];
+    // Aplicar cambios en orden cronológico de las partes previas
+    const cambiosPrevios = evs
+      .filter((e: any) => e.tipo === "cambio" && partesPrevias.includes(e.parte as ParteId))
+      .sort((a: any, b: any) => (a.segundosPartido || 0) - (b.segundosPartido || 0));
+    for (const c of cambiosPrevios as any[]) {
+      const i = pista.indexOf(c.sale);
+      if (i === -1) continue;
+      if (c.entra === "") pista.splice(i, 1);
+      else pista.splice(i, 1, c.entra);
+    }
+    return pista;
+  };
+
+  // ── 2) Asistencias por jugador (y pareja goleador-asistente más frecuente)
+  const asistenciasPorJugador: Record<string, number> = {};
+  const parejas: Record<string, number> = {};
+  for (const e of evs as any[]) {
+    if (e.tipo === "gol" && e.equipo === "INTER" && e.asistente) {
+      asistenciasPorJugador[e.asistente] = (asistenciasPorJugador[e.asistente] || 0) + 1;
+      const key = `${e.asistente}→${e.goleador}`;
+      parejas[key] = (parejas[key] || 0) + 1;
+    }
+  }
+  const topAsistentes = Object.entries(asistenciasPorJugador)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  const topParejas = Object.entries(parejas)
+    .filter(([, n]) => n >= 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  // ── 3) Eficiencia ofensiva por jugador (sobre acciones.porJugador) ──
+  type EficiencaRow = {
+    nombre: string; disparos: number; puerta: number;
+    goles: number; efectividad: number; punteria: number;
+  };
+  const efic: EficiencaRow[] = [];
+  for (const nombre of cfg.convocados) {
+    const c = partido.acciones?.porJugador?.[nombre];
+    if (!c) continue;
+    const disparos = (c.dpp || 0) + (c.dpa || 0) + (c.dpf || 0) + (c.dpb || 0);
+    if (disparos === 0) continue;
+    const puerta = c.dpp || 0;
+    // Goles del jugador: contamos eventos gol con goleador = nombre
+    const goles = evs.filter((e: any) =>
+      e.tipo === "gol" && e.equipo === "INTER" && e.goleador === nombre
+    ).length;
+    efic.push({
+      nombre,
+      disparos,
+      puerta,
+      goles,
+      efectividad: disparos > 0 ? (goles / disparos) * 100 : 0,
+      punteria: disparos > 0 ? (puerta / disparos) * 100 : 0,
+    });
+  }
+  efic.sort((a, b) => b.disparos - a.disparos);
+
+  // ── 4) Cuartetos más letales (combinaciones de 4 sin portero) ──
+  // Para cada gol INTER, miramos el cuarteto que estaba en pista
+  // (excluyendo portero). Sumamos +1 a favor. Para goles RIVAL,
+  // -1 al cuarteto que estaba en pista. Output: top 5 por +/- neto
+  // con MÍNIMO 2 goles totales para que sea relevante.
+  const cuartetos: Record<string, { gf: number; gc: number; jugadores: string[] }> = {};
+  const idPortero = new Set(
+    cfg.convocados.filter((n) => {
+      const j = ROSTER.find((r) => r.nombre === n);
+      return j?.posicion === "PORTERO";
+    })
+  );
+  for (const e of evs as any[]) {
+    if (e.tipo !== "gol") continue;
+    const cuarteto: string[] = Array.isArray(e.cuarteto) ? e.cuarteto : [];
+    if (cuarteto.length === 0) continue;
+    // Excluir porteros del cuarteto
+    const soloCampo = cuarteto.filter((n) => !idPortero.has(n));
+    if (soloCampo.length !== 4) continue;
+    const key = [...soloCampo].sort().join(" + ");
+    if (!cuartetos[key]) {
+      cuartetos[key] = { gf: 0, gc: 0, jugadores: [...soloCampo].sort() };
+    }
+    if (e.equipo === "INTER") cuartetos[key].gf++;
+    else cuartetos[key].gc++;
+  }
+  const topCuartetos = Object.entries(cuartetos)
+    .map(([k, v]) => ({ key: k, jugadores: v.jugadores, gf: v.gf, gc: v.gc, plus: v.gf - v.gc }))
+    .filter((c) => c.gf + c.gc >= 1)
+    .sort((a, b) => b.plus - a.plus)
+    .slice(0, 5);
+
+  // ── 5) Transiciones (recuperación → gol nuestro / pérdida → gol rival)
+  // Ventana de 20 segundos.
+  const evsOrdenados = [...evs].sort(
+    (a: any, b: any) => (a.segundosPartido || 0) - (b.segundosPartido || 0)
+  );
+  let recuperaciones = 0, recupAGol = 0;
+  let perdidas = 0, perdidasAGol = 0;
+  for (let i = 0; i < evsOrdenados.length; i++) {
+    const e = evsOrdenados[i] as any;
+    if (e.tipo === "accion_individual") {
+      const t = e.segundosPartido || 0;
+      if (e.accion === "robos" || e.accion === "cortes") {
+        recuperaciones++;
+        // Buscar gol nuestro en los próximos 20s
+        for (let j = i + 1; j < evsOrdenados.length; j++) {
+          const e2 = evsOrdenados[j] as any;
+          if ((e2.segundosPartido || 0) - t > 20) break;
+          if (e2.tipo === "gol" && e2.equipo === "INTER") {
+            recupAGol++;
+            break;
+          }
+        }
+      } else if (e.accion === "pf" || e.accion === "pnf") {
+        perdidas++;
+        for (let j = i + 1; j < evsOrdenados.length; j++) {
+          const e2 = evsOrdenados[j] as any;
+          if ((e2.segundosPartido || 0) - t > 20) break;
+          if (e2.tipo === "gol" && e2.equipo === "RIVAL") {
+            perdidasAGol++;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 1) Quintetos iniciales */}
+      <div className="bg-zinc-900 rounded-xl p-5">
+        <h3 className="text-lg font-bold text-zinc-300 mb-3">🟢 Quintetos iniciales</h3>
+        <p className="text-sm text-zinc-500 mb-3">
+          Con qué 5 jugadores empezamos cada parte (incluido el portero).
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          {partesJugadas.map((p) => {
+            const q = quintetoInicialParte(p);
+            return (
+              <div key={p} className="bg-zinc-950 rounded-lg p-3">
+                <div className="text-sm text-emerald-300 font-bold mb-2">{p}</div>
+                <div className="flex flex-wrap gap-2">
+                  {q.length === 0 ? (
+                    <span className="text-zinc-500 text-sm italic">Sin datos</span>
+                  ) : (
+                    q.map((n, i) => (
+                      <span key={`${n}-${i}`}
+                        className={`px-2.5 py-1 rounded text-sm font-semibold ${
+                          idPortero.has(n) ? "bg-yellow-700" : "bg-emerald-800"
+                        }`}>
+                        {n || "—"}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2) Asistencias */}
+      <div className="bg-zinc-900 rounded-xl p-5">
+        <h3 className="text-lg font-bold text-zinc-300 mb-3">🎯 Asistencias</h3>
+        {topAsistentes.length === 0 ? (
+          <p className="text-sm text-zinc-500 italic">Sin asistencias registradas todavía.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {topAsistentes.map(([n, c]) => (
+                <div key={n} className="flex justify-between bg-zinc-950 rounded px-3 py-2">
+                  <span className="font-bold">{n}</span>
+                  <span className="text-emerald-300 font-mono">{c}</span>
+                </div>
+              ))}
+            </div>
+            {topParejas.length > 0 && (
+              <>
+                <h4 className="text-sm font-bold text-zinc-400 mt-3 mb-2">Parejas asistente → goleador</h4>
+                <ul className="space-y-1 text-sm">
+                  {topParejas.map(([k, n]) => (
+                    <li key={k} className="flex justify-between bg-zinc-950 rounded px-3 py-1">
+                      <span>{k}</span><strong className="text-emerald-300">{n}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 3) Eficiencia ofensiva */}
+      <div className="bg-zinc-900 rounded-xl p-5">
+        <h3 className="text-lg font-bold text-zinc-300 mb-3">🎯 Eficiencia ofensiva</h3>
+        {efic.length === 0 ? (
+          <p className="text-sm text-zinc-500 italic">Sin disparos registrados todavía.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-xs text-zinc-500 border-b border-zinc-800">
+              <tr>
+                <th className="text-left py-2 px-2">Jugador</th>
+                <th className="text-right px-2">Disparos</th>
+                <th className="text-right px-2">A puerta</th>
+                <th className="text-right px-2">Goles</th>
+                <th className="text-right px-2" title="% goles / disparos">% gol</th>
+                <th className="text-right px-2" title="% disparos a puerta / total">% puerta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {efic.map((f) => (
+                <tr key={f.nombre} className="border-b border-zinc-900">
+                  <td className="py-1.5 px-2 font-bold">{f.nombre}</td>
+                  <td className="text-right font-mono tabular-nums px-2">{f.disparos}</td>
+                  <td className="text-right font-mono tabular-nums px-2">{f.puerta}</td>
+                  <td className="text-right font-mono tabular-nums px-2 text-emerald-300 font-bold">{f.goles}</td>
+                  <td className="text-right font-mono tabular-nums px-2">{f.efectividad.toFixed(0)}%</td>
+                  <td className="text-right font-mono tabular-nums px-2">{f.punteria.toFixed(0)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* 4) Cuartetos */}
+      <div className="bg-zinc-900 rounded-xl p-5">
+        <h3 className="text-lg font-bold text-zinc-300 mb-3">⚔️ Cuartetos por +/-</h3>
+        {topCuartetos.length === 0 ? (
+          <p className="text-sm text-zinc-500 italic">
+            Sin goles asociados a cuartetos todavía. Se calculan a partir
+            del cuarteto en pista cuando cae cada gol.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {topCuartetos.map((c) => (
+              <div key={c.key}
+                className={`rounded-lg p-3 ${
+                  c.plus > 0 ? "bg-emerald-900/30 border border-emerald-700/30"
+                  : c.plus < 0 ? "bg-red-900/30 border border-red-700/30"
+                  : "bg-zinc-800"
+                }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">{c.jugadores.join(" · ")}</span>
+                  <span className={`font-mono font-bold ${
+                    c.plus > 0 ? "text-emerald-300" : c.plus < 0 ? "text-red-300" : ""
+                  }`}>
+                    +{c.gf} −{c.gc} = {c.plus > 0 ? "+" : ""}{c.plus}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 5) Transiciones */}
+      <div className="bg-zinc-900 rounded-xl p-5">
+        <h3 className="text-lg font-bold text-zinc-300 mb-3">⚡ Transiciones (ventana 20s)</h3>
+        <p className="text-xs text-zinc-500 mb-3">
+          % recuperaciones que acaban en gol nuestro (transición ofensiva
+          efectiva) · % pérdidas que acaban en gol del rival (vulnerabilidad
+          post-pérdida). Ambas miradas dentro de los siguientes 20 segundos.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-green-900/30 rounded-lg p-4">
+            <div className="text-sm text-green-300 mb-1">↗️ Recuperación → Gol</div>
+            <div className="text-3xl font-bold tabular-nums">
+              {recuperaciones === 0 ? "—" : `${Math.round((recupAGol / recuperaciones) * 100)}%`}
+            </div>
+            <div className="text-xs text-zinc-400 mt-1">
+              {recupAGol} / {recuperaciones} recuperaciones
+            </div>
+          </div>
+          <div className="bg-red-900/30 rounded-lg p-4">
+            <div className="text-sm text-red-300 mb-1">↘️ Pérdida → Gol rival</div>
+            <div className="text-3xl font-bold tabular-nums">
+              {perdidas === 0 ? "—" : `${Math.round((perdidasAGol / perdidas) * 100)}%`}
+            </div>
+            <div className="text-xs text-zinc-400 mt-1">
+              {perdidasAGol} / {perdidas} pérdidas
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function exportarJSON(partido: any) {
   try {
