@@ -281,33 +281,33 @@ export default function ResumenPage() {
       {tab === "general" && (
         <div className="space-y-4">
           {/* CABECERA: Disparos NUESTROS vs RIVAL */}
-          <div className="bg-zinc-900 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-zinc-300 mb-3">🎯 Disparos</h3>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="bg-zinc-900 rounded-xl p-5">
+            <h3 className="text-base font-bold text-zinc-300 mb-4">🎯 Disparos</h3>
+            <div className="grid grid-cols-2 gap-4">
               {/* INTER */}
-              <div className="bg-emerald-900/30 rounded-lg p-3">
-                <div className="text-xs text-emerald-300 font-bold mb-2">INTER</div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+              <div className="bg-emerald-900/30 rounded-lg p-4">
+                <div className="text-sm text-emerald-300 font-bold mb-3">INTER</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="flex justify-between"><span>Puerta</span><strong>{totalesEquipo.dpp}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{totalesEquipo.dpa}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{totalesEquipo.dpf}</strong></div>
                   <div className="flex justify-between"><span>Bloqueados</span><strong>{totalesEquipo.dpb}</strong></div>
                 </div>
-                <div className="border-t border-emerald-700/50 mt-2 pt-2 flex justify-between text-emerald-200 text-sm">
+                <div className="border-t border-emerald-700/50 mt-3 pt-2 flex justify-between text-emerald-200 text-base">
                   <span>Total</span>
                   <strong>{totalesEquipo.dpp+totalesEquipo.dpa+totalesEquipo.dpf+totalesEquipo.dpb}</strong>
                 </div>
               </div>
               {/* RIVAL */}
-              <div className="bg-red-900/30 rounded-lg p-3">
-                <div className="text-xs text-red-300 font-bold mb-2">{cfg.rival}</div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+              <div className="bg-red-900/30 rounded-lg p-4">
+                <div className="text-sm text-red-300 font-bold mb-3">{cfg.rival}</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="flex justify-between"><span>Puerta</span><strong>{partido.disparosRival.puerta}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{partido.disparosRival.palo}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{partido.disparosRival.fuera}</strong></div>
                   <div className="flex justify-between"><span>Bloqueados</span><strong>{partido.disparosRival.bloqueado}</strong></div>
                 </div>
-                <div className="border-t border-red-700/50 mt-2 pt-2 flex justify-between text-red-200 text-sm">
+                <div className="border-t border-red-700/50 mt-3 pt-2 flex justify-between text-red-200 text-base">
                   <span>Total</span>
                   <strong>{partido.disparosRival.puerta+partido.disparosRival.palo+partido.disparosRival.fuera+partido.disparosRival.bloqueado}</strong>
                 </div>
@@ -316,38 +316,38 @@ export default function ResumenPage() {
           </div>
 
           {/* SEGUNDA FILA — Pérdidas, Recuperaciones, Divididos del INTER */}
-          <div className="bg-zinc-900 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-zinc-300 mb-3">📊 Stats INTER</h3>
-            <div className="grid grid-cols-3 gap-3">
+          <div className="bg-zinc-900 rounded-xl p-5">
+            <h3 className="text-base font-bold text-zinc-300 mb-4">📊 Stats INTER</h3>
+            <div className="grid grid-cols-3 gap-4">
               {/* Pérdidas */}
-              <div className="bg-red-900/30 rounded-lg p-3">
-                <div className="text-xs text-red-300 font-bold mb-2">❌ Pérdidas</div>
-                <div className="text-xs space-y-0.5">
+              <div className="bg-red-900/30 rounded-lg p-4">
+                <div className="text-sm text-red-300 font-bold mb-3">❌ Pérdidas</div>
+                <div className="text-sm space-y-1">
                   <div className="flex justify-between"><span>Forzada</span><strong>{totalesEquipo.pf}</strong></div>
                   <div className="flex justify-between"><span>No forzada</span><strong>{totalesEquipo.pnf}</strong></div>
-                  <div className="border-t border-red-700/50 mt-1 pt-1 flex justify-between text-red-200">
+                  <div className="border-t border-red-700/50 mt-2 pt-2 flex justify-between text-red-200 text-base">
                     <span>Total</span><strong>{totalesEquipo.pf+totalesEquipo.pnf}</strong>
                   </div>
                 </div>
               </div>
               {/* Recuperaciones */}
-              <div className="bg-green-900/30 rounded-lg p-3">
-                <div className="text-xs text-green-300 font-bold mb-2">✅ Recuperaciones</div>
-                <div className="text-xs space-y-0.5">
+              <div className="bg-green-900/30 rounded-lg p-4">
+                <div className="text-sm text-green-300 font-bold mb-3">✅ Recuperaciones</div>
+                <div className="text-sm space-y-1">
                   <div className="flex justify-between"><span>Robos</span><strong>{totalesEquipo.robos}</strong></div>
                   <div className="flex justify-between"><span>Cortes</span><strong>{totalesEquipo.cortes}</strong></div>
-                  <div className="border-t border-green-700/50 mt-1 pt-1 flex justify-between text-green-200">
+                  <div className="border-t border-green-700/50 mt-2 pt-2 flex justify-between text-green-200 text-base">
                     <span>Total</span><strong>{totalesEquipo.robos+totalesEquipo.cortes}</strong>
                   </div>
                 </div>
               </div>
               {/* Balones divididos */}
-              <div className="bg-purple-900/30 rounded-lg p-3">
-                <div className="text-xs text-purple-300 font-bold mb-2">⚖️ Balones divididos</div>
-                <div className="text-xs space-y-0.5">
+              <div className="bg-purple-900/30 rounded-lg p-4">
+                <div className="text-sm text-purple-300 font-bold mb-3">⚖️ Balones divididos</div>
+                <div className="text-sm space-y-1">
                   <div className="flex justify-between"><span>Ganados</span><strong>{totalesEquipo.bdg}</strong></div>
                   <div className="flex justify-between"><span>No ganados</span><strong>{totalesEquipo.bdp}</strong></div>
-                  <div className="border-t border-purple-700/50 mt-1 pt-1 flex justify-between text-purple-200">
+                  <div className="border-t border-purple-700/50 mt-2 pt-2 flex justify-between text-purple-200 text-base">
                     <span>Ratio</span>
                     <strong>{(totalesEquipo.bdg + totalesEquipo.bdp) > 0
                       ? `${Math.round(totalesEquipo.bdg / (totalesEquipo.bdg + totalesEquipo.bdp) * 100)}%`
@@ -359,8 +359,8 @@ export default function ResumenPage() {
           </div>
 
           {/* CRONOLOGÍA DE GOLES */}
-          <div className="bg-zinc-900 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-zinc-300 mb-3">⚽ Goles del partido</h3>
+          <div className="bg-zinc-900 rounded-xl p-5">
+            <h3 className="text-base font-bold text-zinc-300 mb-4">⚽ Goles del partido</h3>
             {(() => {
               const goles = eventosOrdenados.filter((ev) => ev.tipo === "gol");
               if (goles.length === 0) {
@@ -465,19 +465,19 @@ export default function ResumenPage() {
 
       {/* TAB: TIEMPOS */}
       {tab === "tiempos" && (
-        <div className="bg-zinc-900 rounded-xl p-4 overflow-x-auto">
-          <h3 className="text-sm font-bold text-zinc-300 mb-1">⏱ Tiempo jugado por jugador</h3>
-          <p className="text-[11px] text-zinc-500 mb-3">
+        <div className="bg-zinc-900 rounded-xl p-5 overflow-x-auto">
+          <h3 className="text-base font-bold text-zinc-300 mb-2">⏱ Tiempo jugado por jugador</h3>
+          <p className="text-sm text-zinc-500 mb-4">
             Color de fila según minutos jugados (rojo = más, verde = menos). Porteros sin
             código de color.
           </p>
-          <table className="w-full text-sm">
-            <thead className="text-xs text-zinc-400 border-b border-zinc-800">
+          <table className="w-full text-base">
+            <thead className="text-sm text-zinc-400 border-b border-zinc-800">
               <tr>
-                <th className="text-left py-2 px-2">Jugador</th>
-                <th className="text-right px-2">Total</th>
+                <th className="text-left py-3 px-3">Jugador</th>
+                <th className="text-right px-3">Total</th>
                 {partesJugadas.map((p) => (
-                  <th key={p} className="text-right px-2">{p}</th>
+                  <th key={p} className="text-right px-3">{p}</th>
                 ))}
               </tr>
             </thead>
@@ -488,18 +488,18 @@ export default function ResumenPage() {
                   : colorSemaforoMin(f.total, maxMinJugados);
                 return (
                   <tr key={f.nombre} className={`border-b border-zinc-900 ${colorFila}`}>
-                    <td className="py-1.5 px-2">
+                    <td className="py-2.5 px-3">
                       <span className={`${f.esPortero ? "text-yellow-400" : ""} font-bold`}>
                         {f.nombre}
                       </span>
-                      {f.enPista && <span className="ml-2 text-[10px] bg-green-700 px-1.5 py-0.5 rounded">EN PISTA</span>}
-                      {f.esPortero && <span className="ml-2 text-[10px] text-zinc-500">🥅</span>}
+                      {f.enPista && <span className="ml-2 text-xs bg-green-700 px-2 py-0.5 rounded">EN PISTA</span>}
+                      {f.esPortero && <span className="ml-2 text-xs text-zinc-500">🥅</span>}
                     </td>
-                    <td className="text-right font-mono tabular-nums px-2 font-bold">
+                    <td className="text-right font-mono tabular-nums px-3 font-bold text-lg">
                       {formatMMSS(f.total)}
                     </td>
                     {partesJugadas.map((p) => (
-                      <td key={p} className="text-right font-mono tabular-nums px-2 text-zinc-300">
+                      <td key={p} className="text-right font-mono tabular-nums px-3 text-zinc-300">
                         {formatMMSS(f.porParte[p] ?? 0)}
                       </td>
                     ))}
@@ -507,14 +507,14 @@ export default function ResumenPage() {
                 );
               })}
             </tbody>
-            <tfoot className="text-xs text-zinc-500 border-t border-zinc-800">
+            <tfoot className="text-sm text-zinc-500 border-t border-zinc-800">
               <tr>
-                <td className="pt-2 px-2 italic">Total acumulado</td>
-                <td className="text-right font-mono tabular-nums px-2 font-bold pt-2">
+                <td className="pt-3 px-3 italic">Total acumulado</td>
+                <td className="text-right font-mono tabular-nums px-3 font-bold pt-3 text-base">
                   {formatMMSS(filasTiempos.reduce((s, f) => s + f.total, 0))}
                 </td>
                 {partesJugadas.map((p) => (
-                  <td key={p} className="text-right font-mono tabular-nums px-2 pt-2">
+                  <td key={p} className="text-right font-mono tabular-nums px-3 pt-3">
                     {formatMMSS(filasTiempos.reduce((s, f) => s + (f.porParte[p] ?? 0), 0))}
                   </td>
                 ))}

@@ -150,21 +150,21 @@ export default function PartidoPage() {
             return (
               <button key={nombre}
                 onClick={() => setModalAccionInd({ jugador: nombre })}
-                className={`relative p-3 rounded-lg text-center ${
+                className={`relative p-5 min-h-[140px] rounded-lg text-center flex flex-col justify-center ${
                   esPortero
-                    ? "bg-zinc-800 border-2 border-zinc-600"  // portero neutro, sin código de color de minutos
+                    ? "bg-zinc-800 border-2 border-zinc-600"
                     : colorTiempoPista(seg)
                 } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-2 ring-offset-zinc-900" : ""}`}>
                 {tieneAmarilla && (
-                  <span className="absolute top-1 right-1 text-base leading-none" title="Amarilla">🟨</span>
+                  <span className="absolute top-1.5 right-1.5 text-xl leading-none" title="Amarilla">🟨</span>
                 )}
                 {esPortero && (
-                  <span className="absolute top-1 left-1 text-xs">🥅</span>
+                  <span className="absolute top-1.5 left-1.5 text-sm">🥅</span>
                 )}
-                <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
-                <div className="text-base font-bold">{nombre}</div>
-                <div className="text-2xl font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
-                <div className="text-xs opacity-70 mt-0.5">parte {formatMMSS(totalParte)}</div>
+                <div className="text-sm opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
+                <div className="text-lg font-bold leading-tight">{nombre}</div>
+                <div className="text-3xl font-mono tabular-nums mt-2">{formatMMSS(seg)}</div>
+                <div className="text-sm opacity-70 mt-1">parte {formatMMSS(totalParte)}</div>
               </button>
             );
           })}
@@ -172,8 +172,8 @@ export default function PartidoPage() {
       </div>
 
       {/* BANQUILLO */}
-      <div className="bg-zinc-900 rounded-xl p-3 mb-3">
-        <h2 className="text-zinc-400 text-sm mb-2">BANQUILLO (toca un jugador para amarilla / falta / cambiar)</h2>
+      <div className="bg-zinc-900 rounded-xl p-4 mb-3">
+        <h2 className="text-zinc-400 text-base mb-3">BANQUILLO (toca un jugador para amarilla / falta / cambiar)</h2>
         <div className="grid grid-cols-6 gap-2">
           {banquillo.map((nombre) => {
             const seg = segundosBanquillo(nombre);
@@ -183,17 +183,17 @@ export default function PartidoPage() {
             return (
               <button key={nombre}
                 onClick={() => setModalAccionBanquillo({ jugador: nombre })}
-                className={`relative p-2 rounded-lg text-center ${
+                className={`relative p-3 min-h-[90px] rounded-lg text-center flex flex-col justify-center ${
                   esPortero
-                    ? "bg-zinc-800 border border-zinc-600"   // portero neutro
+                    ? "bg-zinc-800 border border-zinc-600"
                     : colorTiempoBanquillo(seg)
                 } ${tieneAmarilla ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-zinc-900" : ""}`}>
                 {tieneAmarilla && (
-                  <span className="absolute top-0.5 right-0.5 text-sm leading-none">🟨</span>
+                  <span className="absolute top-1 right-1 text-base leading-none">🟨</span>
                 )}
-                <div className="text-xs opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
-                <div className="text-sm font-bold">{nombre}</div>
-                <div className="text-base font-mono tabular-nums mt-1">{formatMMSS(seg)}</div>
+                <div className="text-sm opacity-70">{dorsal ? `#${dorsal}` : "—"}</div>
+                <div className="text-base font-bold leading-tight">{nombre}</div>
+                <div className="text-xl font-mono tabular-nums mt-1.5">{formatMMSS(seg)}</div>
               </button>
             );
           })}
@@ -241,10 +241,10 @@ export default function PartidoPage() {
       </div>
 
       {/* STATS compactas al final: faltas / amarillas / tiempos muertos por parte */}
-      <div className="bg-zinc-900/60 rounded-lg p-2 mt-3 text-xs">
-        <div className="flex items-center justify-between flex-wrap gap-x-4 gap-y-1">
-          <span className="text-zinc-500 text-[10px] uppercase tracking-wide">Stats {p}</span>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
+      <div className="bg-zinc-900/60 rounded-lg p-3 mt-3 text-base">
+        <div className="flex items-center justify-between flex-wrap gap-x-5 gap-y-2">
+          <span className="text-zinc-500 text-xs uppercase tracking-wide">Stats {p}</span>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
             <span>
               <span className="text-emerald-400 font-bold">I</span> Faltas{" "}
               <strong className={sFalt.inter >= 5 ? "text-red-400" : ""}>{sFalt.inter}</strong>
@@ -265,12 +265,12 @@ export default function PartidoPage() {
           </div>
         </div>
         {sFalt.inter >= 6 && (
-          <div className="mt-1 bg-red-700 rounded px-2 py-0.5 text-center font-bold">
+          <div className="mt-2 bg-red-700 rounded px-3 py-1 text-center font-bold">
             ⚠️ Inter 6ª falta → 10m a favor del rival
           </div>
         )}
         {sFalt.rival >= 6 && (
-          <div className="mt-1 bg-emerald-700 rounded px-2 py-0.5 text-center font-bold">
+          <div className="mt-2 bg-emerald-700 rounded px-3 py-1 text-center font-bold">
             ⚠️ Rival 6ª falta → 10m a favor del Inter
           </div>
         )}
@@ -481,7 +481,7 @@ export default function PartidoPage() {
 function BotonAccion(props: { label: string; color: string; onClick: () => void }) {
   return (
     <button onClick={props.onClick}
-      className={`${props.color} hover:opacity-90 py-5 rounded-xl text-lg font-bold`}>
+      className={`${props.color} hover:opacity-90 py-7 rounded-xl text-xl font-bold leading-tight`}>
       {props.label}
     </button>
   );
