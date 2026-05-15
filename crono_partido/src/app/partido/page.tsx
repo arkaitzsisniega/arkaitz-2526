@@ -114,21 +114,64 @@ export default function PartidoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partido.eventos, partido.enPista.length, partido.cronometro]);
 
+  // SUPERIORIDAD NUMÉRICA — espejo de inferioridad pero cuando expulsan
+  // a un jugador del RIVAL. El Inter juega con 5 vs 4. Termina si:
+  // (a) marca el INTER (compensación natural en futsal), o
+  // (b) pasan 120 s desde la expulsión.
+  // No depende de partido.enPista (estructuralmente no tenemos "rival
+  // en pista"; lo derivamos solo de eventos).
+  const superioridad = useMemo(() => {
+    const evs = partido.eventos as any[];
+    const rojasRival = evs
+      .filter((e) => e.tipo === "roja" && e.equipo === "RIVAL")
+      .sort((a, b) => (a.segundosPartido || 0) - (b.segundosPartido || 0));
+    if (rojasRival.length === 0) return null;
+    const ultRoja = rojasRival[rojasRival.length - 1];
+    const tRoja = ultRoja.segundosPartido || 0;
+    // ¿Hubo gol del INTER después? Entonces se ha "consumido" la
+    // superioridad (el rival recupera el quinto).
+    const golInterDespues = evs.some(
+      (e) => e.tipo === "gol" && e.equipo === "INTER"
+              && (e.segundosPartido || 0) > tRoja
+    );
+    if (golInterDespues) return null;
+    const tActual = segundosPartidoTotal();
+    const trans = tActual - tRoja;
+    if (trans >= 120) return null;
+    return {
+      segRestantes: Math.max(0, 120 - trans),
+      dorsalRival: ultRoja.jugador || "expulsado",
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partido.eventos, partido.cronometro]);
+
+  // Helper central para EXPULSAR a un jugador INTER: registra evento
+  // roja + si el jugador está en pista, lo saca automáticamente
+  // dejando un slot vacío (inferioridad numérica). Si está en banquillo,
+  // solo registra la roja (queda como expulsado sin más).
+  //
+  // Usar SIEMPRE desde cualquier sitio que registre una roja INTER (no
+  // llamar a registrarEvento directamente) para que el comportamiento
+  // sea consistente y se dispare el crono regresivo.
+  const expulsarJugadorInter = (jugador: string) => {
+    registrarEvento({ tipo: "roja", equipo: "INTER", jugador } as any);
+    if (partido.enPista.includes(jugador)) {
+      // cambiarJugador con entra="" saca al jugador sin reemplazo →
+      // enPista pasa de 5 a 4. Eso dispara el banner de inferioridad.
+      cambiarJugador(jugador, "");
+    }
+  };
+
   // Helper único para registrar amarilla a un jugador INTER. Si era la
-  // 2ª amarilla, automáticamente añade una ROJA encadenada y deja al
-  // jugador EXPULSADO (lo detecta el useMemo jugadoresExpulsados).
-  // Centralizamos aquí para que TODOS los sitios que registran amarilla
-  // a un jugador (modal global, modal banquillo, modal acción individual)
-  // tengan exactamente el mismo comportamiento.
+  // 2ª amarilla, dispara automáticamente la EXPULSIÓN (roja + sale
+  // de pista si estaba).
   const registrarAmarillaInter = (jugador: string) => {
     registrarEvento({ tipo: "amarilla", equipo: "INTER", jugador } as any);
-    // Contar amarillas previas + ésta. Si ya tenía 1 o más, esta es la 2ª
-    // (o 3ª en casos raros) → roja.
     const yaTenia = partido.eventos.filter(
       (e: any) => e.tipo === "amarilla" && e.equipo === "INTER" && e.jugador === jugador
     ).length;
     if (yaTenia + 1 >= 2) {
-      registrarEvento({ tipo: "roja", equipo: "INTER", jugador } as any);
+      expulsarJugadorInter(jugador);
     }
   };
 
@@ -206,23 +249,47 @@ export default function PartidoPage() {
         </div>
       </div>
 
-      {/* BANNER INFERIORIDAD NUMÉRICA — visible solo si está activa */}
-      {inferioridad && (
-        <div className="bg-red-700/90 border-2 border-red-400 rounded-lg p-3 mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">🟥</span>
-            <div>
-              <div className="text-base font-bold leading-tight">
-                INFERIORIDAD NUMÉRICA · expulsado {inferioridad.jugador}
+      {/* BANNERS DE INFERIORIDAD / SUPERIORIDAD NUMÉRICA — pueden estar
+          activos simultáneamente si hay expulsión de ambos equipos
+          dentro de los 2 min. */}
+      {(inferioridad || superioridad) && (
+        <div className={`grid ${(inferioridad && superioridad) ? "grid-cols-2" : "grid-cols-1"} gap-2 mb-3`}>
+          {inferioridad && (
+            <div className="bg-red-700/90 border-2 border-red-400 rounded-lg p-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🟥</span>
+                <div>
+                  <div className="text-base font-bold leading-tight">
+                    INFERIORIDAD · expulsado {inferioridad.jugador}
+                  </div>
+                  <div className="text-xs text-red-100 mt-0.5">
+                    Acaba a los 2 min o si el rival mete gol.
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-red-100 mt-0.5">
-                Acaba al cumplirse los 2 min o si el rival mete gol.
+              <div className="text-4xl font-mono font-bold tabular-nums">
+                {formatMMSS(Math.ceil(inferioridad.segRestantes))}
               </div>
             </div>
-          </div>
-          <div className="text-4xl font-mono font-bold tabular-nums">
-            {formatMMSS(Math.ceil(inferioridad.segRestantes))}
-          </div>
+          )}
+          {superioridad && (
+            <div className="bg-emerald-700/90 border-2 border-emerald-400 rounded-lg p-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🟩</span>
+                <div>
+                  <div className="text-base font-bold leading-tight">
+                    SUPERIORIDAD · rival {superioridad.dorsalRival} fuera
+                  </div>
+                  <div className="text-xs text-emerald-100 mt-0.5">
+                    Acaba a los 2 min o si nosotros metemos gol.
+                  </div>
+                </div>
+              </div>
+              <div className="text-4xl font-mono font-bold tabular-nums">
+                {formatMMSS(Math.ceil(superioridad.segRestantes))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -486,11 +553,7 @@ export default function PartidoPage() {
             setModalAccionBanquillo(null);
           }}
           onRoja={() => {
-            registrarEvento({
-              tipo: "roja",
-              equipo: "INTER",
-              jugador: modalAccionBanquillo.jugador,
-            } as any);
+            expulsarJugadorInter(modalAccionBanquillo.jugador);
             setModalAccionBanquillo(null);
           }}
           onFalta={() => {
@@ -525,11 +588,7 @@ export default function PartidoPage() {
             setModalAccionInd(null);
           }}
           onRoja={() => {
-            registrarEvento({
-              tipo: "roja",
-              equipo: "INTER",
-              jugador: modalAccionInd.jugador,
-            } as any);
+            expulsarJugadorInter(modalAccionInd.jugador);
             setModalAccionInd(null);
           }}
           onFalta={() => {
@@ -617,9 +676,16 @@ export default function PartidoPage() {
           rivalNombre={cfg.rival}
           onCerrar={() => setModalRoja(false)}
           onConfirmar={(ev) => {
-            // Para INTER, registramos directo (la roja directa hace
-            // expulsado por sí sola, no hace falta amarilla previa).
-            registrarEvento(ev as any);
+            const evAny = ev as any;
+            // Para INTER con jugador → usar helper (registra roja + saca
+            // de pista si está). Para RIVAL → solo registrar (no hay
+            // "rival en pista" estructural, el crono regresivo se calcula
+            // desde los eventos en el useMemo `superioridad`).
+            if (evAny.equipo === "INTER" && evAny.jugador) {
+              expulsarJugadorInter(evAny.jugador);
+            } else {
+              registrarEvento(evAny);
+            }
             setModalRoja(false);
           }}
         />
