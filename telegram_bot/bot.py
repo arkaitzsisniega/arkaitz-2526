@@ -3342,6 +3342,25 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _procesar_audio_goles(prompt, update, ctx)
         return
 
+    # ─── Atajos SIN LLM con extracción de FECHA ───
+    # Estos van ANTES del _detectar_intent genérico porque ese mapea
+    # "prepost" → cmd_prepost sin saber parsear la fecha del prompt,
+    # acabando siempre en "última sesión". Si el usuario dice "pre y
+    # post de AYER", queremos respetarlo.
+    intent_pp = _detectar_intent_prepost(prompt)
+    if intent_pp:  # solo si hay fecha extraída (no "" ni None)
+        log.info("[%s] ATAJO prepost CON fecha=%s (prompt='%s')",
+                 chat_id, intent_pp, prompt[:80])
+        _append_log(chat_id,
+                    (update.effective_user.first_name if update.effective_user else None) or "usuario",
+                    prompt, f"(atajo prepost fecha={intent_pp})", kind="texto")
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_prepost, intent_pp)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
     # Detector de intención: si el mensaje matchea con un slash command
     # conocido, ejecutamos el handler local sin pasar por Gemini (más
     # rápido, más fiable, mismos mensajes de progreso que el slash).
