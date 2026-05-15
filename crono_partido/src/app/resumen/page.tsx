@@ -281,33 +281,33 @@ export default function ResumenPage() {
       {tab === "general" && (
         <div className="space-y-4">
           {/* CABECERA: Disparos NUESTROS vs RIVAL */}
-          <div className="bg-zinc-900 rounded-xl p-5">
-            <h3 className="text-base font-bold text-zinc-300 mb-4">🎯 Disparos</h3>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="bg-zinc-900 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-zinc-300 mb-4">🎯 Disparos</h3>
+            <div className="grid grid-cols-2 gap-5">
               {/* INTER */}
-              <div className="bg-emerald-900/30 rounded-lg p-4">
-                <div className="text-sm text-emerald-300 font-bold mb-3">INTER</div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <div className="bg-emerald-900/30 rounded-lg p-5">
+                <div className="text-lg text-emerald-300 font-bold mb-3">INTER</div>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-base">
                   <div className="flex justify-between"><span>Puerta</span><strong>{totalesEquipo.dpp}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{totalesEquipo.dpa}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{totalesEquipo.dpf}</strong></div>
                   <div className="flex justify-between"><span>Bloqueados</span><strong>{totalesEquipo.dpb}</strong></div>
                 </div>
-                <div className="border-t border-emerald-700/50 mt-3 pt-2 flex justify-between text-emerald-200 text-base">
+                <div className="border-t border-emerald-700/50 mt-4 pt-3 flex justify-between text-emerald-200 text-xl font-bold">
                   <span>Total</span>
                   <strong>{totalesEquipo.dpp+totalesEquipo.dpa+totalesEquipo.dpf+totalesEquipo.dpb}</strong>
                 </div>
               </div>
               {/* RIVAL */}
-              <div className="bg-red-900/30 rounded-lg p-4">
-                <div className="text-sm text-red-300 font-bold mb-3">{cfg.rival}</div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <div className="bg-red-900/30 rounded-lg p-5">
+                <div className="text-lg text-red-300 font-bold mb-3">{cfg.rival}</div>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-base">
                   <div className="flex justify-between"><span>Puerta</span><strong>{partido.disparosRival.puerta}</strong></div>
                   <div className="flex justify-between"><span>Palo</span><strong>{partido.disparosRival.palo}</strong></div>
                   <div className="flex justify-between"><span>Fuera</span><strong>{partido.disparosRival.fuera}</strong></div>
                   <div className="flex justify-between"><span>Bloqueados</span><strong>{partido.disparosRival.bloqueado}</strong></div>
                 </div>
-                <div className="border-t border-red-700/50 mt-3 pt-2 flex justify-between text-red-200 text-base">
+                <div className="border-t border-red-700/50 mt-4 pt-3 flex justify-between text-red-200 text-xl font-bold">
                   <span>Total</span>
                   <strong>{partido.disparosRival.puerta+partido.disparosRival.palo+partido.disparosRival.fuera+partido.disparosRival.bloqueado}</strong>
                 </div>
@@ -316,38 +316,38 @@ export default function ResumenPage() {
           </div>
 
           {/* SEGUNDA FILA — Pérdidas, Recuperaciones, Divididos del INTER */}
-          <div className="bg-zinc-900 rounded-xl p-5">
-            <h3 className="text-base font-bold text-zinc-300 mb-4">📊 Stats INTER</h3>
+          <div className="bg-zinc-900 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-zinc-300 mb-4">📊 Stats INTER</h3>
             <div className="grid grid-cols-3 gap-4">
               {/* Pérdidas */}
-              <div className="bg-red-900/30 rounded-lg p-4">
-                <div className="text-sm text-red-300 font-bold mb-3">❌ Pérdidas</div>
-                <div className="text-sm space-y-1">
+              <div className="bg-red-900/30 rounded-lg p-5">
+                <div className="text-lg text-red-300 font-bold mb-3">❌ Pérdidas</div>
+                <div className="text-base space-y-2">
                   <div className="flex justify-between"><span>Forzada</span><strong>{totalesEquipo.pf}</strong></div>
                   <div className="flex justify-between"><span>No forzada</span><strong>{totalesEquipo.pnf}</strong></div>
-                  <div className="border-t border-red-700/50 mt-2 pt-2 flex justify-between text-red-200 text-base">
+                  <div className="border-t border-red-700/50 mt-3 pt-3 flex justify-between text-red-200 text-lg font-bold">
                     <span>Total</span><strong>{totalesEquipo.pf+totalesEquipo.pnf}</strong>
                   </div>
                 </div>
               </div>
               {/* Recuperaciones */}
-              <div className="bg-green-900/30 rounded-lg p-4">
-                <div className="text-sm text-green-300 font-bold mb-3">✅ Recuperaciones</div>
-                <div className="text-sm space-y-1">
+              <div className="bg-green-900/30 rounded-lg p-5">
+                <div className="text-lg text-green-300 font-bold mb-3">✅ Recuperaciones</div>
+                <div className="text-base space-y-2">
                   <div className="flex justify-between"><span>Robos</span><strong>{totalesEquipo.robos}</strong></div>
                   <div className="flex justify-between"><span>Cortes</span><strong>{totalesEquipo.cortes}</strong></div>
-                  <div className="border-t border-green-700/50 mt-2 pt-2 flex justify-between text-green-200 text-base">
+                  <div className="border-t border-green-700/50 mt-3 pt-3 flex justify-between text-green-200 text-lg font-bold">
                     <span>Total</span><strong>{totalesEquipo.robos+totalesEquipo.cortes}</strong>
                   </div>
                 </div>
               </div>
               {/* Balones divididos */}
-              <div className="bg-purple-900/30 rounded-lg p-4">
-                <div className="text-sm text-purple-300 font-bold mb-3">⚖️ Balones divididos</div>
-                <div className="text-sm space-y-1">
+              <div className="bg-purple-900/30 rounded-lg p-5">
+                <div className="text-lg text-purple-300 font-bold mb-3">⚖️ Balones divididos</div>
+                <div className="text-base space-y-2">
                   <div className="flex justify-between"><span>Ganados</span><strong>{totalesEquipo.bdg}</strong></div>
                   <div className="flex justify-between"><span>No ganados</span><strong>{totalesEquipo.bdp}</strong></div>
-                  <div className="border-t border-purple-700/50 mt-2 pt-2 flex justify-between text-purple-200 text-base">
+                  <div className="border-t border-purple-700/50 mt-3 pt-3 flex justify-between text-purple-200 text-lg font-bold">
                     <span>Ratio</span>
                     <strong>{(totalesEquipo.bdg + totalesEquipo.bdp) > 0
                       ? `${Math.round(totalesEquipo.bdg / (totalesEquipo.bdg + totalesEquipo.bdp) * 100)}%`
@@ -526,76 +526,75 @@ export default function ResumenPage() {
 
       {/* TAB: INDIVIDUAL — bloques de colores */}
       {tab === "individual" && (
-        <div className="bg-zinc-900 rounded-xl p-3 overflow-x-auto">
-          <h3 className="text-sm font-bold text-zinc-300 mb-3">👤 Stats individuales por jugador</h3>
-          <p className="text-[11px] text-zinc-500 mb-3">
+        <div className="bg-zinc-900 rounded-xl p-4 overflow-x-auto">
+          <h3 className="text-base font-bold text-zinc-300 mb-3">👤 Stats individuales por jugador</h3>
+          <p className="text-sm text-zinc-500 mb-4">
             Disparos (azul) · Pérdidas (rojo) · Recuperaciones (verde) ·
             Balones divididos (morado) · Presencia en goles (dorado).
             Desliza horizontalmente si no entra todo en la pantalla.
           </p>
-          <table className="text-[11px] min-w-[680px] w-full">
-            <thead className="text-[10px] border-b border-zinc-700">
+          <table className="text-sm min-w-[780px] w-full">
+            <thead className="text-sm border-b border-zinc-700">
               <tr className="text-zinc-400">
-                <th rowSpan={2} className="text-left py-2 px-1 align-bottom border-r border-zinc-800">Jug.</th>
-                <th colSpan={5} className="text-center px-0.5 bg-emerald-900/30 text-emerald-300">🎯 DISPAROS</th>
-                <th colSpan={2} className="text-center px-0.5 bg-red-900/30 text-red-300">❌ PÉRD.</th>
-                <th colSpan={2} className="text-center px-0.5 bg-green-900/30 text-green-300">✅ RECUP.</th>
-                <th colSpan={2} className="text-center px-0.5 bg-purple-900/30 text-purple-300">⚖️ DIV.</th>
-                <th colSpan={4} className="text-center px-0.5 bg-yellow-900/30 text-yellow-300">⚽ GOLES</th>
+                <th rowSpan={2} className="text-left py-2 px-2 align-bottom border-r border-zinc-800">Jug.</th>
+                <th colSpan={5} className="text-center px-1 bg-emerald-900/30 text-emerald-300 text-sm font-bold">🎯 DISPAROS</th>
+                <th colSpan={2} className="text-center px-1 bg-red-900/30 text-red-300 text-sm font-bold">❌ PÉRD.</th>
+                <th colSpan={2} className="text-center px-1 bg-green-900/30 text-green-300 text-sm font-bold">✅ RECUP.</th>
+                <th colSpan={2} className="text-center px-1 bg-purple-900/30 text-purple-300 text-sm font-bold">⚖️ DIV.</th>
+                <th colSpan={4} className="text-center px-1 bg-yellow-900/30 text-yellow-300 text-sm font-bold">⚽ GOLES</th>
               </tr>
-              <tr className="text-zinc-500 text-[10px]">
-                <th className="text-center px-0.5 bg-emerald-900/10" title="Puerta">Puer.</th>
-                <th className="text-center px-0.5 bg-emerald-900/10" title="Palo">Palo</th>
-                <th className="text-center px-0.5 bg-emerald-900/10" title="Fuera">Fuera</th>
-                <th className="text-center px-0.5 bg-emerald-900/10" title="Bloqueado">Bloq.</th>
-                <th className="text-center px-0.5 bg-emerald-900/20 font-bold" title="Total disparos">Σ</th>
-                <th className="text-center px-0.5 bg-red-900/10" title="Forzada">PF</th>
-                <th className="text-center px-0.5 bg-red-900/10" title="No forzada">PNF</th>
-                <th className="text-center px-0.5 bg-green-900/10">Robos</th>
-                <th className="text-center px-0.5 bg-green-900/10">Cortes</th>
-                <th className="text-center px-0.5 bg-purple-900/10" title="Ganados">BDG</th>
-                <th className="text-center px-0.5 bg-purple-900/10" title="Perdidos">BDP</th>
-                <th className="text-center px-0.5 bg-yellow-900/10" title="Goles marcados">G</th>
-                <th className="text-center px-0.5 bg-yellow-900/10" title="Asistencias">A</th>
-                <th className="text-center px-0.5 bg-yellow-900/10" title="Goles a favor con él en pista">+GF</th>
-                <th className="text-center px-0.5 bg-yellow-900/10" title="Goles en contra con él en pista">-GC</th>
+              <tr className="text-zinc-500 text-xs">
+                <th className="text-center px-1 bg-emerald-900/10" title="Puerta">Puer.</th>
+                <th className="text-center px-1 bg-emerald-900/10" title="Palo">Palo</th>
+                <th className="text-center px-1 bg-emerald-900/10" title="Fuera">Fuera</th>
+                <th className="text-center px-1 bg-emerald-900/10" title="Bloqueado">Bloq.</th>
+                <th className="text-center px-1 bg-emerald-900/20 font-bold" title="Total disparos">Σ</th>
+                <th className="text-center px-1 bg-red-900/10" title="Forzada">PF</th>
+                <th className="text-center px-1 bg-red-900/10" title="No forzada">PNF</th>
+                <th className="text-center px-1 bg-green-900/10">Robos</th>
+                <th className="text-center px-1 bg-green-900/10">Cortes</th>
+                <th className="text-center px-1 bg-purple-900/10" title="Ganados">BDG</th>
+                <th className="text-center px-1 bg-purple-900/10" title="Perdidos">BDP</th>
+                <th className="text-center px-1 bg-yellow-900/10" title="Goles marcados">G</th>
+                <th className="text-center px-1 bg-yellow-900/10" title="Asistencias">A</th>
+                <th className="text-center px-1 bg-yellow-900/10" title="Goles a favor con él en pista">+GF</th>
+                <th className="text-center px-1 bg-yellow-900/10" title="Goles en contra con él en pista">-GC</th>
               </tr>
             </thead>
             <tbody>
               {filasIndiv.map(({ nombre, c, r, esPortero }) => {
                 const sumDisp = (c?.dpp || 0) + (c?.dpa || 0) + (c?.dpf || 0) + (c?.dpb || 0);
-                const plusMinus = r.gf - r.gc;
                 return (
                   <tr key={nombre} className="border-b border-zinc-800">
-                    <td className={`py-1 px-1 border-r border-zinc-800 ${esPortero ? "text-yellow-400" : ""} font-bold`}>
+                    <td className={`py-2 px-2 border-r border-zinc-800 ${esPortero ? "text-yellow-400" : ""} font-bold text-base`}>
                       {nombre}{esPortero ? " 🥅" : ""}
                     </td>
                     {/* Disparos */}
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-emerald-900/10">{c?.dpp ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-emerald-900/10">{c?.dpa ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-emerald-900/10">{c?.dpf ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-emerald-900/10">{c?.dpb ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-emerald-900/20 font-bold text-emerald-200">{sumDisp}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-emerald-900/10">{c?.dpp ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-emerald-900/10">{c?.dpa ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-emerald-900/10">{c?.dpf ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-emerald-900/10">{c?.dpb ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-emerald-900/20 font-bold text-emerald-200 text-base">{sumDisp}</td>
                     {/* Pérdidas */}
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-red-900/10">{c?.pf ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-red-900/10">{c?.pnf ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-red-900/10">{c?.pf ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-red-900/10">{c?.pnf ?? 0}</td>
                     {/* Recuperaciones */}
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-green-900/10">{c?.robos ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-green-900/10">{c?.cortes ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-green-900/10">{c?.robos ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-green-900/10">{c?.cortes ?? 0}</td>
                     {/* Divididos */}
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-purple-900/10">{c?.bdg ?? 0}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-purple-900/10">{c?.bdp ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-purple-900/10">{c?.bdg ?? 0}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-purple-900/10">{c?.bdp ?? 0}</td>
                     {/* Goles + presencia */}
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-yellow-900/10 font-bold">{r.goles}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-yellow-900/10">{r.asistencias}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-yellow-900/10 text-green-400">+{r.gf}</td>
-                    <td className="text-center font-mono tabular-nums px-0.5 bg-yellow-900/10 text-red-400">-{r.gc}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-yellow-900/10 font-bold text-base">{r.goles}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-yellow-900/10">{r.asistencias}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-yellow-900/10 text-green-400">+{r.gf}</td>
+                    <td className="text-center font-mono tabular-nums px-1 bg-yellow-900/10 text-red-400">-{r.gc}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div className="mt-3 text-[11px] text-zinc-500">
+          <div className="mt-3 text-sm text-zinc-500">
             <strong>+GF / −GC</strong>: goles a favor y en contra mientras el jugador estaba EN PISTA
             (cuenta presencia en cada gol, no solo participación directa).
             Para porteros, GC = goles encajados estando él bajo palos.
