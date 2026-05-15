@@ -2886,6 +2886,39 @@ def _detectar_intent_prepost(prompt: str):
     return ""
 
 
+def _detectar_intent_recuento_jugador(prompt: str):
+    """'cuántas sesiones lleva X', 'participación de X', 'asistencia de X'."""
+    if not prompt:
+        return None
+    p = prompt.lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        p = p.replace(a, b)
+    triggers = (
+        "cuantas sesiones", "cuantos entrenos", "cuantos entrenamientos",
+        "participacion de", "participacion del",
+        "asistencia de", "asistencia del",
+        "recuento de", "recuento del",
+        "sesiones lleva", "entrenamientos lleva",
+    )
+    if not any(t in p for t in triggers):
+        return None
+    try:
+        sys.path.insert(0, str(PROJECT_DIR / "src"))
+        from aliases_jugadores import ROSTER_CANONICO, ALIASES_JUGADOR  # type: ignore
+    except Exception:
+        return None
+    candidatos = set()
+    for n in ROSTER_CANONICO:
+        if n.lower() in p:
+            candidatos.add(n)
+    for alias, canon in ALIASES_JUGADOR.items():
+        if alias.lower() in p:
+            candidatos.add(canon)
+    if len(candidatos) != 1:
+        return None
+    return next(iter(candidatos))
+
+
 def _detectar_intent_peso_jugador(prompt: str):
     """'peso de Cecilio', 'peso de Pirata últimos 10 días', 'cuánto pesa Raya'.
     Devuelve (canonico, n_dias) o None. N por defecto 14, max 90.
@@ -3042,6 +3075,20 @@ def _run_carga_ultima(fecha: str = "") -> str:
     return (f"⚠️ Error al consultar carga: {res.salida}" if not res.ok else res.salida)
 
 
+def _run_recuento_jugador(nombre: str) -> str:
+    """Ejecuta src/recuento_jugador.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    try:
+        from script_runner import run_curated_script  # type: ignore
+    except Exception as e:
+        return f"⚠️ No puedo importar script_runner: {type(e).__name__}: {e}"
+    res = run_curated_script(
+        str(PROJECT_DIR / "src" / "recuento_jugador.py"),
+        [nombre], timeout=60,
+    )
+    return (f"⚠️ Error al consultar recuento: {res.salida}" if not res.ok else res.salida)
+
+
 def _run_peso_jugador(nombre: str, n_dias: int = 14) -> str:
     """Ejecuta src/peso_jugador.py."""
     sys.path.insert(0, str(PROJECT_DIR / "src"))
@@ -3168,6 +3215,18 @@ async def _process_prompt(prompt: str, update: Update, ctx: ContextTypes.DEFAULT
                  intent_pp, prompt[:80])
         await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
         salida = await asyncio.to_thread(_run_prepost, intent_pp)
+        for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
+            try: await update.message.reply_text(trozo, parse_mode="Markdown")
+            except Exception: await update.message.reply_text(trozo)
+        return
+
+    # Recuento de UN jugador (cuántas sesiones lleva, participación)
+    intent_rec = _detectar_intent_recuento_jugador(prompt)
+    if intent_rec is not None:
+        log.info("ATAJO intent=recuento_jugador nombre=%s (prompt='%s')",
+                 intent_rec, prompt[:80])
+        await ctx.bot.send_chat_action(chat_id, constants.ChatAction.TYPING)
+        salida = await asyncio.to_thread(_run_recuento_jugador, intent_rec)
         for trozo in [salida[i:i+3800] for i in range(0, len(salida), 3800)]:
             try: await update.message.reply_text(trozo, parse_mode="Markdown")
             except Exception: await update.message.reply_text(trozo)

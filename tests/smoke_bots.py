@@ -235,10 +235,13 @@ tests = [
     ('peso de Cecilio los ultimos 10 dias',  'peso_jugador'),
     ('Dime las cargas del entrenamiento de ayer',  'carga'),
     ('Como fue el entrenamiento de ayer? dime las cargas', 'carga'),
+    ('cuantas sesiones lleva Pirata esta temporada',  'recuento_jugador'),
+    ('participacion de Raya',  'recuento_jugador'),
 ]
 results = []
 for prompt, expected in tests:
     if mod._detectar_intent_lesiones(prompt): m = 'lesiones'
+    elif mod._detectar_intent_recuento_jugador(prompt) is not None: m = 'recuento_jugador'
     elif mod._detectar_intent_peso_jugador(prompt) is not None: m = 'peso_jugador'
     elif mod._detectar_intent_prepost(prompt) is not None: m = 'prepost'
     elif mod._detectar_intent_goles_jugador(prompt) is not None: m = 'goles_jugador'
