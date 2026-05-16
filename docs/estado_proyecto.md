@@ -1,4 +1,4 @@
-# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-15`
+# 📋 Estado del proyecto Arkaitz 25/26 — `2026-05-16`
 
 Documento maestro. **Léelo al empezar cualquier sesión nueva con Claude.**
 Resume todo lo que está construido, cómo funciona, qué hay pendiente y
@@ -15,6 +15,56 @@ Arkaitz: **profundizar al máximo, dejar bots niquelados y web volando.**
 Plan operativo en `docs/plan_junio_2026.md`. Incluye también el proyecto
 futuro de **bot de scouting de partido** (anotaciones de partido por voz
 durante el directo).
+
+---
+
+## 🔔 ESTADO 16/5/2026 — fix planilla, troceo de /consolidar, SA verificado
+
+Sesión desde la oficina. Día de partido.
+
+### Fix urgente — planilla del partido (commit 0ece825)
+- La pestaña ✏️ Editar partido reventaba entera: `st.download_button()`
+  estaba dentro de `st.form()`, cosa que Streamlit prohíbe.
+- Fix: el form solo genera el PDF; los botones de descarga se renderizan
+  FUERA del form. Aplicado a Crear y Editar.
+
+### /consolidar troceado — adelgazado + 2 comandos nuevos (commit 735a111)
+- /consolidar le pedía demasiado (4 pasos en cadena, ~10 min). Ahora:
+  - **/consolidar**: solo 2 pasos — volcar Forms PRE/POST a
+    BORG/PESO/WELLNESS + recalcular las vistas del dashboard.
+  - **/fisios** (NUEVO): recalcula solo las vistas de fisios (lesiones,
+    tratamientos, temperatura). Resuelve el caso de los fisios metiendo
+    datos sin disparar el pipeline completo.
+  - **/lanzamientos** (NUEVO): sincroniza solo los lanzamientos del CT
+    (EST_SCOUTING_PEN_10M).
+- Cada comando nuevo: handler async con worker, intent en lenguaje
+  natural (registrado ANTES de consolidar para no solapar), BotCommand
+  en el menú "/" y entrada en el SYSTEM_PROMPT. 14/14 smoke tests.
+
+### Botón de planilla rediseñado — 1 clic, 1 PDF de 3 hojas (commit 36e0021)
+- Antes: 2 botones (Arkaitz / Compañero) + un botón de descarga aparte
+  (flujo de 2 pasos).
+- Ahora: UN botón "🖨 Descargar planilla del partido (3 hojas)" que
+  genera y descarga en el mismo clic. El PDF lleva 3 hojas: Arkaitz
+  1ª parte, Arkaitz 2ª parte, Compañero.
+- `src/pdf_planilla_blank.py`: nueva `generar_planilla_completa()` que
+  fusiona las 3 hojas con `pypdf` (dependencia nueva en requirements.txt;
+  Streamlit Cloud la instala al redesplegar).
+- El PDF se cachea en `session_state` por firma de datos (rival, fecha,
+  plantilla…): solo se regenera si cambian.
+
+### SA read-only del bot_datos — verificado, ya estaba activo
+- Comprobado por SSH (`arkaitz@10.48.0.113`): el JSON read-only está en
+  el servidor, el `.env` tiene `READONLY_CREDS_FILE` y el bot arranca en
+  "Modo SA READ-ONLY: ON". Se hizo el 15/5 — no quedó pendiente.
+
+### Regla nueva (apuntada en memoria)
+- Cada comando nuevo de un bot va SIEMPRE con su `BotCommand` en el
+  menú "/" de Telegram, en el mismo cambio. Pedido explícito de Arkaitz.
+
+### Pendiente de verificar por Arkaitz (sobre la marcha)
+- Planilla nueva en el dashboard (tras redespliegue de Streamlit Cloud).
+- `/fisios` y `/lanzamientos` desde Telegram (tras reinicio del auto_pull).
 
 ---
 
