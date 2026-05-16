@@ -590,13 +590,22 @@ REGLAS DE ORO:
    en 1-2 min".
 
 CONTEXTO DEL BOT (lo que el bot ejecuta sin tu intervención):
-- /consolidar: lee FORM_PRE/POST → BORG/PESO/WELLNESS → recalcula vistas.
+- /consolidar: lee FORM_PRE/POST → BORG/PESO/WELLNESS → recalcula las
+  vistas del dashboard. Son 2 pasos. NO toca fisios ni lanzamientos
+  (eso se separó en /fisios y /lanzamientos para que /consolidar sea
+  rápido y enfocado).
+- /fisios: recalcula SOLO las vistas de fisios (lesiones, tratamientos,
+  temperatura). Úsalo cuando los fisios meten datos en su Sheet y hay
+  que reflejarlos en el dashboard, sin disparar todo el pipeline.
+- /lanzamientos: sincroniza SOLO los lanzamientos del cuerpo técnico
+  (EST_SCOUTING_PEN_10M).
 - /limpiar_duplicados: ATAJO sin LLM y sin recálculo. Borra duplicados en
   _FORM_PRE/_FORM_POST conservando la respuesta más reciente. NO toca
   BORG/PESO/WELLNESS ni vistas. Úsalo cuando lleguen duplicados después
-  de un /consolidar previo y no quieras re-disparar todo el pipeline (~10 min).
-  Si el usuario pide "consolidar" → /consolidar. Si pide solo "limpiar
-  duplicados" → /limpiar_duplicados.
+  de un /consolidar previo y no quieras re-disparar el pipeline.
+  Guía rápida: "consolidar" → /consolidar · "actualiza fisios" / "vistas
+  de fisios" → /fisios · "sincroniza lanzamientos" → /lanzamientos ·
+  "limpiar duplicados" → /limpiar_duplicados.
 - /enlaces: genera enlaces PRE+POST genéricos del día (un solo enlace
   para reenviar al grupo). El jugador elige su nombre.
 - /enlaces_wa: genera UN enlace wa.me POR JUGADOR (lee teléfonos de la
@@ -1564,32 +1573,34 @@ async def cmd_enlaces_hoy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_consolidar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Lee _FORM_PRE y _FORM_POST, los integra en BORG/PESO/WELLNESS y
-    luego recalcula todas las vistas.
+    """Vuelca _FORM_PRE/_FORM_POST a BORG/PESO/WELLNESS y recalcula las
+    vistas del dashboard. Esto es lo ESENCIAL de consolidar.
 
-    ⚡ ASYNC: responde inmediatamente con acuse y lanza el flujo de 4
-    subprocesos en background. Cada paso emite su propio mensaje al chat
-    según va completándose. El bot queda libre para atender otros mensajes.
-    Antes, el flujo entero podía tardar hasta 22 min con "escribiendo…"
-    eterno.
+    Antes /consolidar hacía 4 pasos; los 2 últimos se separaron en
+    comandos propios para que /consolidar sea rápido y enfocado:
+      - recalcular vistas de fisios → /fisios
+      - sincronizar lanzamientos del cuerpo técnico → /lanzamientos
+
+    ⚡ ASYNC: acuse inmediato + worker en background con progreso.
     """
     if not _authorized(update):
         await update.message.reply_text("🚫 Acceso denegado.")
         return
     chat_id = update.effective_chat.id
     await update.message.reply_text(
-        "✅ Recibido. Consolidando en segundo plano (4 pasos: forms → "
-        "vistas → fisios → lanzamientos). Te aviso paso a paso conforme "
-        "vayan terminando."
+        "✅ Recibido. Consolidando en segundo plano (2 pasos: forms → "
+        "vistas del dashboard). Te aviso conforme vayan terminando.\n\n"
+        "ℹ️ Esto ya NO recalcula fisios ni lanzamientos: para eso usa "
+        "/fisios y /lanzamientos."
     )
     asyncio.create_task(_consolidar_worker(chat_id, update, ctx))
 
 
 async def _consolidar_worker(chat_id: int, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Tarea de fondo del /consolidar — 4 pasos chained, emite progreso."""
+    """Tarea de fondo del /consolidar — 2 pasos: forms + vistas dashboard."""
     try:
         # ── 1) Consolidar Forms → BORG/PESO/WELLNESS ────────────────────
-        await ctx.bot.send_message(chat_id, "🔄 (1/4) Consolidando respuestas de los Forms…")
+        await ctx.bot.send_message(chat_id, "🔄 (1/2) Consolidando respuestas de los Forms…")
         rc, out, err = await _run_script(
             PROJECT_DIR / "src" / "consolidar_forms.py", timeout=300)
         if rc != 0:
@@ -1603,7 +1614,7 @@ async def _consolidar_worker(chat_id: int, update: Update, ctx: ContextTypes.DEF
             await ctx.bot.send_message(chat_id, out[-3500:] or "(sin salida)")
 
         # ── 2) Recalcular vistas principales ───────────────────────────
-        await ctx.bot.send_message(chat_id, "🧮 (2/4) Recalculando vistas para el dashboard…")
+        await ctx.bot.send_message(chat_id, "🧮 (2/2) Recalculando vistas para el dashboard…")
         rc2, out2, err2 = await _run_script(
             PROJECT_DIR / "src" / "calcular_vistas.py", timeout=600)
         if rc2 != 0:
@@ -1614,49 +1625,131 @@ async def _consolidar_worker(chat_id: int, update: Update, ctx: ContextTypes.DEF
             )
             return
 
-        # ── 3) Recalcular vistas FISIOS (no bloqueante) ────────────────
-        await ctx.bot.send_message(chat_id, "🏥 (3/4) Recalculando vistas de fisios…")
-        rc3, out3, err3 = await _run_script(
-            PROJECT_DIR / "src" / "calcular_vistas_fisios.py", timeout=300)
-        if rc3 != 0:
-            await ctx.bot.send_message(
-                chat_id,
-                f"⚠️ Vistas principales OK pero las de fisios fallaron:\n"
-                f"{(err3 or out3)[-1000:]}"
-            )
-            # No abortamos: dashboard principal sigue actualizado
-
-        # ── 4) Sincronizar lanzamientos del cuerpo técnico ─────────────
-        await ctx.bot.send_message(chat_id, "🎯 (4/4) Sincronizando lanzamientos del cuerpo técnico…")
-        rc4, out4, err4 = await _run_script(
-            PROJECT_DIR / "src" / "sincronizar_lanzamientos.py", timeout=120)
-        if rc4 != 0:
-            await ctx.bot.send_message(
-                chat_id, f"⚠️ Lanzamientos no se sincronizaron:\n{(err4 or out4)[-800:]}"
-            )
-        else:
-            try:
-                await _enviar_bloques(update, out4)
-            except Exception:
-                if out4 and out4.strip():
-                    await ctx.bot.send_message(chat_id, out4[-3500:])
-
         await ctx.bot.send_message(
             chat_id,
-            "✅ Todo actualizado. Abre el dashboard de Streamlit y verás los nuevos datos."
+            "✅ Forms consolidados y dashboard actualizado.\n\n"
+            "ℹ️ Si has tocado datos de fisios o lanzamientos, recuerda "
+            "que ahora van por separado: /fisios y /lanzamientos."
         )
         _registrar_accion_local(
             chat_id,
-            "/consolidar ejecutado: respuestas de Forms volcadas a BORG/PESO/WELLNESS, "
-            "vistas principales + fisios recalculadas, y Sheet de Lanzamientos del "
-            "cuerpo técnico sincronizado con EST_SCOUTING_PEN_10M. Si había "
-            "lanzamientos con info incompleta del portero, ya se ha avisado al usuario. "
-            "El dashboard YA está actualizado."
+            "/consolidar ejecutado: respuestas de Forms volcadas a "
+            "BORG/PESO/WELLNESS y vistas principales del dashboard "
+            "recalculadas. NO se han tocado fisios ni lanzamientos "
+            "(esos van por /fisios y /lanzamientos). El dashboard "
+            "principal YA está actualizado."
         )
     except Exception as e:
         log.exception("Worker /consolidar falló: %s", e)
         try:
             await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /consolidar: {e}")
+        except Exception:
+            pass
+
+
+async def cmd_fisios(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Recalcula SOLO las vistas de fisios (lesiones, tratamientos,
+    temperatura). Antes era el paso 3 de /consolidar; ahora es comando
+    propio para no tener que lanzar el pipeline completo.
+
+    Úsalo cuando los fisios han metido datos en su Sheet y quieres que
+    el dashboard los refleje, sin tocar Forms ni lanzamientos.
+    """
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "✅ Recibido. Recalculando las vistas de fisios en segundo "
+        "plano. Te aviso al terminar."
+    )
+    asyncio.create_task(_fisios_worker(chat_id, update, ctx))
+
+
+async def _fisios_worker(chat_id: int, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Tarea de fondo del /fisios — recalcula solo las vistas de fisios."""
+    try:
+        await ctx.bot.send_message(chat_id, "🏥 Recalculando vistas de fisios…")
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "calcular_vistas_fisios.py", timeout=300)
+        if rc != 0:
+            await ctx.bot.send_message(
+                chat_id,
+                f"❌ Error recalculando vistas de fisios (código {rc}):\n"
+                f"{(err or out)[-1500:]}"
+            )
+            return
+        try:
+            await _enviar_bloques(update, out)
+        except Exception:
+            if out and out.strip():
+                await ctx.bot.send_message(chat_id, out[-3500:])
+        await ctx.bot.send_message(
+            chat_id,
+            "✅ Vistas de fisios actualizadas. El dashboard ya refleja "
+            "lesiones, tratamientos y temperatura."
+        )
+        _registrar_accion_local(
+            chat_id,
+            "/fisios ejecutado: vistas de fisios (lesiones, tratamientos, "
+            "temperatura) recalculadas. NO toca Forms ni vistas principales."
+        )
+    except Exception as e:
+        log.exception("Worker /fisios falló: %s", e)
+        try:
+            await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /fisios: {e}")
+        except Exception:
+            pass
+
+
+async def cmd_lanzamientos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Sincroniza SOLO los lanzamientos del cuerpo técnico
+    (EST_SCOUTING_PEN_10M). Antes era el paso 4 de /consolidar; ahora
+    es comando propio.
+    """
+    if not _authorized(update):
+        await update.message.reply_text("🚫 Acceso denegado.")
+        return
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "✅ Recibido. Sincronizando los lanzamientos del cuerpo técnico "
+        "en segundo plano. Te aviso al terminar."
+    )
+    asyncio.create_task(_lanzamientos_worker(chat_id, update, ctx))
+
+
+async def _lanzamientos_worker(chat_id: int, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Tarea de fondo del /lanzamientos — sincroniza lanzamientos del CT."""
+    try:
+        await ctx.bot.send_message(
+            chat_id, "🎯 Sincronizando lanzamientos del cuerpo técnico…")
+        rc, out, err = await _run_script(
+            PROJECT_DIR / "src" / "sincronizar_lanzamientos.py", timeout=120)
+        if rc != 0:
+            await ctx.bot.send_message(
+                chat_id,
+                f"❌ Error sincronizando lanzamientos (código {rc}):\n"
+                f"{(err or out)[-1500:]}"
+            )
+            return
+        try:
+            await _enviar_bloques(update, out)
+        except Exception:
+            if out and out.strip():
+                await ctx.bot.send_message(chat_id, out[-3500:])
+        await ctx.bot.send_message(
+            chat_id, "✅ Lanzamientos del cuerpo técnico sincronizados."
+        )
+        _registrar_accion_local(
+            chat_id,
+            "/lanzamientos ejecutado: lanzamientos del cuerpo técnico "
+            "sincronizados con EST_SCOUTING_PEN_10M. NO toca Forms, "
+            "vistas principales ni fisios."
+        )
+    except Exception as e:
+        log.exception("Worker /lanzamientos falló: %s", e)
+        try:
+            await ctx.bot.send_message(chat_id, f"❌ Error inesperado en /lanzamientos: {e}")
         except Exception:
             pass
 
@@ -3541,6 +3634,17 @@ def _detectar_intent(texto: str) -> Optional[str]:
             r'^/?limpiar_duplicados?\b',
             r'^/?duplicados?$',
         ]),
+        # fisios y lanzamientos ANTES de consolidar: comparten verbos
+        # ("recalcula", "actualiza") pero son comandos sueltos propios.
+        ("fisios", [
+            r'^/?fisios?\b',
+            r'\b(?:recalcula|actualiza|refresca)\w*\b[^.]*\bfisios?\b',
+            r'\bvistas?\s+(?:de\s+)?(?:los\s+)?fisios?\b',
+        ]),
+        ("lanzamientos", [
+            r'^/?lanzamientos?\b',
+            r'\b(?:sincroniza|actualiza|recalcula)\w*\b[^.]*\blanzamientos?\b',
+        ]),
         ("consolidar", [
             r'\bconsolida(?:r|me|los)?\b',
             r'\blanza(?:r)?\s+consolidar?\b',
@@ -3596,6 +3700,8 @@ def _intent_handler(cmd: str):
     return {
         "consolidar": cmd_consolidar,
         "limpiar_duplicados": cmd_limpiar_duplicados,
+        "fisios": cmd_fisios,
+        "lanzamientos": cmd_lanzamientos,
         "enlaces": cmd_enlaces,
         "enlaces_wa": cmd_enlaces_wa,
         "prepost": cmd_prepost,
@@ -3979,8 +4085,10 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
 BOT_COMMANDS_ALFRED = [
     BotCommand("sesion",         "Apuntar sesión del día (voz/texto)"),
     BotCommand("ejercicios",     "Apuntar ejercicios de un entreno (voz/texto)"),
-    BotCommand("consolidar",     "Volcar Forms PRE/POST → Sheet + recalcular vistas"),
+    BotCommand("consolidar",     "Volcar Forms PRE/POST + recalcular el dashboard"),
     BotCommand("limpiar_duplicados", "Solo borrar duplicados en _FORM_PRE/_POST (sin recalcular)"),
+    BotCommand("fisios",         "Recalcular solo las vistas de fisios (lesiones/tratamientos)"),
+    BotCommand("lanzamientos",   "Sincronizar solo los lanzamientos del cuerpo técnico"),
     BotCommand("prepost",        "Quién ha hecho PRE/POST/BORG de la última sesión"),
     BotCommand("enlaces",        "Enlaces PRE+POST del día (genérico, 1 link)"),
     BotCommand("enlaces_wa",     "1 enlace WhatsApp por jugador (lee TELEFONOS_JUGADORES)"),
@@ -4024,6 +4132,8 @@ def main():
     app.add_handler(CommandHandler("enlaces_hoy", cmd_enlaces_hoy))
     app.add_handler(CommandHandler("consolidar", cmd_consolidar))
     app.add_handler(CommandHandler("limpiar_duplicados", cmd_limpiar_duplicados))
+    app.add_handler(CommandHandler("fisios", cmd_fisios))
+    app.add_handler(CommandHandler("lanzamientos", cmd_lanzamientos))
     app.add_handler(CommandHandler("prepost", cmd_prepost))
     app.add_handler(CommandHandler("auditar", cmd_auditar))
     app.add_handler(CommandHandler("status", cmd_status))
