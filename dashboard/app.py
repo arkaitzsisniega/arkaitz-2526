@@ -9378,24 +9378,9 @@ with tab_editar:
                                 st.error(f"Error: {e}")
                                 import traceback as _tb
                                 st.expander("Detalles").code(_tb.format_exc())
-                        if st.session_state.get("pla_ark_1t_cr"):
-                            st.download_button(
-                                "⬇️ Arkaitz 1ª parte",
-                                data=st.session_state["pla_ark_1t_cr"],
-                                file_name=f"planilla_arkaitz_1T_{cab['rival']}.pdf",
-                                mime="application/pdf",
-                                key="dl_ark_1t_cr",
-                                use_container_width=True,
-                            )
-                        if st.session_state.get("pla_ark_2t_cr"):
-                            st.download_button(
-                                "⬇️ Arkaitz 2ª parte",
-                                data=st.session_state["pla_ark_2t_cr"],
-                                file_name=f"planilla_arkaitz_2T_{cab['rival']}.pdf",
-                                mime="application/pdf",
-                                key="dl_ark_2t_cr",
-                                use_container_width=True,
-                            )
+                        if (st.session_state.get("pla_ark_1t_cr")
+                                or st.session_state.get("pla_ark_2t_cr")):
+                            st.caption("✅ Planilla Arkaitz generada — descárgala abajo ⬇️")
                     with cpla2_cr:
                         if st.form_submit_button("🖨 Planilla Compañero", use_container_width=True):
                             try:
@@ -9414,14 +9399,7 @@ with tab_editar:
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         if st.session_state.get("pla_comp_cr_pdf"):
-                            st.download_button(
-                                "⬇️ Compañero (1ª + 2ª parte)",
-                                data=st.session_state["pla_comp_cr_pdf"],
-                                file_name=f"planilla_compa_{cab['rival']}.pdf",
-                                mime="application/pdf",
-                                key="dl_comp_cr",
-                                use_container_width=True,
-                            )
+                            st.caption("✅ Planilla Compañero generada — descárgala abajo ⬇️")
 
                 if st.form_submit_button("💾 Guardar partido", type="primary"):
                     if not cab["rival"]:
@@ -9481,6 +9459,43 @@ with tab_editar:
                             st.info("Refresca la página para ver el nuevo partido en otras pestañas.")
                         except Exception as e:
                             st.error(f"Error al guardar: {e}")
+
+            # ── Descarga de planillas — FUERA del form ───────────────────
+            # Streamlit prohíbe st.download_button() dentro de st.form().
+            # El form solo GENERA el PDF (lo deja en session_state); la
+            # descarga se renderiza aquí, justo después de cerrar el form.
+            if any(st.session_state.get(k) for k in
+                   ("pla_ark_1t_cr", "pla_ark_2t_cr", "pla_comp_cr_pdf")):
+                _rival_cr = (cab.get("rival") or "partido") if isinstance(cab, dict) else "partido"
+                st.markdown("#### ⬇️ Descargar planillas generadas")
+                _dlc1, _dlc2, _dlc3 = st.columns(3)
+                if st.session_state.get("pla_ark_1t_cr"):
+                    _dlc1.download_button(
+                        "⬇️ Arkaitz 1ª parte",
+                        data=st.session_state["pla_ark_1t_cr"],
+                        file_name=f"planilla_arkaitz_1T_{_rival_cr}.pdf",
+                        mime="application/pdf",
+                        key="dl_ark_1t_cr",
+                        use_container_width=True,
+                    )
+                if st.session_state.get("pla_ark_2t_cr"):
+                    _dlc2.download_button(
+                        "⬇️ Arkaitz 2ª parte",
+                        data=st.session_state["pla_ark_2t_cr"],
+                        file_name=f"planilla_arkaitz_2T_{_rival_cr}.pdf",
+                        mime="application/pdf",
+                        key="dl_ark_2t_cr",
+                        use_container_width=True,
+                    )
+                if st.session_state.get("pla_comp_cr_pdf"):
+                    _dlc3.download_button(
+                        "⬇️ Compañero (1ª + 2ª)",
+                        data=st.session_state["pla_comp_cr_pdf"],
+                        file_name=f"planilla_compa_{_rival_cr}.pdf",
+                        mime="application/pdf",
+                        key="dl_comp_cr",
+                        use_container_width=True,
+                    )
 
         # ────────────────────────────────────────────────────────────────────
         else:
@@ -9781,24 +9796,9 @@ with tab_editar:
                                 st.error(f"Error: {e}")
                                 import traceback as _tb
                                 st.expander("Detalles").code(_tb.format_exc())
-                        if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
-                            st.download_button(
-                                "⬇️ Arkaitz 1ª parte",
-                                data=st.session_state[f"pla_ark_1t_{pid_sel}"],
-                                file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_ark_1t_{pid_sel}",
-                                use_container_width=True,
-                            )
-                        if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
-                            st.download_button(
-                                "⬇️ Arkaitz 2ª parte",
-                                data=st.session_state[f"pla_ark_2t_{pid_sel}"],
-                                file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_ark_2t_{pid_sel}",
-                                use_container_width=True,
-                            )
+                        if (st.session_state.get(f"pla_ark_1t_{pid_sel}")
+                                or st.session_state.get(f"pla_ark_2t_{pid_sel}")):
+                            st.caption("✅ Planilla Arkaitz generada — descárgala abajo ⬇️")
                     with cpla2:
                         if st.form_submit_button("🖨 Planilla Compañero (4 PDFs)",
                                       use_container_width=True,
@@ -9834,14 +9834,7 @@ with tab_editar:
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         if st.session_state.get(f"pla_comp_{pid_sel}"):
-                            st.download_button(
-                                "⬇️ Compañero (1ª + 2ª parte)",
-                                data=st.session_state[f"pla_comp_{pid_sel}"],
-                                file_name=f"planilla_compa_{pid_sel}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_comp_{pid_sel}",
-                                use_container_width=True,
-                            )
+                            st.caption("✅ Planilla Compañero generada — descárgala abajo ⬇️")
 
                     if st.form_submit_button("💾 Guardar cambios", type="primary"):
                         df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
@@ -9895,6 +9888,42 @@ with tab_editar:
                             st.info("Refresca para ver los cambios en otras pestañas.")
                         except Exception as e:
                             st.error(f"Error al guardar: {e}")
+
+                # ── Descarga de planillas — FUERA del form ───────────────
+                # Streamlit prohíbe st.download_button() dentro de st.form().
+                # El form solo GENERA el PDF (session_state); la descarga se
+                # renderiza aquí, justo después de cerrar el form.
+                if any(st.session_state.get(f"pla_{k}_{pid_sel}")
+                       for k in ("ark_1t", "ark_2t", "comp")):
+                    st.markdown("#### ⬇️ Descargar planillas generadas")
+                    _dle1, _dle2, _dle3 = st.columns(3)
+                    if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
+                        _dle1.download_button(
+                            "⬇️ Arkaitz 1ª parte",
+                            data=st.session_state[f"pla_ark_1t_{pid_sel}"],
+                            file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_ark_1t_{pid_sel}",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
+                        _dle2.download_button(
+                            "⬇️ Arkaitz 2ª parte",
+                            data=st.session_state[f"pla_ark_2t_{pid_sel}"],
+                            file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_ark_2t_{pid_sel}",
+                            use_container_width=True,
+                        )
+                    if st.session_state.get(f"pla_comp_{pid_sel}"):
+                        _dle3.download_button(
+                            "⬇️ Compañero (1ª + 2ª)",
+                            data=st.session_state[f"pla_comp_{pid_sel}"],
+                            file_name=f"planilla_compa_{pid_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_comp_{pid_sel}",
+                            use_container_width=True,
+                        )
 
     except Exception as _e_tab:
         st.error(f'❌ Error en pestaña ✏️ Editar partido: {_e_tab}')
