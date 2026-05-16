@@ -893,6 +893,36 @@ def generar_planilla(modo: str, parte: str,
     return buf.read()
 
 
+def generar_planilla_completa(partido_id: Optional[str] = None,
+                               sh=None,
+                               datos_directos: Optional[dict] = None) -> bytes:
+    """Genera UN ÚNICO PDF con las 3 hojas del partido, en este orden:
+      1. Planilla Arkaitz · 1ª parte
+      2. Planilla Arkaitz · 2ª parte
+      3. Planilla Compañero (1ª + 2ª parte en una hoja)
+
+    Reutiliza generar_planilla() para cada hoja y las fusiona con pypdf.
+    Acepta los mismos parámetros que generar_planilla salvo 'modo'/'parte'.
+    """
+    from pypdf import PdfReader, PdfWriter
+
+    hojas = (
+        generar_planilla("arkaitz", "1T", partido_id, sh, datos_directos),
+        generar_planilla("arkaitz", "2T", partido_id, sh, datos_directos),
+        generar_planilla("compa", "1T", partido_id, sh, datos_directos),
+    )
+    writer = PdfWriter()
+    for pdf_bytes in hojas:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        for page in reader.pages:
+            writer.add_page(page)
+
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--modo", choices=["arkaitz", "compa"], default="arkaitz")

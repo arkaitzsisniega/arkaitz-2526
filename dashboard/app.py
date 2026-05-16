@@ -9165,6 +9165,48 @@ with tab_editar:
                        range_name="A1")
             return len(df_zonas_1t) + len(df_zonas_2t)
 
+        def _planilla_pdf_partido(cab_dict, plantilla_list):
+            """Genera el PDF imprimible del partido: 1 archivo, 3 hojas
+            (Arkaitz 1ª parte, Arkaitz 2ª parte, Compañero).
+
+            Cachea en session_state por 'firma' de los datos: solo
+            regenera si cambian rival/fecha/plantilla/etc. Devuelve los
+            bytes del PDF, o None si falla.
+            """
+            try:
+                firma = (
+                    str(cab_dict.get("rival", "")), str(cab_dict.get("fecha", "")),
+                    str(cab_dict.get("lugar", "")), str(cab_dict.get("hora", "")),
+                    str(cab_dict.get("competicion", "")),
+                    str(cab_dict.get("local_visitante", "")),
+                    tuple((str(p.get("dorsal", "")), str(p.get("jugador", "")),
+                           str(p.get("posicion", "")))
+                          for p in (plantilla_list or [])),
+                )
+                cache = st.session_state.get("_planilla_cache")
+                if cache and cache.get("firma") == firma:
+                    return cache["pdf"]
+                import sys as _sys
+                from pathlib import Path as _Path
+                _root = _Path(__file__).resolve().parent.parent
+                if str(_root) not in _sys.path:
+                    _sys.path.insert(0, str(_root))
+                from src.pdf_planilla_blank import generar_planilla_completa
+                datos = {
+                    "rival": firma[0], "fecha": firma[1], "lugar": firma[2],
+                    "hora": firma[3], "competicion": firma[4],
+                    "local_visitante": firma[5],
+                    "jugadores": [{"dorsal": d, "jugador": j, "posicion": p}
+                                  for (d, j, p) in firma[6]],
+                }
+                with st.spinner("Generando planilla del partido…"):
+                    pdf = generar_planilla_completa(datos_directos=datos)
+                st.session_state["_planilla_cache"] = {"firma": firma, "pdf": pdf}
+                return pdf
+            except Exception as _e:
+                st.error(f"No se pudo generar la planilla: {_e}")
+                return None
+
         # ────────────────────────────────────────────────────────────────────
         if modo == "🆕 Crear partido nuevo":
             st.markdown("---")
@@ -9327,80 +9369,6 @@ with tab_editar:
                         )
                     st.dataframe(_df_total_cr, use_container_width=True, hide_index=True)
 
-                # ── Planillas imprimibles (papel/boli) — modo Crear ─────────
-                st.markdown("---")
-                st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
-                st.caption(
-                    "**Genera las planillas ANTES del partido** sin necesidad de "
-                    "guardarlo todavía. Usa la cabecera y plantilla de arriba. "
-                    "Imprime, lleva al partido, apunta a boli, y luego "
-                    "transcribes los datos en este mismo form."
-                )
-                if not cab.get("rival") or not plantilla:
-                    st.info(
-                        "💡 Rellena al menos el **rival** (cabecera) y la "
-                        "**plantilla** para generar la planilla."
-                    )
-                else:
-                    cpla1_cr, cpla2_cr = st.columns(2)
-                    # Construir datos directos a partir del form
-                    _datos_directos_cr = {
-                        "rival": cab["rival"],
-                        "fecha": cab.get("fecha", ""),
-                        "lugar": cab.get("lugar", ""),
-                        "hora": cab.get("hora", ""),
-                        "competicion": cab.get("competicion", ""),
-                        "local_visitante": cab.get("local_visitante", ""),
-                        "jugadores": [
-                            {"dorsal": p.get("dorsal", ""),
-                             "jugador": p.get("jugador", ""),
-                             "posicion": p.get("posicion", "")}
-                            for p in plantilla
-                        ],
-                    }
-                    with cpla1_cr:
-                        if st.form_submit_button("🖨 Planilla Arkaitz", use_container_width=True):
-                            try:
-                                import sys as _sys
-                                from pathlib import Path as _Path
-                                _root = _Path(__file__).resolve().parent.parent
-                                if str(_root) not in _sys.path:
-                                    _sys.path.insert(0, str(_root))
-                                from src.pdf_planilla_blank import generar_planilla as _gen
-                                with st.spinner("Generando planillas…"):
-                                    pdf_1t = _gen("arkaitz", "1T",
-                                                    datos_directos=_datos_directos_cr)
-                                    pdf_2t = _gen("arkaitz", "2T",
-                                                    datos_directos=_datos_directos_cr)
-                                st.session_state["pla_ark_1t_cr"] = pdf_1t
-                                st.session_state["pla_ark_2t_cr"] = pdf_2t
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                                import traceback as _tb
-                                st.expander("Detalles").code(_tb.format_exc())
-                        if (st.session_state.get("pla_ark_1t_cr")
-                                or st.session_state.get("pla_ark_2t_cr")):
-                            st.caption("✅ Planilla Arkaitz generada — descárgala abajo ⬇️")
-                    with cpla2_cr:
-                        if st.form_submit_button("🖨 Planilla Compañero", use_container_width=True):
-                            try:
-                                import sys as _sys
-                                from pathlib import Path as _Path
-                                _root = _Path(__file__).resolve().parent.parent
-                                if str(_root) not in _sys.path:
-                                    _sys.path.insert(0, str(_root))
-                                from src.pdf_planilla_blank import generar_planilla as _gen
-                                with st.spinner("Generando planilla…"):
-                                    # Compa: ahora 1 ÚNICO PDF con ambas partes en
-                                    # A4 vertical. El parámetro 'parte' se ignora.
-                                    pdf_compa = _gen("compa", "1T",
-                                                      datos_directos=_datos_directos_cr)
-                                st.session_state["pla_comp_cr_pdf"] = pdf_compa
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                        if st.session_state.get("pla_comp_cr_pdf"):
-                            st.caption("✅ Planilla Compañero generada — descárgala abajo ⬇️")
-
                 if st.form_submit_button("💾 Guardar partido", type="primary"):
                     if not cab["rival"]:
                         st.error("Pon el nombre del rival.")
@@ -9460,41 +9428,34 @@ with tab_editar:
                         except Exception as e:
                             st.error(f"Error al guardar: {e}")
 
-            # ── Descarga de planillas — FUERA del form ───────────────────
+            # ── Planilla imprimible — FUERA del form ─────────────────────
             # Streamlit prohíbe st.download_button() dentro de st.form().
-            # El form solo GENERA el PDF (lo deja en session_state); la
-            # descarga se renderiza aquí, justo después de cerrar el form.
-            if any(st.session_state.get(k) for k in
-                   ("pla_ark_1t_cr", "pla_ark_2t_cr", "pla_comp_cr_pdf")):
-                _rival_cr = (cab.get("rival") or "partido") if isinstance(cab, dict) else "partido"
-                st.markdown("#### ⬇️ Descargar planillas generadas")
-                _dlc1, _dlc2, _dlc3 = st.columns(3)
-                if st.session_state.get("pla_ark_1t_cr"):
-                    _dlc1.download_button(
-                        "⬇️ Arkaitz 1ª parte",
-                        data=st.session_state["pla_ark_1t_cr"],
-                        file_name=f"planilla_arkaitz_1T_{_rival_cr}.pdf",
+            # Un solo botón: genera el PDF de 3 hojas (Arkaitz 1ª, Arkaitz
+            # 2ª, Compañero) y lo descarga en el mismo clic.
+            st.markdown("---")
+            st.markdown("#### 🖨 Planilla imprimible para llevar al partido")
+            st.caption(
+                "Un PDF con 3 hojas — tu planilla (1ª y 2ª parte) y la del "
+                "compañero. Genérala ANTES del partido: imprime, apunta a "
+                "boli y luego transcribes los datos en este formulario."
+            )
+            if not cab.get("rival") or not plantilla:
+                st.info(
+                    "💡 Aplica la **cabecera** (con el rival) y elige la "
+                    "**plantilla** de arriba para poder generar la planilla."
+                )
+            else:
+                _pdf_cr = _planilla_pdf_partido(cab, plantilla)
+                if _pdf_cr:
+                    _rival_cr = cab.get("rival") or "partido"
+                    st.download_button(
+                        "🖨 Descargar planilla del partido (3 hojas)",
+                        data=_pdf_cr,
+                        file_name=f"planilla_{_rival_cr}.pdf",
                         mime="application/pdf",
-                        key="dl_ark_1t_cr",
+                        key="dl_planilla_cr",
                         use_container_width=True,
-                    )
-                if st.session_state.get("pla_ark_2t_cr"):
-                    _dlc2.download_button(
-                        "⬇️ Arkaitz 2ª parte",
-                        data=st.session_state["pla_ark_2t_cr"],
-                        file_name=f"planilla_arkaitz_2T_{_rival_cr}.pdf",
-                        mime="application/pdf",
-                        key="dl_ark_2t_cr",
-                        use_container_width=True,
-                    )
-                if st.session_state.get("pla_comp_cr_pdf"):
-                    _dlc3.download_button(
-                        "⬇️ Compañero (1ª + 2ª)",
-                        data=st.session_state["pla_comp_cr_pdf"],
-                        file_name=f"planilla_compa_{_rival_cr}.pdf",
-                        mime="application/pdf",
-                        key="dl_comp_cr",
-                        use_container_width=True,
+                        type="primary",
                     )
 
         # ────────────────────────────────────────────────────────────────────
@@ -9746,96 +9707,6 @@ with tab_editar:
                             )
                         st.dataframe(_df_total_ed, use_container_width=True, hide_index=True)
 
-                    # ── Planillas imprimibles (papel/boli) ─────────────────────
-                    st.markdown("---")
-                    st.markdown("#### 🖨 Planillas imprimibles para llevar al partido")
-                    st.caption(
-                        "Genera planillas A4 horizontal en blanco para apuntar "
-                        "a boli durante el partido. Cabecera y plantilla "
-                        "pre-rellenadas con los datos de este partido. "
-                        "Se imprimen 2 hojas iguales por planilla (1ª y 2ª "
-                        "parte) para usar una en cada parte."
-                    )
-                    cpla1, cpla2 = st.columns(2)
-                    with cpla1:
-                        if st.form_submit_button("🖨 Planilla Arkaitz (4 PDFs)",
-                                      use_container_width=True,
-                                      help="Tu planilla: disparos, mapas Inter/rival, "
-                                            "portería, goles, faltas. 1T + 2T."):
-                            try:
-                                import sys as _sys
-                                from pathlib import Path as _Path
-                                _root = _Path(__file__).resolve().parent.parent
-                                if str(_root) not in _sys.path:
-                                    _sys.path.insert(0, str(_root))
-                                from src.pdf_planilla_blank import generar_planilla as _gen
-                                # Usar datos directos del form (sin abrir Sheet
-                                # de nuevo → evita 429 quota exceeded)
-                                _datos_directos_ed = {
-                                    "rival": cab.get("rival", ""),
-                                    "fecha": cab.get("fecha", ""),
-                                    "lugar": cab.get("lugar", ""),
-                                    "hora": cab.get("hora", ""),
-                                    "competicion": cab.get("competicion", ""),
-                                    "local_visitante": cab.get("local_visitante", ""),
-                                    "jugadores": [
-                                        {"dorsal": p.get("dorsal", ""),
-                                         "jugador": p.get("jugador", ""),
-                                         "posicion": p.get("posicion", "")}
-                                        for p in (plantilla or [])
-                                    ],
-                                }
-                                with st.spinner("Generando planillas…"):
-                                    pdf_1t = _gen("arkaitz", "1T",
-                                                    datos_directos=_datos_directos_ed)
-                                    pdf_2t = _gen("arkaitz", "2T",
-                                                    datos_directos=_datos_directos_ed)
-                                st.session_state[f"pla_ark_1t_{pid_sel}"] = pdf_1t
-                                st.session_state[f"pla_ark_2t_{pid_sel}"] = pdf_2t
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                                import traceback as _tb
-                                st.expander("Detalles").code(_tb.format_exc())
-                        if (st.session_state.get(f"pla_ark_1t_{pid_sel}")
-                                or st.session_state.get(f"pla_ark_2t_{pid_sel}")):
-                            st.caption("✅ Planilla Arkaitz generada — descárgala abajo ⬇️")
-                    with cpla2:
-                        if st.form_submit_button("🖨 Planilla Compañero (4 PDFs)",
-                                      use_container_width=True,
-                                      help="Para el compañero: PF/PNF/Robos/Cortes/"
-                                            "BDG/BDP por jugador + córners + bandas. "
-                                            "1T + 2T."):
-                            try:
-                                import sys as _sys
-                                from pathlib import Path as _Path
-                                _root = _Path(__file__).resolve().parent.parent
-                                if str(_root) not in _sys.path:
-                                    _sys.path.insert(0, str(_root))
-                                from src.pdf_planilla_blank import generar_planilla as _gen
-                                _datos_directos_ed = {
-                                    "rival": cab.get("rival", ""),
-                                    "fecha": cab.get("fecha", ""),
-                                    "lugar": cab.get("lugar", ""),
-                                    "hora": cab.get("hora", ""),
-                                    "competicion": cab.get("competicion", ""),
-                                    "local_visitante": cab.get("local_visitante", ""),
-                                    "jugadores": [
-                                        {"dorsal": p.get("dorsal", ""),
-                                         "jugador": p.get("jugador", ""),
-                                         "posicion": p.get("posicion", "")}
-                                        for p in (plantilla or [])
-                                    ],
-                                }
-                                with st.spinner("Generando planilla…"):
-                                    # Compa: 1 PDF con ambas partes en A4 vertical
-                                    pdf_compa = _gen("compa", "1T",
-                                                      datos_directos=_datos_directos_ed)
-                                st.session_state[f"pla_comp_{pid_sel}"] = pdf_compa
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                        if st.session_state.get(f"pla_comp_{pid_sel}"):
-                            st.caption("✅ Planilla Compañero generada — descárgala abajo ⬇️")
-
                     if st.form_submit_button("💾 Guardar cambios", type="primary"):
                         df_ev_norm, warns_ev = _normalizar_eventos_para_guardar(
                             df_ev_edit)
@@ -9889,40 +9760,31 @@ with tab_editar:
                         except Exception as e:
                             st.error(f"Error al guardar: {e}")
 
-                # ── Descarga de planillas — FUERA del form ───────────────
+                # ── Planilla imprimible — FUERA del form ─────────────────
                 # Streamlit prohíbe st.download_button() dentro de st.form().
-                # El form solo GENERA el PDF (session_state); la descarga se
-                # renderiza aquí, justo después de cerrar el form.
-                if any(st.session_state.get(f"pla_{k}_{pid_sel}")
-                       for k in ("ark_1t", "ark_2t", "comp")):
-                    st.markdown("#### ⬇️ Descargar planillas generadas")
-                    _dle1, _dle2, _dle3 = st.columns(3)
-                    if st.session_state.get(f"pla_ark_1t_{pid_sel}"):
-                        _dle1.download_button(
-                            "⬇️ Arkaitz 1ª parte",
-                            data=st.session_state[f"pla_ark_1t_{pid_sel}"],
-                            file_name=f"planilla_arkaitz_1T_{pid_sel}.pdf",
+                # Un solo botón: PDF de 3 hojas (Arkaitz 1ª, 2ª, Compañero).
+                st.markdown("---")
+                st.markdown("#### 🖨 Planilla imprimible para llevar al partido")
+                st.caption(
+                    "Un PDF con 3 hojas — tu planilla (1ª y 2ª parte) y la "
+                    "del compañero, con los datos de este partido."
+                )
+                if not cab.get("rival") or not plantilla:
+                    st.info(
+                        "💡 Hace falta el **rival** y la **plantilla** del "
+                        "partido para generar la planilla."
+                    )
+                else:
+                    _pdf_ed = _planilla_pdf_partido(cab, plantilla)
+                    if _pdf_ed:
+                        st.download_button(
+                            "🖨 Descargar planilla del partido (3 hojas)",
+                            data=_pdf_ed,
+                            file_name=f"planilla_{pid_sel}.pdf",
                             mime="application/pdf",
-                            key=f"dl_ark_1t_{pid_sel}",
+                            key=f"dl_planilla_{pid_sel}",
                             use_container_width=True,
-                        )
-                    if st.session_state.get(f"pla_ark_2t_{pid_sel}"):
-                        _dle2.download_button(
-                            "⬇️ Arkaitz 2ª parte",
-                            data=st.session_state[f"pla_ark_2t_{pid_sel}"],
-                            file_name=f"planilla_arkaitz_2T_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_ark_2t_{pid_sel}",
-                            use_container_width=True,
-                        )
-                    if st.session_state.get(f"pla_comp_{pid_sel}"):
-                        _dle3.download_button(
-                            "⬇️ Compañero (1ª + 2ª)",
-                            data=st.session_state[f"pla_comp_{pid_sel}"],
-                            file_name=f"planilla_compa_{pid_sel}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_comp_{pid_sel}",
-                            use_container_width=True,
+                            type="primary",
                         )
 
     except Exception as _e_tab:
